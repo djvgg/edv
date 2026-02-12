@@ -1,3 +1,7 @@
+#SPDX-FileCopyrightText: 2026 TOP Team Combat Control
+
+#SPDX-License-Identifier: GPL-3.0-or-later
+
 import pandas as pd
 
 # Define weight classes for adults (using men's classes for now)

@@ -1,3 +1,7 @@
+#SPDX-FileCopyrightText: 2026 TOP Team Combat Control
+
+#SPDX-License-Identifier: GPL-3.0-or-later
+
 import tkinter as tk
 from tkinter import ttk
 import pandas as pd
