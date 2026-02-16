@@ -1,7 +1,10 @@
 *.env
-_pycache__/
+__pycache__/
 *.pyc
 *.log
+.idea/
+cache/
+*.cache
 # SPDX-FileCopyrightText: 2026 TOP Team Combat Control
 #
 # SPDX-License-Identifier: CC0-1.0
