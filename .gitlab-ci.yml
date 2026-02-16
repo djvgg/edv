@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 TOP Team Combat Control
+#
+# SPDX-License-Identifier: CC0-1.0
+
+image: python:3.13
+
+stages:
+ - build
+ - test
+
+# For debugging
+before_script:
+  - python --version
+  - pip --version  
+  - python -m pip install --upgrade pip
+  - pip install -r requirements.txt
+
+
+build:
+  stage: build
+  script:
+    - python -m compileall .
+
+test:
+  stage: test
+  script:
+    - echo "Test temporarily disabled"
