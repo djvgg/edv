@@ -7,21 +7,33 @@ image: python:3.13
 stages:
  - build
  - test
+ - docs
 
-# For debugging
 before_script:
   - python --version
   - pip --version  
   - python -m pip install --upgrade pip
   - pip install -r requirements.txt
-
+  - apt-get update -y
+  - apt-get install -y doxygen
 
 build:
   stage: build
   script:
+    - echo "Checking Python syntax..."
     - python -m compileall .
+    - echo "Syntax check passed"
 
 test:
   stage: test
   script:
     - echo "Test temporarily disabled"
+
+build-docs:
+  stage: docs
+  script:
+  - echo "Building Doxygen documentation..."
+  - doxygen Doxyfile
+  artifacts:
+    paths:
+      - html/
