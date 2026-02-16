@@ -357,8 +357,8 @@ class BracketViewerApp(tk.Tk):
                     self.bracket_canvas.create_text(x + boxWidth // 2, y + 3 * boxHeight // 4, text=p2, anchor='c')
                     self.bracket_canvas.create_text(x + boxWidth // 2, y + boxHeight // 2, text='vs', anchor='c', font=('Arial', 10, 'bold'), fill='blue')
                     if r < len(rounds) - 1:
-                        nextMatchIdx = m // 2
-                        nx, ny = positions[(r + 1, nextMatchIdx)]
+                        next_match_idx = m // 2
+                        nx, ny = positions[(r + 1, next_match_idx)]
                         self.bracket_canvas.create_line(
                             x + boxWidth, y + boxHeight // 2,
                             nx, ny + boxHeight // 2,
