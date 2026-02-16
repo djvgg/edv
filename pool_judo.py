@@ -37,15 +37,15 @@ def getAgeGroup(age):
 inputFile = r'C:\UNI\TOP\libraries\wichtigedocs\teilnehmer_judo_mock.xlsx'
 dataFrame = pd.read_excel(inputFile)
 
-# Assign age group and weight class to each participant
-# Column names: 'Name', 'Alter', 'Gewicht (kg)'
+    # Assign age group and weight class to each participant
+    # Column names: 'Name', 'Alter', 'Gewicht (kg)'
 dataFrame['ageGroup'] = dataFrame['Alter'].apply(getAgeGroup)
 dataFrame['weightClass'] = dataFrame['Gewicht (kg)'].apply(getWeightClass)
 
-# Group by age group and weight class, collect names
+    # Group by age group and weight class, collect names
 pools = dataFrame.groupby(['ageGroup', 'weightClass'])['Name'].apply(list)
 
-# Write pools to text file, one pool per line (only names)
+    # Write pools to text file, one pool per line (only names)
 outputFile = r'C:\UNI\TOP\edv_backend\judo_pools.txt'
 with open(outputFile, 'w', encoding='utf-8') as file:
     for (ageGroup, weightClass), names in pools.items():
