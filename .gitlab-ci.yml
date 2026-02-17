@@ -23,7 +23,7 @@ lint:
   stage: lint
   script:
     - echo "Running ruff linter..."
-    - ruff check src/ main.py scripts/
+    - ruff check backend/ frontend/ utils/
     - echo "Code quality check passed"
 
 build:
