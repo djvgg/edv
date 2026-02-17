@@ -7,7 +7,7 @@ TODO: Move credentials to environment variables for production.
 """
 
 DB_CONFIG = {
-    'host': '172.17.192.42',
+    'host': '172.17.192.28',
     'port': 5432,
     'database': 'mydatabase',
     'user': 'myuser',
