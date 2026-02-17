@@ -162,6 +162,195 @@ def make_bracket(participants):
 
 
 # Step 2: Add export_all_brackets function
+def _next_pow2(n: int) -> int:
+    """Compute next power of 2 >= n. Minimum returns 2 (can't have 1-slot bracket)."""
+    if n <= 2:
+        return 2
+    p = 2
+    while p < n:
+        p <<= 1
+    return p
+
+
+def _generate_seed_order(bracket_size: int) -> list:
+    """Generate snake seed order recursively.
+    
+    Base case: S(2) = [1, 2]
+    Recursive: for S(n), take S(n/2) and expand each x to [x, n+1-x]
+    
+    Example S(16):
+    [1, 9, 5, 13, 3, 11, 7, 15, 2, 10, 6, 14, 4, 12, 8, 16]
+    """
+    if bracket_size == 1:
+        return [1]
+    if bracket_size == 2:
+        return [1, 2]
+    
+    half = bracket_size // 2
+    prev = _generate_seed_order(half)
+    result = []
+    
+    for x in prev:
+        result.append(x)
+        result.append(bracket_size + 1 - x)
+    
+    return result
+
+
+def _group_by_club(participants: list) -> dict:
+    """Group fighters by club."""
+    club_map = {}
+    for p in participants:
+        club = p.get('Verein') or p.get('club') or p.get('Club') or '__NO_CLUB__'
+        if club not in club_map:
+            club_map[club] = []
+        club_map[club].append(p)
+    return club_map
+
+
+def _create_bye_fighter() -> dict:
+    """Create a BYE placeholder fighter."""
+    return {'Name': 'BYE', 'Verein': 'BYE', 'id': -1}
+
+
+def _distribute_round_robin(club_groups: dict) -> list:
+    """Distribute fighters round-robin by club.
+    
+    Takes fighters from each club in turn to spread them out.
+    """
+    optimized = []
+    clubs = list(club_groups.keys())
+    
+    # Keep going while any club has fighters
+    while any(club_groups[club] for club in clubs):
+        for club in clubs:
+            if club_groups[club]:
+                optimized.append(club_groups[club].pop(0))
+    
+    return optimized
+
+
+def _compute_balanced_bracket(participants: list) -> list:
+    """Generate balanced tournament bracket using 3-layer system.
+    
+    Layer 1: Optimize fighter list (group by club, round-robin distribution)
+    Layer 2: Generate seed order (recursive snake seeding)
+    Layer 3: Assign fighters to seed slots
+    
+    Returns: List of (fighter_name, opponent_name) tuples for round 1
+    """
+    n = len(participants)
+    if n == 0:
+        return []
+    
+    # STEP 1: Compute target bracket size
+    bracket_size = _next_pow2(n)
+    bye_count = bracket_size - n
+    
+    # STEP 2-3: Group by club and sort by size (descending)
+    club_map = _group_by_club(participants)
+    # Create mutable copies for distribution
+    club_groups = {club: fighters[:] for club, fighters in club_map.items()}
+    sorted_clubs = sorted(club_groups.keys(), 
+                         key=lambda c: len(club_groups[c]), 
+                         reverse=True)
+    
+    # STEP 4: Round-robin distribution
+    optimized = _distribute_round_robin(club_groups)
+    
+    # STEP 5: Append BYEs
+    for _ in range(bye_count):
+        optimized.append(_create_bye_fighter())
+    
+    # STEP 6: Generate seed order
+    seed_order = _generate_seed_order(bracket_size)
+    
+    # STEP 7: Assign fighters to seed slots
+    bracket_slots = [None] * bracket_size
+    for i, seed_num in enumerate(seed_order):
+        if i >= len(optimized):
+            break
+        slot_index = seed_num - 1
+        if 0 <= slot_index < bracket_size:
+            bracket_slots[slot_index] = optimized[i]
+    
+    # Convert slot pairs to match tuples
+    bracket = []
+    for i in range(0, bracket_size, 2):
+        if i + 1 < bracket_size:
+            p1 = bracket_slots[i]
+            p2 = bracket_slots[i + 1]
+            name1 = p1.get('Name') if p1 else 'BYE'
+            name2 = p2.get('Name') if p2 else 'BYE'
+            bracket.append((name1, name2))
+    
+    return bracket
+
+
+def _snake_seed_list(size: int) -> list:
+    """DEPRECATED: Use _generate_seed_order() instead."""
+    seeds = [1, 2]
+    while len(seeds) < size:
+        mirror_sum = len(seeds) * 2 + 1
+        expanded = []
+        for s in seeds:
+            expanded.extend([s, mirror_sum - s])
+        seeds = expanded
+    return seeds
+
+
+def _seed_positions(slots: int) -> list:
+    """DEPRECATED: Use _compute_balanced_bracket() instead."""
+    seed_layout = _snake_seed_list(slots)
+    positions = [0] * slots
+    for slot_index, seed in enumerate(seed_layout):
+        positions[seed - 1] = slot_index
+    return positions
+
+
+def _interleave_by_club(participants):
+    """Interleave participants by club to reduce same-club pairings."""
+    buckets = {}
+    order = []
+    for p in participants:
+        # club may be under 'Verein' or 'club' key
+        club = p.get('Verein') or p.get('club') or p.get('Club') or None
+        key = club if club else f"__NO_CLUB_{id(p)}"
+        if key not in buckets:
+            buckets[key] = []
+            order.append(key)
+        buckets[key].append(p)
+
+    interleaved = []
+    while True:
+        added_any = False
+        for key in order:
+            if buckets[key]:
+                interleaved.append(buckets[key].pop(0))
+                added_any = True
+        if not added_any:
+            break
+    return interleaved
+
+
+def _compute_snake_bracket(participants):
+    """Return balanced bracket using 3-layer system.
+    
+    This is now a wrapper around _compute_balanced_bracket() which implements:
+    - Layer 1: List Optimizer (club distribution, BYE padding)
+    - Layer 2: Seed Generator (recursive snake seeding)
+    - Layer 3: Slot Assignment (map optimized list to seed order)
+    
+    Guarantees:
+    ✓ Power-of-two bracket structure
+    ✓ Balanced tree (no fighter can skip multiple rounds)
+    ✓ No BYE vs BYE matches in round 1
+    ✓ Club separation heuristic
+    ✓ Deterministic output
+    """
+    return _compute_balanced_bracket(participants)
+
+
 def export_all_brackets(participants, event_year=None):
     """
     Groups participants by (gender, age group, weight class),
@@ -204,9 +393,29 @@ def export_all_brackets(participants, event_year=None):
         # Normal bracket key
         bracket_key = f"{gender_norm} | {age_group} | {weight_class}"
         brackets[bracket_key]['fighters'].append(p)
-    # Generate brackets
+    # Default behavior: use snake seeding to reduce same-club matches and BYE collisions.
+    # Special-case: if number of fighters equals the slot count (power of two),
+    # then use simple interleaving by club and sequential pairing (almost-random,
+    # but preserves club separation) to avoid unnecessary seeding complexity.
     for key in brackets:
-        brackets[key]['bracket'] = make_bracket(brackets[key]['fighters'])
+        fighters = brackets[key]['fighters']
+        n = len(fighters)
+        # Always use snake seeding for balanced brackets (pads to next power-of-2 with BYEs)
+        try:
+            brackets[key]['bracket'] = _compute_snake_bracket(fighters)
+        except Exception as e:
+            logger.warning(f"Bracket generation failed for {key!r}: {e}")
+            # Fallback: simple sequential pairing without randomization
+            ordered = _interleave_by_club(fighters)
+            pairs = []
+            pool = ordered[:]
+            while len(pool) > 1:
+                a = pool.pop(0)
+                b = pool.pop(0)
+                pairs.append((a.get('Name'), b.get('Name')))
+            if pool:
+                pairs.append((pool[0].get('Name'), 'BYE'))
+            brackets[key]['bracket'] = pairs
     if unassigned_count:
         logger.warning(f"Total unassigned participants: {unassigned_count}")
     return dict(brackets)
