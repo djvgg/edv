@@ -1,57 +1,29 @@
-def get_bracket_rounds(participants):
-    import copy
-    import random
-    random.shuffle(participants)
-    pool = copy.deepcopy(participants)
-    rounds = []
-    current_round = [(p['Name'],) for p in pool]
-
-    round_num = 1
-    while len(current_round) > 1:
-        next_round = []
-        matches = []
-        i = 0
-        battle_num = 1
-        while i < len(current_round):
-            if i + 1 < len(current_round):
-                p1 = current_round[i][0]
-                p2 = current_round[i+1][0]
-                matches.append((p1, p2))
-                next_round.append((f"Winner from round {round_num} battle {battle_num}",))
-                i += 2
-                battle_num += 1
-            else:
-                # Odd participant, auto-advance
-                p1 = current_round[i][0]
-                next_round.append((p1,))
-                i += 1
-        rounds.append(matches)
-        current_round = next_round
-        round_num += 1
-    return rounds
 # SPDX-FileCopyrightText: 2026 TOP Team Combat Control
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # Moved from utils/bracket_utils.py
 
-import random
 import math
-import sys
 import os
+import random
+import sys
+from collections import defaultdict
 
 # Add parent directory to path for libraries access
 _parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 if _parent_dir not in sys.path:
     sys.path.insert(0, _parent_dir)
 
+# pylint: disable=wrong-import-position
 from libraries.logging import get_logger
 from ..data.repositories.config_repository import ConfigRepository
+
+
 
 # module logger
 logger = get_logger('bracket_utils')
 
 # Global config instance (can be replaced or reloaded as needed)
-import os
 _current_dir = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(_current_dir, '..', '..', 'config', 'bracket_config.xlsx')
 bracket_config = None
@@ -167,7 +139,7 @@ def export_all_brackets(participants, event_year=None):
     Groups participants by (gender, age group, weight class),
     and returns a dict: {bracket_key: {'fighters': [...], 'bracket': [...]}}
     """
-    from collections import defaultdict
+
     ensure_config_loaded()
     if event_year is None:
         event_year = bracket_config.get_event_year()

@@ -3,34 +3,41 @@
 
 # Extracted GUI code from bracket_viewer.py
 
-import os
-import tkinter as tk
-from tkinter import messagebox, filedialog, ttk
 import json
-from datetime import datetime
-
-# Import backend services
+import os
 import sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-from backend.services.bracket_service import set_bracket_config, export_all_brackets, make_bracket
-from backend.data.repositories.participant_repository import fetch_participants_from_db
+import tkinter as tk
+import traceback
+from datetime import datetime
+from tkinter import messagebox, filedialog, ttk
 
-# Import styles
+import pandas as pd
+
+# Setup sys.path for backend imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+_judgefrontend_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'judgefrontend')
+if os.path.exists(_judgefrontend_path):
+    sys.path.insert(0, _judgefrontend_path)
+
+# pylint: disable=wrong-import-position
+from backend.data.repositories.participant_repository import fetch_participants_from_db
+from backend.services.bracket_service import export_all_brackets, make_bracket, set_bracket_config
+
 from ..styles import (
-    COLORS, FONTS, BUTTON_STYLES,
-    apply_button_style, apply_label_style, apply_listbox_style,
-    apply_entry_style, apply_table_panel_style, create_dark_frame
+    COLORS,
+    FONTS,
+    apply_button_style,
+    apply_entry_style,
+    apply_label_style,
+    apply_listbox_style,
+    apply_table_panel_style,
+    create_dark_frame,
 )
 
-# Import from judgefrontend for flexible xlsx handling
-judgefrontend_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'judgefrontend')
-if os.path.exists(judgefrontend_path):
-    sys.path.insert(0, judgefrontend_path)
-    try:
-        from src.xlsxHandler import processXlsx
-    except ImportError:
-        processXlsx = None
-else:
+# Optional judgefrontend import
+try:
+    from src.xlsxHandler import processXlsx
+except ImportError:
     processXlsx = None
 
 
@@ -509,7 +516,6 @@ class BracketViewerApp(tk.Tk):
                         })
             else:
                 # Fallback: simple pandas read
-                import pandas as pd
                 df = pd.read_excel(filepath)
 
                 # Build name from Vorname + Nachname if needed
@@ -641,7 +647,6 @@ class BracketViewerApp(tk.Tk):
                             'Verein': fighter.get('verein', fighter.get('Club', fighter.get('club', '')))
                         })
             else:
-                import pandas as pd
                 df = pd.read_excel(input_file)
 
                 participants = []
@@ -816,7 +821,7 @@ class BracketViewerApp(tk.Tk):
 
                 participants = bracket_data.get('fighters', [])
                 if not participants:
-                    print(f"[DEBUG] No participants in bracket")
+                    print("[DEBUG] No participants in bracket")
                     self.bracket_canvas.create_text(400, 300,
                         text="No participants in this bracket",
                         font=FONTS['heading_md'], fill='red')
@@ -837,7 +842,7 @@ class BracketViewerApp(tk.Tk):
                         continue
 
                 if not normalized_participants:
-                    print(f"[DEBUG] No normalized participants")
+                    print("[DEBUG] No normalized participants")
                     self.bracket_canvas.create_text(400, 300,
                         text="Error: Could not process participants",
                         font=FONTS['heading_md'], fill='red')
@@ -952,7 +957,6 @@ class BracketViewerApp(tk.Tk):
 
         except Exception as e:
             print(f"[ERROR] Exception rendering bracket: {e}")
-            import traceback
             traceback.print_exc()
             # Show error on canvas
             self.bracket_canvas.create_text(400, 300,
