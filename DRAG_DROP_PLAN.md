@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 TOP Team Combat Control
+ SPDX-License-Identifier: GPL-3.0-or-later-->
+ 
 # Drag & Drop Implementation Plan for Tournament Bracket Manager
 
 ## Current State (Click-based Assignment)
