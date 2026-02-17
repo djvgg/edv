@@ -19,11 +19,10 @@ _judgefrontend_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 
 if os.path.exists(_judgefrontend_path):
     sys.path.insert(0, _judgefrontend_path)
 
-# pylint: disable=wrong-import-position
-from backend.data.repositories.participant_repository import fetch_participants_from_db
-from backend.services.bracket_service import export_all_brackets, make_bracket, set_bracket_config
+from backend.data.repositories.participant_repository import fetch_participants_from_db  # noqa: E402
+from backend.services.bracket_service import export_all_brackets, make_bracket, set_bracket_config  # noqa: E402
 
-from ..styles import (
+from ..styles import (  # noqa: E402
     COLORS,
     FONTS,
     apply_button_style,

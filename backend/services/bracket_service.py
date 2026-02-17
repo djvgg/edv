@@ -14,9 +14,8 @@ _parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'
 if _parent_dir not in sys.path:
     sys.path.insert(0, _parent_dir)
 
-# pylint: disable=wrong-import-position
-from libraries.logging import get_logger
-from ..data.repositories.config_repository import ConfigRepository
+from libraries.logging import get_logger  # noqa: E402
+from ..data.repositories.config_repository import ConfigRepository  # noqa: E402
 
 
 
