@@ -155,6 +155,12 @@ class BracketViewerApp(tk.Tk):
         apply_button_style(db_btn, 'primary')
         db_btn.pack(pady=8, fill="x", padx=40)
 
+        # Split M/W button
+        split_btn = tk.Button(self, text="Split M/W Contestants (XLSX → JSON)",
+                             command=self.split_gender_to_json)
+        apply_button_style(split_btn, 'secondary')
+        split_btn.pack(pady=8, fill="x", padx=40)
+
     def show_bracket_viewer(self):
         """Show bracket list and visualization (dark themed)."""
         # Resize and reconfigure window
@@ -617,6 +623,168 @@ class BracketViewerApp(tk.Tk):
         except Exception as e:
             self.set_status(f"Database Error: {e}", COLORS['accent_red'])
             messagebox.showerror("Database Error", f"Failed to load from database:\n{str(e)}")
+
+    def split_gender_to_json(self):
+        """Split contestants by gender (M/W) and save to separate JSON files."""
+        # Select input XLSX file
+        input_file = filedialog.askopenfilename(
+            title="Select Participant XLSX File to Split",
+            filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")]
+        )
+        if not input_file:
+            return
+
+        try:
+            self.set_status("Reading XLSX file...", COLORS['text_secondary'])
+
+            # Read participants from XLSX
+            if processXlsx:
+                groups = processXlsx(input_file)
+                participants = []
+                for group in groups:
+                    for fighter in group.get('fighters', []):
+                        # Extract first and last name
+                        first_name = str(fighter.get('vorname', fighter.get('FirstName', fighter.get('firstname', '')))).strip()
+                        last_name = str(fighter.get('nachname', fighter.get('LastName', fighter.get('lastname', '')))).strip()
+                        name_field = str(fighter.get('name', fighter.get('Name', ''))).strip()
+
+                        # Logic:
+                        # - If we have FirstName but no LastName, use Name as LastName
+                        # - If we have LastName but no FirstName, use Name as FirstName
+                        # - If we have neither, split Name into FirstName and LastName
+                        if first_name and not last_name and name_field:
+                            last_name = name_field
+                        elif last_name and not first_name and name_field:
+                            first_name = name_field
+                        elif not first_name and not last_name and name_field:
+                            # Split Name into first and last
+                            parts = name_field.split(' ', 1)
+                            first_name = parts[0] if len(parts) > 0 else ''
+                            last_name = parts[1] if len(parts) > 1 else ''
+
+                        # Always construct full Name as FirstName + LastName
+                        full_name = f"{first_name} {last_name}".strip()
+
+                        participants.append({
+                            'FirstName': first_name,
+                            'LastName': last_name,
+                            'Name': full_name,
+                            'Gender': fighter.get('geschlecht', fighter.get('Gender', fighter.get('gender', ''))),
+                            'Age': fighter.get('alter', fighter.get('Age', fighter.get('age'))),
+                            'Weight': fighter.get('gewicht', fighter.get('Weight', fighter.get('weight'))),
+                            'Verein': fighter.get('verein', fighter.get('Club', fighter.get('club', '')))
+                        })
+            else:
+                import pandas as pd
+                df = pd.read_excel(input_file)
+
+                participants = []
+                for _, row in df.iterrows():
+                    # Extract first and last name
+                    first_name = str(row.get('Vorname', row.get('FirstName', ''))).strip()
+                    last_name = str(row.get('Nachname', row.get('LastName', ''))).strip()
+                    name_field = str(row.get('Name', '')).strip()
+
+                    # Logic:
+                    # - If we have FirstName but no LastName, use Name as LastName
+                    # - If we have LastName but no FirstName, use Name as FirstName
+                    # - If we have neither, split Name into FirstName and LastName
+                    if first_name and not last_name and name_field:
+                        last_name = name_field
+                    elif last_name and not first_name and name_field:
+                        first_name = name_field
+                    elif not first_name and not last_name and name_field:
+                        # Split Name into first and last
+                        parts = name_field.split(' ', 1)
+                        first_name = parts[0] if len(parts) > 0 else ''
+                        last_name = parts[1] if len(parts) > 1 else ''
+
+                    # Always construct full Name as FirstName + LastName
+                    full_name = f"{first_name} {last_name}".strip()
+
+                    participants.append({
+                        'FirstName': first_name,
+                        'LastName': last_name,
+                        'Name': full_name,
+                        'Gender': row.get('Geschlecht', row.get('Gender', '')),
+                        'Age': row.get('Alter', row.get('Age')),
+                        'Weight': row.get('Gewicht', row.get('Weight')),
+                        'Verein': row.get('Verein', row.get('Club', ''))
+                    })
+
+            if not participants:
+                self.set_status("Error: No participants found.", COLORS['accent_red'])
+                messagebox.showerror("Error", "No participants found in the file.")
+                return
+
+            self.set_status("Splitting by gender...", COLORS['text_secondary'])
+
+            # Split by gender - normalize to uppercase for comparison
+            male_contestants = []
+            female_contestants = []
+
+            for p in participants:
+                gender = str(p.get('Gender', '')).strip().upper()
+                if gender in ['M', 'MALE', 'MÄNNLICH', 'MAENNLICH']:
+                    male_contestants.append(p)
+                elif gender in ['W', 'F', 'FEMALE', 'WEIBLICH']:
+                    female_contestants.append(p)
+                else:
+                    # Skip or warn about unknown gender
+                    print(f"[WARNING] Unknown gender '{gender}' for participant: {p.get('Name')}")
+
+            # Show split results
+            total = len(participants)
+            male_count = len(male_contestants)
+            female_count = len(female_contestants)
+            skipped = total - (male_count + female_count)
+
+            result_msg = f"Split complete:\n• Male: {male_count}\n• Female: {female_count}"
+            if skipped > 0:
+                result_msg += f"\n• Skipped (unknown gender): {skipped}"
+
+            messagebox.showinfo("Split Results", result_msg)
+
+            if male_count == 0 and female_count == 0:
+                self.set_status("No contestants to save.", COLORS['accent_red'])
+                return
+
+            # Ask user where to save the files
+            save_dir = filedialog.askdirectory(
+                title="Select Folder to Save Split JSON Files"
+            )
+            if not save_dir:
+                self.set_status("Save cancelled.", COLORS['text_secondary'])
+                return
+
+            self.set_status("Saving JSON files...", COLORS['text_secondary'])
+
+            # Save male contestants if any
+            if male_count > 0:
+                male_file = os.path.join(save_dir, 'contestants_male.json')
+                with open(male_file, 'w', encoding='utf-8') as f:
+                    json.dump(male_contestants, f, indent=2, ensure_ascii=False)
+                print(f"[INFO] Saved {male_count} male contestants to: {male_file}")
+
+            # Save female contestants if any
+            if female_count > 0:
+                female_file = os.path.join(save_dir, 'contestants_female.json')
+                with open(female_file, 'w', encoding='utf-8') as f:
+                    json.dump(female_contestants, f, indent=2, ensure_ascii=False)
+                print(f"[INFO] Saved {female_count} female contestants to: {female_file}")
+
+            success_msg = f"Successfully saved split files to:\n{save_dir}\n\n"
+            if male_count > 0:
+                success_msg += f"• contestants_male.json ({male_count} entries)\n"
+            if female_count > 0:
+                success_msg += f"• contestants_female.json ({female_count} entries)"
+
+            messagebox.showinfo("Success", success_msg)
+            self.set_status("Split complete!", COLORS['accent_green'])
+
+        except Exception as e:
+            self.set_status(f"Error: {e}", COLORS['accent_red'])
+            messagebox.showerror("Error", f"Failed to split contestants:\n{str(e)}")
 
     def save_brackets_to_cache(self, source_file):
         """Save generated brackets to JSON cache file."""
