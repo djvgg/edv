@@ -13,6 +13,7 @@ from datetime import datetime
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from backend.services.bracket_service import set_bracket_config, export_all_brackets, make_bracket
+from backend.data.repositories.participant_repository import fetch_participants_from_db
 
 # Import styles
 from ..styles import (
@@ -61,6 +62,10 @@ class BracketViewerApp(tk.Tk):
         self.viewer_shown = False
         self.zoom_level = 1.0  # Zoom level for bracket visualization
         self.current_bracket_key = None  # Track currently displayed bracket
+
+        # Rendering cache - stores pre-computed bracket structures
+        self.bracket_structure_cache = {}  # {bracket_key: rounds}
+        self.bracket_render_cache = {}  # {(bracket_key, zoom_level): rendered canvas items}
 
         # Start with file loading UI (judgefrontend style)
         self.show_file_loader()
@@ -126,11 +131,17 @@ class BracketViewerApp(tk.Tk):
         apply_label_style(self.status_label, 'status_success')
         self.status_label.pack(side="bottom", pady=15)
 
-        # Main button
-        load_btn = tk.Button(self, text="Load Participant List & Generate Brackets",
+        # Main buttons
+        load_btn = tk.Button(self, text="Load Participant List (XLSX) & Generate Brackets",
                             command=self.load_and_generate)
         apply_button_style(load_btn, 'primary')
-        load_btn.pack(pady=12, fill="x", padx=40)
+        load_btn.pack(pady=8, fill="x", padx=40)
+
+        # Database load button
+        db_btn = tk.Button(self, text="Load from Database & Generate Brackets",
+                          command=self.load_from_database)
+        apply_button_style(db_btn, 'primary')
+        db_btn.pack(pady=8, fill="x", padx=40)
 
     def show_bracket_viewer(self):
         """Show bracket list and visualization (dark themed)."""
@@ -521,16 +532,57 @@ class BracketViewerApp(tk.Tk):
             # Generate brackets using backend service
             self.brackets = export_all_brackets(participants)
 
+            # Clear rendering caches for new brackets
+            self.bracket_structure_cache.clear()
+            self.bracket_render_cache.clear()
+
             # Save to JSON cache
             self.save_brackets_to_cache(filepath)
 
-            self.set_status(f"Success! Generated {len(self.brackets)} brackets.", COLORS['accent_green'])
+            self.set_status(f"Success! Generated {len(self.brackets)} brackets (cached for fast viewing).", COLORS['accent_green'])
 
             # Wait a moment then show bracket viewer
             self.after(800, self.show_bracket_viewer)
 
         except Exception as e:
             self.set_status(f"Error: {e}", COLORS['accent_red'])
+
+    def load_from_database(self):
+        """Load participants from PostgreSQL database and generate brackets."""
+        try:
+            self.set_status("Connecting to database...", COLORS['text_secondary'])
+
+            # Fetch participants from database
+            participants = fetch_participants_from_db()
+
+            if not participants:
+                self.set_status("Error: No valid participants found in database.", COLORS['accent_red'])
+                messagebox.showwarning("No Data", "No valid and paid participants found in database.")
+                return
+
+            total_fighters = len(participants)
+            self.info_var.set(f"✓ {total_fighters} participants loaded from database")
+
+            self.set_status("Generating brackets...", COLORS['text_secondary'])
+
+            # Generate brackets using backend service
+            self.brackets = export_all_brackets(participants)
+
+            # Clear rendering caches for new brackets
+            self.bracket_structure_cache.clear()
+            self.bracket_render_cache.clear()
+
+            # Save to JSON cache
+            self.save_brackets_to_cache("database")
+
+            self.set_status(f"Success! Generated {len(self.brackets)} brackets from database (cached for fast viewing).", COLORS['accent_green'])
+
+            # Wait a moment then show bracket viewer
+            self.after(800, self.show_bracket_viewer)
+
+        except Exception as e:
+            self.set_status(f"Database Error: {e}", COLORS['accent_red'])
+            messagebox.showerror("Database Error", f"Failed to load from database:\n{str(e)}")
 
     def save_brackets_to_cache(self, source_file):
         """Save generated brackets to JSON cache file."""
@@ -580,7 +632,6 @@ class BracketViewerApp(tk.Tk):
         """Render bracket visualization on canvas."""
         try:
             self.bracket_canvas.delete('all')
-            print(f"[DEBUG] Rendering bracket: {bracket_key}")
 
             bracket_data = self.brackets.get(bracket_key)
             if not bracket_data:
@@ -591,54 +642,66 @@ class BracketViewerApp(tk.Tk):
                     font=FONTS['heading_md'], fill='red')
                 return
 
-            participants = bracket_data.get('fighters', [])
-            if not participants:
-                print(f"[DEBUG] No participants in bracket")
-                self.bracket_canvas.create_text(400, 300,
-                    text="No participants in this bracket",
-                    font=FONTS['heading_md'], fill='red')
-                return
+            # Check if we have cached bracket structure
+            if bracket_key not in self.bracket_structure_cache:
+                print(f"[DEBUG] Generating bracket structure for: {bracket_key}")
 
-            print(f"[DEBUG] Found {len(participants)} participants")
+                participants = bracket_data.get('fighters', [])
+                if not participants:
+                    print(f"[DEBUG] No participants in bracket")
+                    self.bracket_canvas.create_text(400, 300,
+                        text="No participants in this bracket",
+                        font=FONTS['heading_md'], fill='red')
+                    return
 
-            # Ensure participants have correct field names
-            normalized_participants = []
-            for p in participants:
-                if isinstance(p, dict):
-                    normalized_participants.append({
-                        'Name': p.get('Name', p.get('name', '')),
-                        'Verein': p.get('Verein', p.get('verein', p.get('club', '')))
-                    })
-                else:
-                    # If it's not a dict, skip
-                    continue
+                print(f"[DEBUG] Found {len(participants)} participants")
 
-            if not normalized_participants:
-                print(f"[DEBUG] No normalized participants")
-                self.bracket_canvas.create_text(400, 300,
-                    text="Error: Could not process participants",
-                    font=FONTS['heading_md'], fill='red')
-                return
+                # Ensure participants have correct field names
+                normalized_participants = []
+                for p in participants:
+                    if isinstance(p, dict):
+                        normalized_participants.append({
+                            'Name': p.get('Name', p.get('name', '')),
+                            'Verein': p.get('Verein', p.get('verein', p.get('club', '')))
+                        })
+                    else:
+                        # If it's not a dict, skip
+                        continue
 
-            print(f"[DEBUG] Normalized {len(normalized_participants)} participants")
+                if not normalized_participants:
+                    print(f"[DEBUG] No normalized participants")
+                    self.bracket_canvas.create_text(400, 300,
+                        text="Error: Could not process participants",
+                        font=FONTS['heading_md'], fill='red')
+                    return
 
-            # Generate bracket visualization
-            bracket = make_bracket(normalized_participants)
-            print(f"[DEBUG] Generated bracket with {len(bracket)} first round matches")
+                print(f"[DEBUG] Normalized {len(normalized_participants)} participants")
 
-            # Build rounds for single-elimination tree
-            rounds = []
-            current = [(p1, p2) for p1, p2 in bracket]
-            rounds.append(current)
+                # Generate bracket visualization
+                bracket = make_bracket(normalized_participants)
+                print(f"[DEBUG] Generated bracket with {len(bracket)} first round matches")
 
-            while len(current) > 1:
-                nextRound = []
-                for i in range(0, len(current), 2):
-                    p1 = f"Winner {i+1}"
-                    p2 = f"Winner {i+2}" if i+1 < len(current) else 'BYE'
-                    nextRound.append((p1, p2))
-                current = nextRound
+                # Build rounds for single-elimination tree
+                rounds = []
+                current = [(p1, p2) for p1, p2 in bracket]
                 rounds.append(current)
+
+                while len(current) > 1:
+                    nextRound = []
+                    for i in range(0, len(current), 2):
+                        p1 = f"Winner {i+1}"
+                        p2 = f"Winner {i+2}" if i+1 < len(current) else 'BYE'
+                        nextRound.append((p1, p2))
+                    current = nextRound
+                    rounds.append(current)
+
+                # Cache the bracket structure
+                self.bracket_structure_cache[bracket_key] = rounds
+                print(f"[DEBUG] Cached bracket structure with {len(rounds)} rounds")
+            else:
+                # Use cached bracket structure
+                rounds = self.bracket_structure_cache[bracket_key]
+                print(f"[DEBUG] Using cached bracket structure for: {bracket_key} ({len(rounds)} rounds)")
 
             # Layout parameters (scaled by zoom level)
             boxWidth = int(120 * self.zoom_level)
