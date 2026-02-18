@@ -3,6 +3,14 @@
 
 # Extracted GUI code from bracket_viewer.py
 
+# ===== DEBUG CONFIGURATION =====
+# Set to True to print debug logs to console; False to only log to file
+DEBUG_VERBOSE = False
+# ==============================
+
+import os
+import tkinter as tk
+from tkinter import messagebox, filedialog, ttk
 import json
 import os
 import sys
@@ -18,6 +26,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 _judgefrontend_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'judgefrontend')
 if os.path.exists(_judgefrontend_path):
     sys.path.insert(0, _judgefrontend_path)
+from backend.services.bracket_service import set_bracket_config, export_all_brackets
+from backend.data.repositories.participant_repository import fetch_participants_from_db
 
 from backend.data.repositories.participant_repository import fetch_participants_from_db  # noqa: E402
 from backend.services.bracket_service import export_all_brackets, make_bracket, set_bracket_config  # noqa: E402
@@ -33,10 +43,22 @@ from ..styles import (  # noqa: E402
     create_dark_frame,
 )
 
-# Optional judgefrontend import
-try:
-    from src.xlsxHandler import processXlsx
-except ImportError:
+# Import frontend utilities
+from ..utils import (
+    build_bracket_rounds, calculate_box_size, draw_bracket_on_canvas,
+    load_participants_from_xlsx, normalize_participants, 
+    save_bracket_to_cache, load_bracket_from_cache, clear_bracket_cache
+)
+
+# Import from judgefrontend for flexible xlsx handling
+judgefrontend_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'judgefrontend')
+if os.path.exists(judgefrontend_path):
+    sys.path.insert(0, judgefrontend_path)
+    try:
+        from src.xlsxHandler import processXlsx
+    except ImportError:
+        processXlsx = None
+else:
     processXlsx = None
 
 
@@ -530,6 +552,9 @@ class BracketViewerApp(tk.Tk):
                         'Weight': row.get('Gewicht', row.get('Weight')),
                         'Verein': row.get('Verein', row.get('Club', ''))
                     })
+            # Load and normalize participants from XLSX using utility function
+            raw_participants = load_participants_from_xlsx(filepath)
+            participants = normalize_participants(raw_participants)
 
             if not participants:
                 self.set_status("Error: No valid participants found.", COLORS['accent_red'])
@@ -807,8 +832,7 @@ class BracketViewerApp(tk.Tk):
 
             bracket_data = self.brackets.get(bracket_key)
             if not bracket_data:
-                print(f"[DEBUG] No bracket data found for key: {bracket_key}")
-                # Show message on canvas
+                self.logger.debug(f'No bracket data found for key: {bracket_key}')
                 self.bracket_canvas.create_text(400, 300,
                     text="No bracket data available",
                     font=FONTS['heading_md'], fill='red')
@@ -828,7 +852,7 @@ class BracketViewerApp(tk.Tk):
 
                 print(f"[DEBUG] Found {len(participants)} participants")
 
-                # Ensure participants have correct field names
+                # Normalize participants and generate bracket rounds
                 normalized_participants = []
                 for p in participants:
                     if isinstance(p, dict):
@@ -836,9 +860,6 @@ class BracketViewerApp(tk.Tk):
                             'Name': p.get('Name', p.get('name', '')),
                             'Verein': p.get('Verein', p.get('verein', p.get('club', '')))
                         })
-                    else:
-                        # If it's not a dict, skip
-                        continue
 
                 if not normalized_participants:
                     print("[DEBUG] No normalized participants")
@@ -871,41 +892,36 @@ class BracketViewerApp(tk.Tk):
                 self.bracket_structure_cache[bracket_key] = rounds
                 print(f"[DEBUG] Cached bracket structure with {len(rounds)} rounds")
             else:
-                # Use cached bracket structure
                 rounds = self.bracket_structure_cache[bracket_key]
                 print(f"[DEBUG] Using cached bracket structure for: {bracket_key} ({len(rounds)} rounds)")
 
-            # Layout parameters (scaled by zoom level)
-            boxWidth = int(120 * self.zoom_level)
-            boxHeight = int(40 * self.zoom_level)
-            xGap = int(80 * self.zoom_level)
-            yGap = int(30 * self.zoom_level)
+            # Calculate box dimensions using utility function
+            box_width, box_height, x_gap, y_gap = calculate_box_size(rounds, self.zoom_level)
 
-            # Calculate positions
+            # Calculate bracket positions
             positions = {}
-            yOffsets = {}
-            firstTotal = len(rounds[0])
-
+            y_offsets = {}
+            first_total = len(rounds[0])
             start_x = int(60 * self.zoom_level)
             start_y = int(60 * self.zoom_level)
 
-            for m in range(firstTotal):
+            for m in range(first_total):
                 x = start_x
-                y = start_y + m * (boxHeight + yGap)
+                y = start_y + m * (box_height + y_gap)
                 positions[(0, m)] = (x, y)
-                yOffsets[(0, m)] = y + boxHeight // 2
+                y_offsets[(0, m)] = y + box_height // 2
 
             for r in range(1, len(rounds)):
                 matches = rounds[r]
-                x = start_x + r * (boxWidth + xGap)
+                x = start_x + r * (box_width + x_gap)
                 for m in range(len(matches)):
                     prev1 = (r-1, m*2)
                     prev2 = (r-1, m*2+1)
-                    y1 = yOffsets.get(prev1, start_y)
-                    y2 = yOffsets.get(prev2, y1)
-                    y = (y1 + y2) // 2 - boxHeight // 2
+                    y1 = y_offsets.get(prev1, start_y)
+                    y2 = y_offsets.get(prev2, y1)
+                    y = (y1 + y2) // 2 - box_height // 2
                     positions[(r, m)] = (x, y)
-                    yOffsets[(r, m)] = y + boxHeight // 2
+                    y_offsets[(r, m)] = y + box_height // 2
 
             # Draw rounds (INVERTED COLORS - white on black)
             for r, matches in enumerate(rounds):
@@ -914,9 +930,9 @@ class BracketViewerApp(tk.Tk):
 
                     # Draw box (white outline) - scale line width too
                     line_width = max(1, int(2 * self.zoom_level))
-                    self.bracket_canvas.create_rectangle(x, y, x + boxWidth, y + boxHeight,
+                    self.bracket_canvas.create_rectangle(x, y, x + box_width, y + box_height,
                                                          outline=COLORS['white'], width=line_width)
-                    self.bracket_canvas.create_line(x, y + boxHeight // 2, x + boxWidth, y + boxHeight // 2,
+                    self.bracket_canvas.create_line(x, y + box_height // 2, x + box_width, y + box_height // 2,
                                                    fill=COLORS['text_secondary'], dash=(2, 2))
 
                     # Draw text (white) - scale font size
@@ -924,14 +940,14 @@ class BracketViewerApp(tk.Tk):
                     scaled_font = ('Consolas', font_size)
                     vs_font = ('Arial', max(6, int(10 * self.zoom_level)), 'bold')
 
-                    self.bracket_canvas.create_text(x + boxWidth // 2, y + boxHeight // 4,
+                    self.bracket_canvas.create_text(x + box_width // 2, y + box_height // 4,
                                                    text=p1, anchor='c',
                                                    fill=COLORS['white'], font=scaled_font)
-                    self.bracket_canvas.create_text(x + boxWidth // 2, y + 3 * boxHeight // 4,
+                    self.bracket_canvas.create_text(x + box_width // 2, y + 3 * box_height // 4,
                                                    text=p2, anchor='c',
                                                    fill=COLORS['white'], font=scaled_font)
                     # "vs" in red for visibility
-                    self.bracket_canvas.create_text(x + boxWidth // 2, y + boxHeight // 2,
+                    self.bracket_canvas.create_text(x + box_width // 2, y + box_height // 2,
                                                    text='vs', anchor='c',
                                                    font=vs_font,
                                                    fill=COLORS['accent_red'])
@@ -941,15 +957,15 @@ class BracketViewerApp(tk.Tk):
                         next_match_idx = m // 2
                         nx, ny = positions[(r + 1, next_match_idx)]
                         self.bracket_canvas.create_line(
-                            x + boxWidth, y + boxHeight // 2,
-                            nx, ny + boxHeight // 2,
+                            x + box_width, y + box_height // 2,
+                            nx, ny + box_height // 2,
                             arrow=tk.LAST, width=line_width,
                             fill=COLORS['white']
                         )
 
             # Update scroll region based on bracket size and zoom level
-            max_x = max(pos[0] for pos in positions.values()) + boxWidth + start_x
-            max_y = max(pos[1] for pos in positions.values()) + boxHeight + start_y
+            max_x = max(pos[0] for pos in positions.values()) + box_width + start_x
+            max_y = max(pos[1] for pos in positions.values()) + box_height + start_y
             self.bracket_canvas.configure(scrollregion=(0, 0, max_x, max_y))
 
             print(f"[DEBUG] Successfully rendered bracket with {len(rounds)} rounds at {int(self.zoom_level*100)}% zoom")
