@@ -1,19 +1,19 @@
 # SPDX-FileCopyrightText: 2026 TOP Team Combat Control
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-import copy
-import random
 import math
-import sys
 import os
+import sys
 
 # Add parent directory to path for libraries access
 _parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if _parent_dir not in sys.path:
     sys.path.insert(0, _parent_dir)
 
-from libraries.logging import get_logger
-from edv_backend.backend.data.repositories.config_repository import ConfigRepository
+from libraries.logging import get_logger  # noqa: E402
+from edv_backend.backend.data.repositories.config_repository import (  # noqa: E402
+    ConfigRepository,
+)
 
 # module logger
 logger = get_logger('bracket_utils')
@@ -91,9 +91,7 @@ def _create_first_round(participants):
     first_round = []
     
     # Calculate next power of 2
-    n = len(pool)
-    num_matches = math.ceil(n / 2)  # Number of matches needed
-    num_slots = num_matches * 2      # Total slots (always even)
+    num_matches = math.ceil(len(pool) / 2)  # Number of matches needed
     
     # Create matches
     for i in range(num_matches):
@@ -174,7 +172,6 @@ def export_all_brackets(participants, event_year=None):
     # Generate brackets and set pool sizes
     for key in brackets:
         fighters = brackets[key]['fighters']
-        n = len(fighters)
         
         # Extract age_group from bracket key to get pool size if needed
         parts = key.split(' | ')
@@ -299,9 +296,6 @@ def _compute_balanced_bracket(participants: list) -> list:
     club_map = _group_by_club(participants)
     # Create mutable copies for distribution
     club_groups = {club: fighters[:] for club, fighters in club_map.items()}
-    sorted_clubs = sorted(club_groups.keys(), 
-                         key=lambda c: len(club_groups[c]), 
-                         reverse=True)
     
     # STEP 4: Round-robin distribution
     optimized = _distribute_round_robin(club_groups)

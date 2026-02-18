@@ -3,22 +3,14 @@
 
 # Extracted GUI code from bracket_viewer.py
 
-# ===== DEBUG CONFIGURATION =====
-# Set to True to print debug logs to console; False to only log to file
-DEBUG_VERBOSE = False
-# ==============================
-
-import os
-import tkinter as tk
-from tkinter import messagebox, filedialog, ttk
 import json
 import os
 import sys
-import tkinter as tk
 import traceback
 from datetime import datetime
-from tkinter import messagebox, filedialog, ttk
 
+import tkinter as tk
+from tkinter import messagebox, filedialog, ttk
 import pandas as pd
 
 # Setup sys.path for backend imports
@@ -26,11 +18,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 _judgefrontend_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'judgefrontend')
 if os.path.exists(_judgefrontend_path):
     sys.path.insert(0, _judgefrontend_path)
-from backend.services.bracket_service import set_bracket_config, export_all_brackets
-from backend.data.repositories.participant_repository import fetch_participants_from_db
 
-from backend.data.repositories.participant_repository import fetch_participants_from_db  # noqa: E402
-from backend.services.bracket_service import export_all_brackets, make_bracket, set_bracket_config  # noqa: E402
+from backend.services.bracket_service import (  # noqa: E402
+    export_all_brackets,
+    make_bracket,
+    set_bracket_config,
+)
+from backend.data.repositories.participant_repository import (  # noqa: E402
+    fetch_participants_from_db,
+)
 
 from ..styles import (  # noqa: E402
     COLORS,
@@ -44,11 +40,16 @@ from ..styles import (  # noqa: E402
 )
 
 # Import frontend utilities
-from ..utils import (
-    build_bracket_rounds, calculate_box_size, draw_bracket_on_canvas,
-    load_participants_from_xlsx, normalize_participants, 
-    save_bracket_to_cache, load_bracket_from_cache, clear_bracket_cache
+from ..utils import (  # noqa: E402
+    calculate_box_size,
+    load_participants_from_xlsx,
+    normalize_participants,
 )
+
+# ===== DEBUG CONFIGURATION =====
+# Set to True to print debug logs to console; False to only log to file
+DEBUG_VERBOSE = False
+# ==============================
 
 # Import from judgefrontend for flexible xlsx handling
 judgefrontend_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'judgefrontend')
