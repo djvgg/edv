@@ -18,6 +18,13 @@ before_script:
   - apt-get update -y
   - apt-get install -y doxygen
 
+pray: 
+  stage: pray
+  script:
+    - pip install OmnissiahPrayer
+    - echo "Praying for a successful CI run..."
+    - python -c "from OmnissiahPrayer import pray; pray()"
+
 lint:
   stage: lint
   script:
