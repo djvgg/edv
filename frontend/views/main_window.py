@@ -399,7 +399,8 @@ class BracketViewerApp(tk.Tk):
             messagebox.showinfo('No Selection', 'Please select a bracket first.')
             return
 
-        bracket_key = self.bracket_listbox.get(selection[0])
+        display_text = self.bracket_listbox.get(selection[0])
+        bracket_key = self.bracket_listbox_map.get(display_text, display_text)
 
         # Check if table is full (max 2 brackets per table)
         assigned = [k for k, v in self.bracket_table_assignment.items() if v == table_num]
@@ -470,6 +471,9 @@ class BracketViewerApp(tk.Tk):
             for widget in panel.winfo_children():
                 widget.destroy()
 
+        # Track totals for each table
+        table_totals = {}
+
         # Add assigned brackets to panels
         for bracket_key, table_num in self.bracket_table_assignment.items():
             if table_num:
@@ -479,8 +483,17 @@ class BracketViewerApp(tk.Tk):
                 row_frame = create_dark_frame(panel)
                 row_frame.pack(fill=tk.X, pady=2, padx=4)
 
+                # Get fighter count
+                fighter_count = len(self.brackets[bracket_key].get('fighters', []))
+                
+                # Track total for this table
+                if table_num not in table_totals:
+                    table_totals[table_num] = 0
+                table_totals[table_num] += fighter_count
+                
                 # Truncate long names
                 display_text = bracket_key[:25] + '...' if len(bracket_key) > 25 else bracket_key
+                display_text = f"{display_text} ({fighter_count})"
                 label = tk.Label(row_frame, text=display_text, wraplength=110,
                                justify='left', anchor='w', cursor='hand2',
                                bg=COLORS['bg_panel'], fg=COLORS['text_primary'],
@@ -494,11 +507,30 @@ class BracketViewerApp(tk.Tk):
                 apply_button_style(unassign_btn, 'secondary')
                 unassign_btn.pack(side=tk.RIGHT, padx=2)
 
+        # Add totals footer to each table
+        for table_num, panel in self.table_panels.items():
+            total = table_totals.get(table_num, 0)
+            
+            # Add separator
+            separator = tk.Frame(panel, height=1, bg=COLORS['border'])
+            separator.pack(fill=tk.X, pady=4, padx=4)
+            
+            # Add total label
+            total_frame = create_dark_frame(panel)
+            total_frame.pack(fill=tk.X, pady=2, padx=4)
+            
+            total_label = tk.Label(total_frame, text=f"Total Players: {total}",
+                                  justify='left', anchor='w',
+                                  bg=COLORS['bg_panel'], fg=COLORS['accent_orange'],
+                                  font=FONTS['heading_sm'])
+            total_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
     def on_bracket_double_click(self, event):
         """Handle double-click on bracket - show visualization."""
         selection = self.bracket_listbox.curselection()
         if selection:
-            bracket_key = self.bracket_listbox.get(selection[0])
+            display_text = self.bracket_listbox.get(selection[0])
+            bracket_key = self.bracket_listbox_map.get(display_text, display_text)
             self.show_bracket_view(bracket_key)
 
     def set_status(self, msg, color=None):
@@ -814,12 +846,18 @@ class BracketViewerApp(tk.Tk):
 
         search_term = self.search_var.get().lower()
         self.bracket_listbox.delete(0, tk.END)
+        # Store mapping of display text to bracket_key for safe lookup
+        self.bracket_listbox_map = {}
 
         # Only show unassigned brackets
         for bracket_key in sorted(self.brackets.keys()):
             if not self.bracket_table_assignment.get(bracket_key):
                 if search_term in bracket_key.lower():
-                    self.bracket_listbox.insert(tk.END, bracket_key)
+                    fighter_count = len(self.brackets[bracket_key].get('fighters', []))
+                    display_text = f"{bracket_key} ({fighter_count})"
+                    self.bracket_listbox.insert(tk.END, display_text)
+                    # Store the mapping
+                    self.bracket_listbox_map[display_text] = bracket_key
 
     def on_bracket_select(self, event):
         """Called when user clicks a bracket in the list."""
