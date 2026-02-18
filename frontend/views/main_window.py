@@ -6,6 +6,7 @@
 import json
 import os
 import sys
+import threading
 import traceback
 from datetime import datetime
 
@@ -19,6 +20,7 @@ _judgefrontend_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 
 if os.path.exists(_judgefrontend_path):
     sys.path.insert(0, _judgefrontend_path)
 
+from libraries.logging import get_logger  # noqa: E402
 from backend.services.bracket_service import (  # noqa: E402
     export_all_brackets,
     make_bracket,
@@ -68,6 +70,9 @@ class BracketViewerApp(tk.Tk):
 
     def __init__(self):
         super().__init__()
+        # Initialize logger
+        self.logger = get_logger('main_window')
+        
         self.title('Tournament Bracket Manager')
         self.geometry('520x440')  # Start small like judgefrontend
         self.configure(bg="#1e1e1e")
@@ -83,7 +88,7 @@ class BracketViewerApp(tk.Tk):
         try:
             set_bracket_config(config_path)
         except Exception as e:
-            print(f"Warning: Could not load config: {e}")
+            self.logger.warning(f"Could not load config: {e}")
 
         # Data
         self.brackets = {}  # {bracket_key: Bracket data}
@@ -178,6 +183,55 @@ class BracketViewerApp(tk.Tk):
         apply_button_style(split_btn, 'secondary')
         split_btn.pack(pady=8, fill="x", padx=40)
 
+    def show_loading_progress(self, message):
+        """Show a loading progress dialog."""
+        # Create a loading window
+        self.loading_window = tk.Toplevel(self)
+        self.loading_window.title("Loading...")
+        self.loading_window.geometry("400x150")
+        self.loading_window.configure(bg=COLORS['bg_dark'])
+        self.loading_window.resizable(False, False)
+        
+        # Make it modal
+        self.loading_window.transient(self)
+        self.loading_window.grab_set()
+        
+        # Center on parent window
+        self.loading_window.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - 400) // 2
+        y = self.winfo_y() + (self.winfo_height() - 150) // 2
+        self.loading_window.geometry(f"+{x}+{y}")
+        
+        # Message label
+        msg_label = tk.Label(self.loading_window, text=message)
+        apply_label_style(msg_label, 'heading_md')
+        msg_label.pack(pady=(20, 10))
+        
+        # Progress bar
+        self.progress_var = tk.IntVar(value=0)
+        progress_bar = ttk.Progressbar(self.loading_window, variable=self.progress_var,
+                                       maximum=100, length=350, mode='determinate')
+        progress_bar.pack(pady=10, padx=20)
+        
+        # Percentage label
+        self.progress_label = tk.Label(self.loading_window, text="0%")
+        apply_label_style(self.progress_label, 'info')
+        self.progress_label.pack(pady=(0, 10))
+        
+        self.loading_window.update_idletasks()
+
+    def update_progress(self, value):
+        """Update the progress bar."""
+        if hasattr(self, 'progress_var') and hasattr(self, 'loading_window'):
+            self.progress_var.set(value)
+            self.progress_label.config(text=f"{value}%")
+            self.loading_window.update_idletasks()
+
+    def hide_loading_progress(self):
+        """Hide the loading progress dialog."""
+        if hasattr(self, 'loading_window') and self.loading_window.winfo_exists():
+            self.loading_window.destroy()
+
     def show_bracket_viewer(self):
         """Show bracket list and visualization (dark themed)."""
         # Resize and reconfigure window
@@ -211,9 +265,18 @@ class BracketViewerApp(tk.Tk):
         left_frame = create_dark_frame(paned)
         paned.add(left_frame, width=250, minsize=200)
 
-        title_label = tk.Label(left_frame, text='Unassigned Brackets')
+        title_frame = create_dark_frame(left_frame)
+        title_frame.pack(fill=tk.X, pady=(0, 5))
+
+        title_label = tk.Label(title_frame, text='Unassigned Brackets')
         apply_label_style(title_label, 'heading_md')
-        title_label.pack(pady=(0, 5))
+        title_label.pack(side=tk.LEFT)
+
+        # Counter for unassigned participants
+        self.unassigned_count_var = tk.StringVar(value="(0)")
+        count_label = tk.Label(title_frame, textvariable=self.unassigned_count_var)
+        apply_label_style(count_label, 'info')
+        count_label.pack(side=tk.RIGHT)
 
         search_frame = create_dark_frame(left_frame)
         search_frame.pack(fill=tk.X, pady=(0, 5))
@@ -413,7 +476,7 @@ class BracketViewerApp(tk.Tk):
         self.bracket_table_assignment[bracket_key] = table_num
         self.update_bracket_list()
         self.update_table_panels()
-        print(f"[INFO] Assigned '{bracket_key}' to Table {table_num}")
+        self.logger.info(f"Assigned '{bracket_key}' to Table {table_num}")
 
     def unassign_bracket(self, bracket_key=None):
         """Unassign bracket from its table (can be called directly or from selection)."""
@@ -435,7 +498,7 @@ class BracketViewerApp(tk.Tk):
         self.bracket_table_assignment[bracket_key] = None
         self.update_bracket_list()
         self.update_table_panels()
-        print(f"[INFO] Unassigned '{bracket_key}' from Table {old_table}")
+        self.logger.info(f"Unassigned '{bracket_key}' from Table {old_table}")
 
     def auto_assign_tables(self):
         """Automatically distribute unassigned brackets across tables."""
@@ -550,56 +613,40 @@ class BracketViewerApp(tk.Tk):
         if not filepath:
             return
 
+        # Show loading progress dialog
+        self.show_loading_progress("Loading and generating brackets...")
+        
+        # Run loading in background thread
+        thread = threading.Thread(target=self._load_and_generate_thread, args=(filepath,), daemon=True)
+        thread.start()
+
+    def _load_and_generate_thread(self, filepath):
+        """Background thread for loading XLSX and generating brackets."""
         try:
             self.set_status("Reading XLSX file...", COLORS['text_secondary'])
+            self.update_progress(10)
 
-            # Use judgefrontend's flexible xlsx handler if available
-            if processXlsx:
-                groups = processXlsx(filepath)
-                # Convert groups to participants format
-                participants = []
-                for group in groups:
-                    for fighter in group.get('fighters', []):
-                        # Normalize field names to what backend expects
-                        participants.append({
-                            'Name': fighter.get('name', fighter.get('Name', '')),
-                            'Gender': fighter.get('geschlecht', fighter.get('Gender', fighter.get('gender', ''))),
-                            'Age': fighter.get('alter', fighter.get('Age', fighter.get('age'))),
-                            'Weight': fighter.get('gewicht', fighter.get('Weight', fighter.get('weight'))),
-                            'Verein': fighter.get('verein', fighter.get('Club', fighter.get('club', '')))
-                        })
-            else:
-                # Fallback: simple pandas read
-                df = pd.read_excel(filepath)
-
-                # Build name from Vorname + Nachname if needed
-                if 'Name' not in df.columns and 'Vorname' in df.columns and 'Nachname' in df.columns:
-                    df['Name'] = df['Vorname'].astype(str) + ' ' + df['Nachname'].astype(str)
-
-                participants = []
-                for _, row in df.iterrows():
-                    participants.append({
-                        'Name': row.get('Name', ''),
-                        'Gender': row.get('Geschlecht', row.get('Gender', '')),
-                        'Age': row.get('Alter', row.get('Age')),
-                        'Weight': row.get('Gewicht', row.get('Weight')),
-                        'Verein': row.get('Verein', row.get('Club', ''))
-                    })
             # Load and normalize participants from XLSX using utility function
             raw_participants = load_participants_from_xlsx(filepath)
+            self.update_progress(30)
+            
             participants = normalize_participants(raw_participants)
+            self.update_progress(40)
 
             if not participants:
                 self.set_status("Error: No valid participants found.", COLORS['accent_red'])
+                self.hide_loading_progress()
                 return
 
             total_fighters = len(participants)
             self.info_var.set(f"✓ {total_fighters} participants loaded")
+            self.update_progress(50)
 
             self.set_status("Generating brackets...", COLORS['text_secondary'])
 
             # Generate brackets using backend service
             self.brackets = export_all_brackets(participants)
+            self.update_progress(80)
 
             # Clear rendering caches for new brackets
             self.bracket_structure_cache.clear()
@@ -607,32 +654,75 @@ class BracketViewerApp(tk.Tk):
 
             # Save to JSON cache
             self.save_brackets_to_cache(filepath)
+            self.update_progress(95)
 
             self.set_status(f"Success! Generated {len(self.brackets)} brackets (cached for fast viewing).", COLORS['accent_green'])
+            self.update_progress(100)
 
-            # Wait a moment then show bracket viewer
-            self.after(800, self.show_bracket_viewer)
+            # Hide progress and show bracket viewer
+            self.hide_loading_progress()
+            self.after(500, self.show_bracket_viewer)
 
         except Exception as e:
+            self.logger.error(f"Error during load and generate: {e}", exc_info=True)
             self.set_status(f"Error: {e}", COLORS['accent_red'])
+            self.hide_loading_progress()
 
     def load_from_database(self):
         """Load participants from PostgreSQL database and generate brackets."""
+        # Show loading progress dialog
+        self.show_loading_progress("Loading from database...")
+        
+        # Run loading in background thread
+        thread = threading.Thread(target=self._load_from_database_thread, daemon=True)
+        thread.start()
+
+    def _load_from_database_thread(self):
+        """Background thread for loading from database and generating brackets."""
         try:
             self.set_status("Connecting to database...", COLORS['text_secondary'])
+            self.update_progress(10)
 
             # Fetch participants from database
             participants = fetch_participants_from_db()
+            self.update_progress(30)
 
             if not participants:
                 self.set_status("Error: No valid participants found in database.", COLORS['accent_red'])
-                messagebox.showwarning("No Data", "No valid and paid participants found in database.")
+                self.hide_loading_progress()
+                self.after(500, lambda: messagebox.showwarning("No Data", "No valid and paid participants found in database."))
                 return
 
             total_fighters = len(participants)
             self.info_var.set(f"✓ {total_fighters} participants loaded from database")
+            self.update_progress(50)
 
             self.set_status("Generating brackets...", COLORS['text_secondary'])
+
+            # Generate brackets using backend service
+            self.brackets = export_all_brackets(participants)
+            self.update_progress(80)
+
+            # Clear rendering caches for new brackets
+            self.bracket_structure_cache.clear()
+            self.bracket_render_cache.clear()
+
+            # Save to JSON cache
+            self.save_brackets_to_cache("database")
+            self.update_progress(95)
+
+            self.set_status(f"Success! Generated {len(self.brackets)} brackets from database (cached for fast viewing).", COLORS['accent_green'])
+            self.update_progress(100)
+
+            # Hide progress and show bracket viewer
+            self.hide_loading_progress()
+            self.after(500, self.show_bracket_viewer)
+
+        except Exception as e:
+            self.logger.error(f"Database error during load: {e}", exc_info=True)
+            self.set_status(f"Database Error: {e}", COLORS['accent_red'])
+            self.hide_loading_progress()
+            self.after(500, lambda: messagebox.showerror("Database Error", f"Failed to load from database:\n{str(e)}"))
 
             # Generate brackets using backend service
             self.brackets = export_all_brackets(participants)
@@ -759,7 +849,7 @@ class BracketViewerApp(tk.Tk):
                     female_contestants.append(p)
                 else:
                     # Skip or warn about unknown gender
-                    print(f"[WARNING] Unknown gender '{gender}' for participant: {p.get('Name')}")
+                    self.logger.warning(f"Unknown gender '{gender}' for participant: {p.get('Name')}")
 
             # Show split results
             total = len(participants)
@@ -792,14 +882,14 @@ class BracketViewerApp(tk.Tk):
                 male_file = os.path.join(save_dir, 'contestants_male.json')
                 with open(male_file, 'w', encoding='utf-8') as f:
                     json.dump(male_contestants, f, indent=2, ensure_ascii=False)
-                print(f"[INFO] Saved {male_count} male contestants to: {male_file}")
+                self.logger.info(f"Saved {male_count} male contestants to: {male_file}")
 
             # Save female contestants if any
             if female_count > 0:
                 female_file = os.path.join(save_dir, 'contestants_female.json')
                 with open(female_file, 'w', encoding='utf-8') as f:
                     json.dump(female_contestants, f, indent=2, ensure_ascii=False)
-                print(f"[INFO] Saved {female_count} female contestants to: {female_file}")
+                self.logger.info(f"Saved {female_count} female contestants to: {female_file}")
 
             success_msg = f"Successfully saved split files to:\n{save_dir}\n\n"
             if male_count > 0:
@@ -837,7 +927,7 @@ class BracketViewerApp(tk.Tk):
         with open(self.bracket_cache_file, 'w', encoding='utf-8') as f:
             json.dump(cache_data, f, indent=2, ensure_ascii=False)
 
-        print(f"Saved brackets to cache: {self.bracket_cache_file}")
+        self.logger.info(f"Saved brackets to cache: {self.bracket_cache_file}")
 
     def update_bracket_list(self, *args):
         """Update the bracket list based on search filter - only show unassigned."""
@@ -848,6 +938,9 @@ class BracketViewerApp(tk.Tk):
         self.bracket_listbox.delete(0, tk.END)
         # Store mapping of display text to bracket_key for safe lookup
         self.bracket_listbox_map = {}
+        
+        # Calculate total unassigned participants
+        total_unassigned = 0
 
         # Only show unassigned brackets
         for bracket_key in sorted(self.brackets.keys()):
@@ -858,6 +951,12 @@ class BracketViewerApp(tk.Tk):
                     self.bracket_listbox.insert(tk.END, display_text)
                     # Store the mapping
                     self.bracket_listbox_map[display_text] = bracket_key
+                    # Add to total
+                    total_unassigned += fighter_count
+        
+        # Update counter
+        if hasattr(self, 'unassigned_count_var'):
+            self.unassigned_count_var.set(f"({total_unassigned})")
 
     def on_bracket_select(self, event):
         """Called when user clicks a bracket in the list."""
@@ -879,17 +978,17 @@ class BracketViewerApp(tk.Tk):
 
             # Check if we have cached bracket structure
             if bracket_key not in self.bracket_structure_cache:
-                print(f"[DEBUG] Generating bracket structure for: {bracket_key}")
+                self.logger.debug(f"Generating bracket structure for: {bracket_key}")
 
                 participants = bracket_data.get('fighters', [])
                 if not participants:
-                    print("[DEBUG] No participants in bracket")
+                    self.logger.debug("No participants in bracket")
                     self.bracket_canvas.create_text(400, 300,
                         text="No participants in this bracket",
                         font=FONTS['heading_md'], fill='red')
                     return
 
-                print(f"[DEBUG] Found {len(participants)} participants")
+                self.logger.debug(f"Found {len(participants)} participants")
 
                 # Normalize participants and generate bracket rounds
                 normalized_participants = []
@@ -901,17 +1000,17 @@ class BracketViewerApp(tk.Tk):
                         })
 
                 if not normalized_participants:
-                    print("[DEBUG] No normalized participants")
+                    self.logger.debug("No normalized participants")
                     self.bracket_canvas.create_text(400, 300,
                         text="Error: Could not process participants",
                         font=FONTS['heading_md'], fill='red')
                     return
 
-                print(f"[DEBUG] Normalized {len(normalized_participants)} participants")
+                self.logger.debug(f"Normalized {len(normalized_participants)} participants")
 
                 # Generate bracket visualization
                 bracket = make_bracket(normalized_participants)
-                print(f"[DEBUG] Generated bracket with {len(bracket)} first round matches")
+                self.logger.debug(f"Generated bracket with {len(bracket)} first round matches")
 
                 # Build rounds for single-elimination tree
                 rounds = []
@@ -929,10 +1028,10 @@ class BracketViewerApp(tk.Tk):
 
                 # Cache the bracket structure
                 self.bracket_structure_cache[bracket_key] = rounds
-                print(f"[DEBUG] Cached bracket structure with {len(rounds)} rounds")
+                self.logger.debug(f"Cached bracket structure with {len(rounds)} rounds")
             else:
                 rounds = self.bracket_structure_cache[bracket_key]
-                print(f"[DEBUG] Using cached bracket structure for: {bracket_key} ({len(rounds)} rounds)")
+                self.logger.debug(f"Using cached bracket structure for: {bracket_key} ({len(rounds)} rounds)")
 
             # Calculate box dimensions using utility function
             box_width, box_height, x_gap, y_gap = calculate_box_size(rounds, self.zoom_level)
@@ -1007,10 +1106,10 @@ class BracketViewerApp(tk.Tk):
             max_y = max(pos[1] for pos in positions.values()) + box_height + start_y
             self.bracket_canvas.configure(scrollregion=(0, 0, max_x, max_y))
 
-            print(f"[DEBUG] Successfully rendered bracket with {len(rounds)} rounds at {int(self.zoom_level*100)}% zoom")
+            self.logger.debug(f"Successfully rendered bracket with {len(rounds)} rounds at {int(self.zoom_level*100)}% zoom")
 
         except Exception as e:
-            print(f"[ERROR] Exception rendering bracket: {e}")
+            self.logger.error(f"Exception rendering bracket: {e}", exc_info=True)
             traceback.print_exc()
             # Show error on canvas
             self.bracket_canvas.create_text(400, 300,
@@ -1023,9 +1122,9 @@ class BracketViewerApp(tk.Tk):
             # Delete the bracket cache file if it exists
             if self.bracket_cache_file and os.path.exists(self.bracket_cache_file):
                 os.remove(self.bracket_cache_file)
-                print(f"[INFO] Deleted cache file: {self.bracket_cache_file}")
+                self.logger.info(f"Deleted cache file: {self.bracket_cache_file}")
         except Exception as e:
-            print(f"[WARNING] Could not delete cache file: {e}")
+            self.logger.warning(f"Could not delete cache file: {e}")
         finally:
             # Close the application
             self.destroy()
