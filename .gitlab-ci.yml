@@ -1,5 +1,4 @@
 # SPDX-FileCopyrightText: 2026 TOP Team Combat Control
-#
 # SPDX-License-Identifier: CC0-1.0
 
 image: python:3.13
@@ -24,6 +23,9 @@ lint:
   script:
     - echo "Running ruff linter..."
     - ruff check backend/ frontend/ utils/
+    - pip install reuse
+    - reuse lint
+    - echo "Checking SPDX headers..."
     - echo "Code quality check passed"
 
 build:
