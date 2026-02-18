@@ -46,6 +46,7 @@ from ..utils import (  # noqa: E402
     calculate_box_size,
     load_participants_from_xlsx,
     normalize_participants,
+    draw_pools_on_canvas,
 )
 
 # ===== DEBUG CONFIGURATION =====
@@ -576,7 +577,8 @@ class BracketViewerApp(tk.Tk):
         top_bar = create_dark_frame(self.bracket_view_frame)
         top_bar.pack(fill=tk.X, pady=(0, 5))
 
-        viz_title = tk.Label(top_bar, text='Bracket Visualization')
+        self.viz_title_var = tk.StringVar(value='Bracket Visualization')
+        viz_title = tk.Label(top_bar, textvariable=self.viz_title_var)
         apply_label_style(viz_title, 'heading_md')
         viz_title.pack(side=tk.LEFT, pady=0)
 
@@ -1258,7 +1260,7 @@ class BracketViewerApp(tk.Tk):
         pass
 
     def render_bracket(self, bracket_key):
-        """Render bracket visualization on canvas."""
+        """Render bracket or pool visualization on canvas."""
         try:
             self.bracket_canvas.delete('all')
 
@@ -1270,19 +1272,34 @@ class BracketViewerApp(tk.Tk):
                     font=FONTS['heading_md'], fill='red')
                 return
 
+            participants = bracket_data.get('fighters', [])
+            if not participants:
+                self.logger.debug("No participants in bracket")
+                self.bracket_canvas.create_text(400, 300,
+                    text="No participants in this bracket",
+                    font=FONTS['heading_md'], fill='red')
+                return
+
+            num_participants = len(participants)
+            self.logger.debug(f"Found {num_participants} participants")
+
+            # Check if this should be a pool (3-10 participants)
+            if 3 <= num_participants <= 10:
+                self.logger.debug(f"Rendering pool for {num_participants} participants")
+                pool_type = "Single Pool" if num_participants <= 5 else "Double Pool"
+                if hasattr(self, 'viz_title_var'):
+                    self.viz_title_var.set(f'Pool Visualization ({pool_type})')
+                self._render_pool(bracket_key, participants)
+                return
+
+            # Update title for bracket view
+            if hasattr(self, 'viz_title_var'):
+                self.viz_title_var.set('Bracket Visualization')
+
+            # Otherwise render bracket (11+ participants)
             # Check if we have cached bracket structure
             if bracket_key not in self.bracket_structure_cache:
                 self.logger.debug(f"Generating bracket structure for: {bracket_key}")
-
-                participants = bracket_data.get('fighters', [])
-                if not participants:
-                    self.logger.debug("No participants in bracket")
-                    self.bracket_canvas.create_text(400, 300,
-                        text="No participants in this bracket",
-                        font=FONTS['heading_md'], fill='red')
-                    return
-
-                self.logger.debug(f"Found {len(participants)} participants")
 
                 # Normalize participants and generate bracket rounds
                 normalized_participants = []
@@ -1408,6 +1425,59 @@ class BracketViewerApp(tk.Tk):
             # Show error on canvas
             self.bracket_canvas.create_text(400, 300,
                 text=f"Error rendering bracket:\n{str(e)}",
+                font=FONTS['body_md'], fill='red')
+
+    def _render_pool(self, bracket_key, participants):
+        """Render pool/round-robin visualization on canvas.
+
+        Args:
+            bracket_key: The bracket identifier
+            participants: List of participant dicts
+        """
+        try:
+            # Normalize participants for pool rendering
+            normalized_participants = []
+            for p in participants:
+                if isinstance(p, dict):
+                    normalized_participants.append({
+                        'Name': p.get('Name', p.get('name', '')),
+                        'Verein': p.get('Verein', p.get('verein', p.get('club', '')))
+                    })
+
+            if not normalized_participants:
+                self.logger.debug("No normalized participants for pool")
+                self.bracket_canvas.create_text(400, 300,
+                    text="Error: Could not process participants",
+                    font=FONTS['heading_md'], fill='red')
+                return
+
+            # Draw pools on canvas
+            start_x = int(50 * self.zoom_level)
+            start_y = int(80 * self.zoom_level)
+
+            total_width, total_height = draw_pools_on_canvas(
+                self.bracket_canvas,
+                normalized_participants,
+                self.zoom_level,
+                COLORS,
+                FONTS,
+                start_x,
+                start_y
+            )
+
+            # Update scroll region
+            self.bracket_canvas.configure(scrollregion=(0, 0, total_width, total_height))
+
+            num_participants = len(normalized_participants)
+            pool_type = "Single Pool" if num_participants <= 5 else "Double Pool"
+            self.logger.debug(f"Successfully rendered {pool_type} with {num_participants} participants at {int(self.zoom_level*100)}% zoom")
+
+        except Exception as e:
+            self.logger.error(f"Exception rendering pool: {e}", exc_info=True)
+            traceback.print_exc()
+            # Show error on canvas
+            self.bracket_canvas.create_text(400, 300,
+                text=f"Error rendering pool:\n{str(e)}",
                 font=FONTS['body_md'], fill='red')
 
     def on_closing(self):
