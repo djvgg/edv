@@ -3,9 +3,6 @@
 
 """Pool rendering utilities for round-robin group visualization on canvas."""
 
-import tkinter as tk
-import math
-
 
 def split_into_pools(participants, num_pools=1):
     """Split participants into pools.
