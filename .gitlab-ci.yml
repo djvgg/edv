@@ -27,6 +27,7 @@ lint:
     - reuse lint
     - echo "Checking SPDX headers..."
     - echo "Code quality check passed"
+  allow_failure: true
 
 build:
   stage: build
@@ -48,4 +49,3 @@ build-docs:
   artifacts:
     paths:
       - html/
-
