@@ -97,6 +97,11 @@ class BracketViewerApp(tk.Tk):
         self.zoom_level = 1.0  # Zoom level for bracket visualization
         self.current_bracket_key = None  # Track currently displayed bracket
 
+        # Preview window state
+        self.group_listbox_map = {}
+        self.preview_search_var = None
+        self.preview_count_var = None
+
         # Rendering cache - stores pre-computed bracket structures
         self.bracket_structure_cache = {}  # {bracket_key: rounds}
         self.bracket_render_cache = {}  # {(bracket_key, zoom_level): rendered canvas items}
@@ -177,11 +182,252 @@ class BracketViewerApp(tk.Tk):
         apply_button_style(db_btn, 'primary')
         db_btn.pack(pady=8, fill="x", padx=40)
 
+        # Load JSON files button
+        json_btn = tk.Button(self, text="Load M/W JSON Files & Generate Brackets",
+                            command=self.load_json_and_generate)
+        apply_button_style(json_btn, 'primary')
+        json_btn.pack(pady=8, fill="x", padx=40)
+
         # Split M/W button
         split_btn = tk.Button(self, text="Split M/W Contestants (XLSX → JSON)",
                              command=self.split_gender_to_json)
         apply_button_style(split_btn, 'secondary')
         split_btn.pack(pady=8, fill="x", padx=40)
+
+    def show_group_preview_window(self):
+        """Show group preview window with participant details before bracket viewer."""
+        # Resize window to match bracket viewer
+        self.geometry('1000x600')
+        self.configure(bg=COLORS['bg_dark'])
+
+        # Clear existing widgets
+        for widget in self.winfo_children():
+            widget.destroy()
+
+        # Create main layout with frame
+        main_frame = create_dark_frame(self)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # Create PanedWindow for resizable split
+        paned = tk.PanedWindow(main_frame, orient=tk.HORIZONTAL,
+                              bg=COLORS['bg_dark'],
+                              sashwidth=4,
+                              sashrelief=tk.FLAT,
+                              showhandle=False)
+        paned.pack(fill=tk.BOTH, expand=True)
+
+        # Left panel: Group list sidebar
+        self._create_group_list_panel(paned)
+
+        # Right panel: Participant preview area
+        self._create_participant_preview_panel(paned)
+
+        # Bottom navigation buttons
+        self._create_preview_navigation_buttons(main_frame)
+
+        # Populate the group list
+        self._populate_group_list()
+
+    def _create_group_list_panel(self, parent_paned):
+        """Create the left panel with group list and search."""
+        left_frame = create_dark_frame(parent_paned)
+        parent_paned.add(left_frame, width=300, minsize=250)
+
+        # Title with count
+        title_frame = create_dark_frame(left_frame)
+        title_frame.pack(fill=tk.X, pady=(0, 5))
+
+        title_label = tk.Label(title_frame, text='Weight Groups')
+        apply_label_style(title_label, 'heading_md')
+        title_label.pack(side=tk.LEFT)
+
+        # Total participant counter
+        self.preview_count_var = tk.StringVar(value="(0)")
+        count_label = tk.Label(title_frame, textvariable=self.preview_count_var)
+        apply_label_style(count_label, 'info')
+        count_label.pack(side=tk.RIGHT)
+
+        # Search box
+        search_frame = create_dark_frame(left_frame)
+        search_frame.pack(fill=tk.X, pady=(0, 5))
+
+        search_label = tk.Label(search_frame, text='Search:')
+        apply_label_style(search_label, 'info')
+        search_label.pack(side=tk.LEFT)
+
+        self.preview_search_var = tk.StringVar()
+        self.preview_search_var.trace('w', self._filter_group_list)
+        search_entry = tk.Entry(search_frame, textvariable=self.preview_search_var)
+        apply_entry_style(search_entry)
+        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+
+        # Group listbox
+        self.group_listbox = tk.Listbox(left_frame, width=30, height=20)
+        apply_listbox_style(self.group_listbox)
+        self.group_listbox.pack(fill=tk.BOTH, expand=True, pady=5)
+
+        # Bind double-click to show preview
+        self.group_listbox.bind('<Double-Button-1>', self._on_group_double_click)
+
+        # Store mapping for display text to bracket key
+        self.group_listbox_map = {}
+
+    def _create_participant_preview_panel(self, parent_paned):
+        """Create the right panel for participant preview."""
+        right_frame = create_dark_frame(parent_paned)
+        parent_paned.add(right_frame, minsize=450)
+
+        # Title area (will be updated when group is selected)
+        self.preview_title_var = tk.StringVar(value="Participant Preview")
+        title_label = tk.Label(right_frame, textvariable=self.preview_title_var)
+        apply_label_style(title_label, 'heading_md')
+        title_label.pack(pady=(0, 10))
+
+        # Create container for participant display
+        self.participant_display_frame = create_dark_frame(right_frame)
+        self.participant_display_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Initial placeholder message
+        placeholder = tk.Label(self.participant_display_frame,
+                              text="Double-click a group to preview participants")
+        apply_label_style(placeholder, 'info')
+        placeholder.pack(expand=True)
+
+    def _create_preview_navigation_buttons(self, parent_frame):
+        """Create navigation buttons at bottom of preview window."""
+        button_frame = create_dark_frame(parent_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+
+        # Back button (left side)
+        back_btn = tk.Button(button_frame, text='← Back to File Loader',
+                            command=self.show_file_loader)
+        apply_button_style(back_btn, 'secondary')
+        back_btn.pack(side=tk.LEFT, padx=5)
+
+        # Continue button (right side)
+        continue_btn = tk.Button(button_frame, text='Continue to Bracket Viewer →',
+                                command=self.show_bracket_viewer)
+        apply_button_style(continue_btn, 'primary')
+        continue_btn.pack(side=tk.RIGHT, padx=5)
+
+    def _populate_group_list(self):
+        """Populate the group list with all non-empty brackets."""
+        self.group_listbox.delete(0, tk.END)
+        self.group_listbox_map.clear()
+
+        total_participants = 0
+
+        # Filter out empty groups and sort
+        for bracket_key in sorted(self.brackets.keys()):
+            fighters = self.brackets[bracket_key].get('fighters', [])
+            if fighters:  # Only show groups with participants
+                count = len(fighters)
+                total_participants += count
+
+                # Format: "M | U13 | -50kg (12)"
+                display_text = f"{bracket_key} ({count})"
+                self.group_listbox.insert(tk.END, display_text)
+                self.group_listbox_map[display_text] = bracket_key
+
+        # Update total counter
+        self.preview_count_var.set(f"({total_participants})")
+
+    def _filter_group_list(self, *args):
+        """Filter the group list based on search term."""
+        search_term = self.preview_search_var.get().lower()
+        self.group_listbox.delete(0, tk.END)
+
+        total_filtered = 0
+
+        for bracket_key in sorted(self.brackets.keys()):
+            fighters = self.brackets[bracket_key].get('fighters', [])
+            if fighters and search_term in bracket_key.lower():
+                count = len(fighters)
+                total_filtered += count
+                display_text = f"{bracket_key} ({count})"
+                self.group_listbox.insert(tk.END, display_text)
+
+        # Update counter with filtered count
+        self.preview_count_var.set(f"({total_filtered})")
+
+    def _on_group_double_click(self, event):
+        """Handle double-click on a group - show participant details."""
+        selection = self.group_listbox.curselection()
+        if not selection:
+            return
+
+        display_text = self.group_listbox.get(selection[0])
+        bracket_key = self.group_listbox_map.get(display_text, display_text)
+
+        # Display participants for this group
+        self._display_participants(bracket_key)
+
+    def _display_participants(self, bracket_key):
+        """Display participant details for the selected group."""
+        # Clear previous content
+        for widget in self.participant_display_frame.winfo_children():
+            widget.destroy()
+
+        # Get fighters for this bracket
+        fighters = self.brackets[bracket_key].get('fighters', [])
+        count = len(fighters)
+
+        print(f"[DEBUG] Displaying {count} fighters for bracket: {bracket_key}")
+
+        # Update title
+        self.preview_title_var.set(f"{bracket_key} - {count} participants")
+
+        # Create a Text widget with scrollbar (much simpler!)
+        text_frame = create_dark_frame(self.participant_display_frame)
+        text_frame.pack(fill=tk.BOTH, expand=True)
+
+        scrollbar = tk.Scrollbar(text_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        text_widget = tk.Text(text_frame,
+                             wrap=tk.NONE,
+                             yscrollcommand=scrollbar.set,
+                             bg=COLORS['bg_panel'],
+                             fg=COLORS['text_primary'],
+                             font=FONTS['body_sm'],
+                             padx=10,
+                             pady=10)
+        text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=text_widget.yview)
+
+        # Add header line - headers positioned more to the right within columns
+        header = f"{'Name':<35}             {'Weight (kg)':<15}             {'Club/Verein':<30}                  {'Age':<10}\n"
+        text_widget.insert(tk.END, header, 'header')
+        text_widget.insert(tk.END, "=" * 100 + "\n\n")
+
+        # Add participant rows with original spacing
+        for i, fighter in enumerate(fighters):
+            # Extract data with fallbacks
+            name = fighter.get('Name', fighter.get('name', 'N/A'))
+            weight = fighter.get('Weight', fighter.get('weight', 'N/A'))
+            club = fighter.get('Verein', fighter.get('verein', fighter.get('club', 'N/A')))
+            age = fighter.get('Age', fighter.get('age', 'N/A'))
+
+            # Format weight
+            if isinstance(weight, (int, float)):
+                weight_str = f"{weight:.1f}"
+            else:
+                weight_str = str(weight)
+
+            # Create row text with original fixed-width spacing
+            row = f"{str(name):<35} {weight_str:<15} {str(club):<30} {str(age):<10}\n"
+            text_widget.insert(tk.END, row)
+
+            if i < 3:
+                print(f"[DEBUG] Fighter {i}: {name}, {weight_str}kg, {club}, Age {age}")
+
+        # Style the header
+        text_widget.tag_configure('header', font=FONTS['heading_sm'], foreground=COLORS['accent_blue'])
+
+        # Make text widget read-only
+        text_widget.config(state=tk.DISABLED)
+
+        print(f"[DEBUG] Text widget created with {count} fighters")
 
     def show_loading_progress(self, message):
         """Show a loading progress dialog."""
@@ -659,9 +905,9 @@ class BracketViewerApp(tk.Tk):
             self.set_status(f"Success! Generated {len(self.brackets)} brackets (cached for fast viewing).", COLORS['accent_green'])
             self.update_progress(100)
 
-            # Hide progress and show bracket viewer
+            # Hide progress and show group preview window
             self.hide_loading_progress()
-            self.after(500, self.show_bracket_viewer)
+            self.after(500, self.show_group_preview_window)
 
         except Exception as e:
             self.logger.error(f"Error during load and generate: {e}", exc_info=True)
@@ -714,9 +960,9 @@ class BracketViewerApp(tk.Tk):
             self.set_status(f"Success! Generated {len(self.brackets)} brackets from database (cached for fast viewing).", COLORS['accent_green'])
             self.update_progress(100)
 
-            # Hide progress and show bracket viewer
+            # Hide progress and show group preview window
             self.hide_loading_progress()
-            self.after(500, self.show_bracket_viewer)
+            self.after(500, self.show_group_preview_window)
 
         except Exception as e:
             self.logger.error(f"Database error during load: {e}", exc_info=True)
@@ -743,6 +989,89 @@ class BracketViewerApp(tk.Tk):
             self.set_status(f"Database Error: {e}", COLORS['accent_red'])
             messagebox.showerror("Database Error", f"Failed to load from database:\n{str(e)}")
 
+    def load_json_and_generate(self):
+        """Load 2 JSON files (male/female), merge them, and generate brackets."""
+        # Select 2 JSON files
+        filepaths = filedialog.askopenfilenames(
+            title="Select 2 JSON Files (Male & Female)",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+
+        if not filepaths:
+            return
+
+        if len(filepaths) != 2:
+            messagebox.showerror("Invalid Selection",
+                               f"Please select exactly 2 JSON files.\nYou selected {len(filepaths)} file(s).")
+            return
+
+        try:
+            self.set_status("Reading JSON files...", COLORS['text_secondary'])
+
+            all_participants = []
+
+            # Load both JSON files
+            for filepath in filepaths:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+                # Validate that data is a list
+                if not isinstance(data, list):
+                    messagebox.showerror("Invalid JSON Format",
+                                       f"File must contain a JSON array.\nFile: {os.path.basename(filepath)}")
+                    return
+
+                # Validate each participant has required fields
+                for i, participant in enumerate(data):
+                    if not isinstance(participant, dict):
+                        messagebox.showerror("Invalid Participant",
+                                           f"Participant {i+1} is not a valid object.\nFile: {os.path.basename(filepath)}")
+                        return
+
+                    # Check for required fields
+                    required_fields = ['Name', 'Gender', 'Age', 'Weight']
+                    missing_fields = [field for field in required_fields if field not in participant]
+
+                    if missing_fields:
+                        messagebox.showerror("Missing Fields",
+                                           f"Participant {i+1} is missing fields: {', '.join(missing_fields)}\nFile: {os.path.basename(filepath)}")
+                        return
+
+                # Add all participants from this file
+                all_participants.extend(data)
+                print(f"[INFO] Loaded {len(data)} participants from: {os.path.basename(filepath)}")
+
+            if not all_participants:
+                self.set_status("Error: No valid participants found.", COLORS['accent_red'])
+                return
+
+            total_fighters = len(all_participants)
+            self.info_var.set(f"✓ {total_fighters} participants loaded from JSON files")
+
+            self.set_status("Generating brackets...", COLORS['text_secondary'])
+
+            # Generate brackets using backend service
+            self.brackets = export_all_brackets(all_participants)
+
+            # Clear rendering caches for new brackets
+            self.bracket_structure_cache.clear()
+            self.bracket_render_cache.clear()
+
+            # Save to JSON cache
+            self.save_brackets_to_cache("json_files")
+
+            self.set_status(f"Success! Generated {len(self.brackets)} brackets from JSON files (cached for fast viewing).", COLORS['accent_green'])
+
+            # Wait a moment then show group preview window
+            self.after(800, self.show_group_preview_window)
+
+        except json.JSONDecodeError as e:
+            self.set_status(f"JSON Parse Error: {e}", COLORS['accent_red'])
+            messagebox.showerror("JSON Error", f"Failed to parse JSON file:\n{str(e)}")
+        except Exception as e:
+            self.set_status(f"Error: {e}", COLORS['accent_red'])
+            messagebox.showerror("Error", f"Failed to load JSON files:\n{str(e)}")
+
     def split_gender_to_json(self):
         """Split contestants by gender (M/W) and save to separate JSON files."""
         # Select input XLSX file
@@ -757,78 +1086,43 @@ class BracketViewerApp(tk.Tk):
             self.set_status("Reading XLSX file...", COLORS['text_secondary'])
 
             # Read participants from XLSX
-            if processXlsx:
-                groups = processXlsx(input_file)
-                participants = []
-                for group in groups:
-                    for fighter in group.get('fighters', []):
-                        # Extract first and last name
-                        first_name = str(fighter.get('vorname', fighter.get('FirstName', fighter.get('firstname', '')))).strip()
-                        last_name = str(fighter.get('nachname', fighter.get('LastName', fighter.get('lastname', '')))).strip()
-                        name_field = str(fighter.get('name', fighter.get('Name', ''))).strip()
+            # NOTE: We use pandas directly instead of processXlsx to avoid age filtering
+            # processXlsx filters out participants under 18, which we don't want for splitting
+            df = pd.read_excel(input_file)
 
-                        # Logic:
-                        # - If we have FirstName but no LastName, use Name as LastName
-                        # - If we have LastName but no FirstName, use Name as FirstName
-                        # - If we have neither, split Name into FirstName and LastName
-                        if first_name and not last_name and name_field:
-                            last_name = name_field
-                        elif last_name and not first_name and name_field:
-                            first_name = name_field
-                        elif not first_name and not last_name and name_field:
-                            # Split Name into first and last
-                            parts = name_field.split(' ', 1)
-                            first_name = parts[0] if len(parts) > 0 else ''
-                            last_name = parts[1] if len(parts) > 1 else ''
+            participants = []
+            for _, row in df.iterrows():
+                # Extract first and last name
+                first_name = str(row.get('Vorname', row.get('FirstName', ''))).strip()
+                last_name = str(row.get('Nachname', row.get('LastName', ''))).strip()
+                name_field = str(row.get('Name', '')).strip()
 
-                        # Always construct full Name as FirstName + LastName
-                        full_name = f"{first_name} {last_name}".strip()
+                # Logic:
+                # - If we have FirstName but no LastName, use Name as LastName
+                # - If we have LastName but no FirstName, use Name as FirstName
+                # - If we have neither, split Name into FirstName and LastName
+                if first_name and not last_name and name_field:
+                    last_name = name_field
+                elif last_name and not first_name and name_field:
+                    first_name = name_field
+                elif not first_name and not last_name and name_field:
+                    # Split Name into first and last
+                    parts = name_field.split(' ', 1)
+                    first_name = parts[0] if len(parts) > 0 else ''
+                    last_name = parts[1] if len(parts) > 1 else ''
 
-                        participants.append({
-                            'FirstName': first_name,
-                            'LastName': last_name,
-                            'Name': full_name,
-                            'Gender': fighter.get('geschlecht', fighter.get('Gender', fighter.get('gender', ''))),
-                            'Age': fighter.get('alter', fighter.get('Age', fighter.get('age'))),
-                            'Weight': fighter.get('gewicht', fighter.get('Weight', fighter.get('weight'))),
-                            'Verein': fighter.get('verein', fighter.get('Club', fighter.get('club', '')))
-                        })
-            else:
-                df = pd.read_excel(input_file)
+                # Always construct full Name as FirstName + LastName
+                full_name = f"{first_name} {last_name}".strip()
 
-                participants = []
-                for _, row in df.iterrows():
-                    # Extract first and last name
-                    first_name = str(row.get('Vorname', row.get('FirstName', ''))).strip()
-                    last_name = str(row.get('Nachname', row.get('LastName', ''))).strip()
-                    name_field = str(row.get('Name', '')).strip()
-
-                    # Logic:
-                    # - If we have FirstName but no LastName, use Name as LastName
-                    # - If we have LastName but no FirstName, use Name as FirstName
-                    # - If we have neither, split Name into FirstName and LastName
-                    if first_name and not last_name and name_field:
-                        last_name = name_field
-                    elif last_name and not first_name and name_field:
-                        first_name = name_field
-                    elif not first_name and not last_name and name_field:
-                        # Split Name into first and last
-                        parts = name_field.split(' ', 1)
-                        first_name = parts[0] if len(parts) > 0 else ''
-                        last_name = parts[1] if len(parts) > 1 else ''
-
-                    # Always construct full Name as FirstName + LastName
-                    full_name = f"{first_name} {last_name}".strip()
-
-                    participants.append({
-                        'FirstName': first_name,
-                        'LastName': last_name,
-                        'Name': full_name,
-                        'Gender': row.get('Geschlecht', row.get('Gender', '')),
-                        'Age': row.get('Alter', row.get('Age')),
-                        'Weight': row.get('Gewicht', row.get('Weight')),
-                        'Verein': row.get('Verein', row.get('Club', ''))
-                    })
+                participants.append({
+                    'FirstName': first_name,
+                    'LastName': last_name,
+                    'Name': full_name,
+                    'Gender': row.get('Geschlecht', row.get('Gender', '')),
+                    'Age': row.get('Alter', row.get('Age')),
+                    'Weight': row.get('Gewicht', row.get('Weight')),
+                    'Verein': row.get('Verein', row.get('Club', ''))
+                })
 
             if not participants:
                 self.set_status("Error: No participants found.", COLORS['accent_red'])
