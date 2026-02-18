@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-import sys
 # Example usage:
 # log_entry = '[2026-02-11 12:00:00] [INFO] Application started\n'
 # console = ConsoleHandler()

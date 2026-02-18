@@ -722,7 +722,7 @@ class BracketViewerApp(tk.Tk):
             self.logger.error(f"Database error during load: {e}", exc_info=True)
             self.set_status(f"Database Error: {e}", COLORS['accent_red'])
             self.hide_loading_progress()
-            self.after(500, lambda: messagebox.showerror("Database Error", f"Failed to load from database:\n{str(e)}"))
+            self.after(500, lambda err=e: messagebox.showerror("Database Error", f"Failed to load from database:\n{str(err)}"))
 
             # Generate brackets using backend service
             self.brackets = export_all_brackets(participants)
