@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 TOP Team Combat Control
+#
+# SPDX-License-Identifier: CC0-1.0
 *.env
 __pycache__/
 *.pyc
@@ -6,6 +9,3 @@ __pycache__/
 cache/
 *.cache
 html/
-# SPDX-FileCopyrightText: 2026 TOP Team Combat Control
-#
-# SPDX-License-Identifier: CC0-1.0
