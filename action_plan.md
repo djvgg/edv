@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 TOP Team Combat Control
+#
+# SPDX-License-Identifier: CC0-1.0
+
 # Judo Bracket Management: Next Steps Action Plan
 ## 0 Adding Ornage arrows for skipped Fights 
 - if a fight is skipped the arrow should be drawn from the actual fight to the actual next one. 
