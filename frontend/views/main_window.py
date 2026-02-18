@@ -20,7 +20,7 @@ _judgefrontend_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 
 if os.path.exists(_judgefrontend_path):
     sys.path.insert(0, _judgefrontend_path)
 
-from libraries.logging import get_logger  # noqa: E402
+from utils.logging import get_logger  # noqa: E402
 from backend.services.bracket_service import (  # noqa: E402
     export_all_brackets,
     make_bracket,
@@ -50,7 +50,7 @@ from ..utils import (  # noqa: E402
 
 # ===== DEBUG CONFIGURATION =====
 # Set to True to print debug logs to console; False to only log to file
-DEBUG_VERBOSE = False
+DEBUG_VERBOSE = True
 # ==============================
 
 # Import from judgefrontend for flexible xlsx handling
@@ -74,7 +74,7 @@ class BracketViewerApp(tk.Tk):
         self.logger = get_logger('main_window')
         
         self.title('Tournament Bracket Manager')
-        self.geometry('520x440')  # Start small like judgefrontend
+        self.geometry('520x440')  
         self.configure(bg="#1e1e1e")
 
         # Configure dark theme for ttk widgets (scrollbars)
