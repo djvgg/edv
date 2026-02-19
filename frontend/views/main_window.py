@@ -1183,43 +1183,68 @@ class BracketViewerApp(tk.Tk):
         try:
             self.set_status("Reading XLSX file...", COLORS['text_secondary'])
 
-            # Read participants from XLSX
-            # NOTE: We use pandas directly instead of processXlsx to avoid age filtering
-            # processXlsx filters out participants under 18, which we don't want for splitting
+            # Read participants from XLSX with new column structure
+            # Columns: A=id, B=verein, C=verband, D=name, E=vorname, F=kyu/dan,
+            #          G=jahrgang, H=geschlecht, I=altersklasse, J=gewicht u9+u11,
+            #          K=gewichtsklasse ab u13, L=telefonnummer, M=email
             df = pd.read_excel(input_file)
 
             participants = []
-            for _, row in df.iterrows():
-                # Extract first and last name
-                first_name = str(row.get('Vorname', row.get('FirstName', ''))).strip()
-                last_name = str(row.get('Nachname', row.get('LastName', ''))).strip()
-                name_field = str(row.get('Name', '')).strip()
+            for index, row in df.iterrows():
+                # Read from new column structure
+                participant_id = row.iloc[0] if len(row) > 0 else index + 1  # Column A: id
+                verein = str(row.iloc[1]).strip() if len(row) > 1 and pd.notna(row.iloc[1]) else ""  # Column B: verein
+                # verband = row.iloc[2]  # Column C: verband (not used in output)
+                nachname = str(row.iloc[3]).strip() if len(row) > 3 and pd.notna(row.iloc[3]) else ""  # Column D: name (nachname)
+                vorname = str(row.iloc[4]).strip() if len(row) > 4 and pd.notna(row.iloc[4]) else ""  # Column E: vorname
+                # kyu_dan = row.iloc[5]  # Column F: kyu/dan grad (not used)
+                jahrgang = row.iloc[6] if len(row) > 6 and pd.notna(row.iloc[6]) else None  # Column G: jahrgang
+                geschlecht = str(row.iloc[7]).strip() if len(row) > 7 and pd.notna(row.iloc[7]) else ""  # Column H: geschlecht
+                # altersklasse = row.iloc[8]  # Column I: altersklasse (not used)
+                # gewicht_u9_u11 = row.iloc[9]  # Column J: gewicht u9 + u11 (ignored)
+                # gewichtsklasse_ab_u13 = row.iloc[10]  # Column K: gewichtsklasse ab u13 (ignored)
+                # telefonnummer = row.iloc[11]  # Column L: telefonnummer (not used)
+                # email = row.iloc[12]  # Column M: email (not used)
 
-                # Logic:
-                # - If we have FirstName but no LastName, use Name as LastName
-                # - If we have LastName but no FirstName, use Name as FirstName
-                # - If we have neither, split Name into FirstName and LastName
-                if first_name and not last_name and name_field:
-                    last_name = name_field
-                elif last_name and not first_name and name_field:
-                    first_name = name_field
-                elif not first_name and not last_name and name_field:
-                    # Split Name into first and last
-                    parts = name_field.split(' ', 1)
-                    first_name = parts[0] if len(parts) > 0 else ''
-                    last_name = parts[1] if len(parts) > 1 else ''
+                # Skip header rows (ID is "#" or similar header indicators)
+                participant_id_str = str(participant_id).strip()
+                if participant_id_str in ['#', 'ID', 'id', 'Nr', 'Nr.', 'Number']:
+                    continue
 
-                # Always construct full Name as FirstName + LastName
-                full_name = f"{first_name} {last_name}".strip()
+                # Skip rows where all fields except ID (column A) are empty
+                if not verein and not nachname and not vorname and jahrgang is None and not geschlecht:
+                    continue
+
+                # Construct full Name as Vorname + Nachname
+                full_name = f"{vorname} {nachname}".strip()
+
+                # Convert jahrgang to int if possible
+                try:
+                    jahrgang = int(jahrgang) if jahrgang is not None else None
+                except (ValueError, TypeError):
+                    jahrgang = None
+
+                # Convert geschlecht: m → maennlich, w → weiblich
+                geschlecht_lower = geschlecht.lower()
+                if geschlecht_lower == 'm':
+                    geschlecht_normalized = 'maennlich'
+                elif geschlecht_lower == 'w':
+                    geschlecht_normalized = 'weiblich'
+                else:
+                    geschlecht_normalized = geschlecht_lower
 
                 participants.append({
-                    'FirstName': first_name,
-                    'LastName': last_name,
+                    'ID': participant_id,
+                    'Vorname': vorname,
+                    'Nachname': nachname,
                     'Name': full_name,
-                    'Gender': row.get('Geschlecht', row.get('Gender', '')),
-                    'Age': row.get('Alter', row.get('Age')),
-                    'Weight': row.get('Gewicht', row.get('Weight')),
-                    'Verein': row.get('Verein', row.get('Club', ''))
+                    'Geburtsjahr': jahrgang,
+                    'Verein': verein,
+                    'Gewicht (kg)': 0.0,
+                    'Gueltigkeit': False,
+                    'Geschlecht': geschlecht_normalized,
+                    'Bezahlt': False,
+                    'Geburtsdatum': ""
                 })
 
             if not participants:
@@ -1229,19 +1254,25 @@ class BracketViewerApp(tk.Tk):
 
             self.set_status("Splitting by gender...", COLORS['text_secondary'])
 
-            # Split by gender - normalize to uppercase for comparison
+            # Split by gender - should already be normalized to "maennlich" or "weiblich"
             male_contestants = []
             female_contestants = []
+            skipped_participants = []
 
             for p in participants:
-                gender = str(p.get('Gender', '')).strip().upper()
-                if gender in ['M', 'MALE', 'MÄNNLICH', 'MAENNLICH']:
+                gender = str(p.get('Geschlecht', '')).strip().lower()
+                if gender in ['maennlich', 'm', 'male', 'männlich']:
                     male_contestants.append(p)
-                elif gender in ['W', 'F', 'FEMALE', 'WEIBLICH']:
+                elif gender in ['weiblich', 'w', 'f', 'female']:
                     female_contestants.append(p)
                 else:
-                    # Skip or warn about unknown gender
-                    self.logger.warning(f"Unknown gender '{gender}' for participant: {p.get('Name')}")
+                    # Track skipped participant with gender info
+                    skipped_participants.append({
+                        'name': p.get('Name', 'Unknown'),
+                        'gender': p.get('Geschlecht', ''),
+                        'id': p.get('ID', '')
+                    })
+                    self.logger.warning(f"Unknown gender '{gender}' (original: '{p.get('Geschlecht', '')}') for participant ID {p.get('ID')}: {p.get('Name')}")
 
             # Show split results
             total = len(participants)
@@ -1252,6 +1283,12 @@ class BracketViewerApp(tk.Tk):
             result_msg = f"Split complete:\n• Male: {male_count}\n• Female: {female_count}"
             if skipped > 0:
                 result_msg += f"\n• Skipped (unknown gender): {skipped}"
+                if skipped_participants:
+                    result_msg += "\n\nSkipped participants:"
+                    for sp in skipped_participants[:5]:  # Show max 5
+                        result_msg += f"\n  - ID {sp['id']}: {sp['name']} (gender: '{sp['gender']}')"
+                    if len(skipped_participants) > 5:
+                        result_msg += f"\n  ... and {len(skipped_participants) - 5} more"
 
             messagebox.showinfo("Split Results", result_msg)
 
