@@ -351,8 +351,9 @@ class GenerationMethodScreen(tk.Frame):
             self.master.after(0, lambda: messagebox.showinfo("Success", f"Auto-assigned {assigned_count} brackets"))
 
         except Exception as e:
+            error_msg = str(e)
             self.logger.error(f"Auto-assign error: {e}")
-            self.master.after(0, lambda: messagebox.showerror("Error", str(e)))
+            self.master.after(0, lambda msg=error_msg: messagebox.showerror("Error", msg))
 
     def _assign_bracket(self, bracket_key, method):
         """Assign a bracket to a method."""
