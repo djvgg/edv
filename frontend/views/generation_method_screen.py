@@ -119,6 +119,14 @@ class GenerationMethodScreen(tk.Frame):
         control_frame = tk.Frame(self, bg=COLORS['bg_dark'])
         control_frame.pack(fill=tk.X, padx=10, pady=5)
 
+        back_btn = tk.Button(
+            control_frame,
+            text="← Back",
+            command=self.on_back,
+        )
+        apply_button_style(back_btn, style='secondary')
+        back_btn.pack(side=tk.LEFT, padx=5)
+
         search_label = tk.Label(control_frame, text="Search:", bg=COLORS['bg_dark'], fg=COLORS['text_primary'])
         search_label.pack(side=tk.LEFT, padx=5)
 
@@ -266,6 +274,10 @@ class GenerationMethodScreen(tk.Frame):
             'listbox': listbox,
             'unassign_btn': unassign_btn,
         }
+
+    def on_back(self):
+        """Go back to group preview screen."""
+        self.master.show_group_preview_window()
 
     def on_search(self):
         """Filter unassigned brackets by search term."""
