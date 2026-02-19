@@ -223,14 +223,14 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
         title_y,
         text=pool_label,
         anchor='c',
-        fill=colors['accent_blue'],
+        fill=colors['white'],
         font=header_font
     )
 
     # Draw "Start-nr" header cell (top-left)
     canvas.create_rectangle(
         start_x, start_y, start_x + numWidth, start_y + boxHeight,
-        outline=colors['white'],
+        outline=colors['accent_green'],
         fill=colors['bg_panel'],
         width=line_width
     )
@@ -239,14 +239,14 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
         start_y + boxHeight // 2,
         text="Start\nnr",
         anchor='c',
-        fill=colors['accent_blue'],
+        fill=colors['white'],
         font=cell_font
     )
 
     # Draw "Kämpfername/Verein" header cell (second column header)
     canvas.create_rectangle(
         start_x + numWidth, start_y, start_x + numWidth + nameWidth, start_y + boxHeight,
-        outline=colors['white'],
+        outline=colors['accent_green'],
         fill=colors['bg_panel'],
         width=line_width
     )
@@ -255,7 +255,7 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
         start_y + boxHeight // 2,
         text="Kämpfername\nVerein",
         anchor='c',
-        fill=colors['accent_blue'],
+        fill=colors['white'],
         font=cell_font
     )
 
@@ -263,7 +263,7 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
     kampf_x = start_x + numWidth + nameWidth
     canvas.create_rectangle(
         kampf_x, start_y, kampf_x + kampfnummerWidth, start_y + boxHeight,
-        outline=colors['white'],
+        outline=colors['accent_green'],
         fill=colors['bg_panel'],
         width=line_width
     )
@@ -274,7 +274,7 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
         start_y + boxHeight // 2,
         text="Kampfnummer",
         anchor='c',
-        fill=colors['accent_blue'],
+        fill=colors['white'],
         font=cell_font
     )
 
@@ -286,7 +286,7 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
         # Draw header cell
         canvas.create_rectangle(
             x, y, x + cellSize, y + boxHeight,
-            outline=colors['white'],
+            outline=colors['accent_green'],
             fill=colors['bg_panel'],
             width=line_width
         )
@@ -297,7 +297,7 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
             y + boxHeight // 2,
             text=str(fight_numbers[col]),
             anchor='c',
-            fill=colors['accent_blue'],
+            fill=colors['white'],
             font=cell_font
         )
 
@@ -313,7 +313,7 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
         # Draw number cell (first column)
         canvas.create_rectangle(
             start_x, y, start_x + numWidth, y + boxHeight,
-            outline=colors['white'],
+            outline=colors['accent_green'],
             fill=colors['bg_panel'],
             width=line_width
         )
@@ -330,7 +330,7 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
         display_text = f"{name} [{club}]" if club else name
         canvas.create_rectangle(
             start_x + numWidth, y, start_x + numWidth + nameWidth, y + boxHeight,
-            outline=colors['white'],
+            outline=colors['accent_green'],
             fill=colors['bg_panel'],
             width=line_width
         )
@@ -347,7 +347,7 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
         kampf_x = start_x + numWidth + nameWidth
         canvas.create_rectangle(
             kampf_x, y, kampf_x + kampfnummerWidth, y + boxHeight,
-            outline=colors['white'],
+            outline=colors['accent_green'],
             fill=colors['bg_panel'],
             width=line_width
         )
@@ -376,7 +376,7 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
         canvas.create_line(
             kampf_x + punkteWidth, y,
             kampf_x + punkteWidth, y + boxHeight,
-            fill=colors['white'],
+            fill=colors['accent_green'],
             width=line_width
         )
 
@@ -399,8 +399,8 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
                 # Draw bright cell with vertical divider (fighter participates in this fight)
                 canvas.create_rectangle(
                     x, y, x + cellSize, y + boxHeight,
-                    outline=colors['white'],
-                    fill=colors['bg_input'],
+                    outline=colors['accent_green'],
+                    fill=colors['white'],
                     width=line_width
                 )
 
@@ -408,15 +408,15 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
                 canvas.create_line(
                     x + cellSize // 2, y,
                     x + cellSize // 2, y + boxHeight,
-                    fill=colors['white'],
+                    fill=colors['black'],
                     width=line_width
                 )
             else:
                 # Draw empty/blank cell (fighter doesn't participate in this fight)
                 canvas.create_rectangle(
                     x, y, x + cellSize, y + boxHeight,
-                    outline=colors['white'],
-                    fill=colors['bg_darker'],
+                    outline=colors['accent_green'],
+                    fill=colors['bg_panel'],
                     width=line_width
                 )
 
