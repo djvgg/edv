@@ -15,9 +15,6 @@ before_script:
   - pip --version  
   - python -m pip install --upgrade pip
   - pip install -r requirements.txt
-  - pip install ruff
-  - apt-get update -y
-  - apt-get install -y doxygen
 
 pray: 
   stage: pray
@@ -29,6 +26,7 @@ pray:
 lint:
   stage: lint
   script:
+    - pip install ruff
     - echo "Running ruff linter..."
     - ruff check backend/ frontend/ utils/
     - pip install reuse
@@ -52,6 +50,8 @@ test:
 build-docs:
   stage: docs
   script:
+  - apt-get update -y
+  - apt-get install -y doxygen
   - echo "Building Doxygen documentation..."
   - doxygen Doxyfile
   artifacts:
