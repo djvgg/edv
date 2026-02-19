@@ -672,8 +672,18 @@ class BracketViewerApp(tk.Tk):
 
         # Create table panels frame (shown initially)
         self.tables_frame = create_dark_frame(self.right_frame)
+        
+        # Add navigation row at the top
+        tables_nav_frame = create_dark_frame(self.tables_frame)
+        tables_nav_frame.grid(row=0, column=0, columnspan=2, sticky='ew', padx=18, pady=10)
+        
+        back_to_gen_btn = tk.Button(tables_nav_frame, text='← Back to Generation Setup',
+                                    command=self.show_generation_method_screen)
+        apply_button_style(back_to_gen_btn, 'secondary')
+        back_to_gen_btn.pack(side=tk.LEFT, padx=5)
+        
         self.table_panels = {}
-        for i, (row, col) in enumerate([(0, 0), (0, 1), (1, 0), (1, 1)]):
+        for i, (row, col) in enumerate([(1, 0), (1, 1), (2, 0), (2, 1)]):
             table_num = i + 1
             panel = tk.LabelFrame(self.tables_frame, text=f'Table {table_num}',
                                  width=180, height=120, labelanchor='n')
@@ -682,8 +692,9 @@ class BracketViewerApp(tk.Tk):
             panel.grid_propagate(False)
             self.table_panels[table_num] = panel
 
-        self.tables_frame.grid_rowconfigure(0, weight=1)
+        self.tables_frame.grid_rowconfigure(0, weight=0)
         self.tables_frame.grid_rowconfigure(1, weight=1)
+        self.tables_frame.grid_rowconfigure(2, weight=1)
         self.tables_frame.grid_columnconfigure(0, weight=1)
         self.tables_frame.grid_columnconfigure(1, weight=1)
 
