@@ -51,6 +51,8 @@ from ..utils import (  # noqa: E402
 
 # Import generation method screen
 from .generation_method_screen import GenerationMethodScreen  # noqa: E402
+from .file_loader_screen import FileLoaderScreen  # noqa: E402
+from .group_preview_screen import GroupPreviewScreen  # noqa: E402
 
 # ===== DEBUG CONFIGURATION =====
 # Set to True to print debug logs to console; False to only log to file
@@ -149,59 +151,27 @@ class BracketViewerApp(tk.Tk):
                  arrowcolor=[('active', COLORS['text_primary'])])
 
     def show_file_loader(self):
-        """Show initial file loading UI (judgefrontend style)."""
+        """Show file loading screen."""
         # Clear any existing widgets
         for widget in self.winfo_children():
             widget.destroy()
 
-        # Header
-        title = tk.Label(self, text="Tournament Bracket Manager")
-        apply_label_style(title, 'heading_xl')
-        title.pack(pady=(20, 5))
+        # Create the file loader screen
+        loader_screen = FileLoaderScreen(self)
+        loader_screen.pack(fill=tk.BOTH, expand=True)
 
-        subtitle = tk.Label(self, text="Bracket Generator & Viewer")
-        apply_label_style(subtitle, 'subtitle')
-        subtitle.pack(pady=(0, 5))
+        # Store reference and set up callbacks
+        self.file_loader_screen = loader_screen
+        loader_screen.on_load_xlsx = self.load_and_generate
+        loader_screen.on_load_database = self.load_from_database
+        loader_screen.on_load_json = self.load_json_and_generate
+        loader_screen.on_split_gender = self.split_gender_to_json
 
-        # Info label
-        self.info_var = tk.StringVar(value="[Waiting for XLSX file...]")
-        info_label = tk.Label(self, textvariable=self.info_var)
-        apply_label_style(info_label, 'info')
-        info_label.pack(pady=(0, 20))
-
-        # Status label (bottom)
-        self.status_var = tk.StringVar(value="Ready.")
-        self.status_label = tk.Label(self, textvariable=self.status_var, wraplength=480)
-        apply_label_style(self.status_label, 'status_success')
-        self.status_label.pack(side="bottom", pady=15)
-
-        # Main buttons
-        load_btn = tk.Button(self, text="Load Participant List (XLSX) & Generate Brackets",
-                            command=self.load_and_generate)
-        apply_button_style(load_btn, 'primary')
-        load_btn.pack(pady=8, fill="x", padx=40)
-
-        # Database load button
-        db_btn = tk.Button(self, text="Load from Database & Generate Brackets",
-                          command=self.load_from_database)
-        apply_button_style(db_btn, 'primary')
-        db_btn.pack(pady=8, fill="x", padx=40)
-
-        # Load JSON files button
-        json_btn = tk.Button(self, text="Load M/W JSON Files & Generate Brackets",
-                            command=self.load_json_and_generate)
-        apply_button_style(json_btn, 'primary')
-        json_btn.pack(pady=8, fill="x", padx=40)
-
-        # Split M/W button
-        split_btn = tk.Button(self, text="Split M/W Contestants (XLSX → JSON)",
-                             command=self.split_gender_to_json)
-        apply_button_style(split_btn, 'secondary')
-        split_btn.pack(pady=8, fill="x", padx=40)
+        self.logger.debug("File loader screen displayed")
 
     def show_group_preview_window(self):
-        """Show group preview window with participant details before bracket viewer."""
-        # Resize window to match bracket viewer
+        """Show group preview screen."""
+        # Resize window
         self.geometry('1000x600')
         self.configure(bg=COLORS['bg_dark'])
 
@@ -209,29 +179,19 @@ class BracketViewerApp(tk.Tk):
         for widget in self.winfo_children():
             widget.destroy()
 
-        # Create main layout with frame
-        main_frame = create_dark_frame(self)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Create and display preview screen
+        preview_screen = GroupPreviewScreen(self)
+        preview_screen.pack(fill=tk.BOTH, expand=True)
 
-        # Create PanedWindow for resizable split
-        paned = tk.PanedWindow(main_frame, orient=tk.HORIZONTAL,
-                              bg=COLORS['bg_dark'],
-                              sashwidth=4,
-                              sashrelief=tk.FLAT,
-                              showhandle=False)
-        paned.pack(fill=tk.BOTH, expand=True)
+        # Store reference and set up callbacks
+        self.group_preview_screen = preview_screen
+        preview_screen.on_back = self.show_file_loader
+        preview_screen.on_continue = self.show_generation_method_screen
 
-        # Left panel: Group list sidebar
-        self._create_group_list_panel(paned)
+        # Load bracket data
+        preview_screen.load_data(self.brackets)
 
-        # Right panel: Participant preview area
-        self._create_participant_preview_panel(paned)
-
-        # Bottom navigation buttons
-        self._create_preview_navigation_buttons(main_frame)
-
-        # Populate the group list
-        self._populate_group_list()
+        self.logger.debug("Group preview screen displayed")
 
     def show_generation_method_screen(self):
         """Show the generation method selection screen."""
@@ -263,242 +223,6 @@ class BracketViewerApp(tk.Tk):
 
         # Set up callback for when generation methods are selected
         gen_screen.on_generation_complete = self.on_generation_methods_selected
-
-    def _create_group_list_panel(self, parent_paned):
-        """Create the left panel with group list and search."""
-        left_frame = create_dark_frame(parent_paned)
-        parent_paned.add(left_frame, width=300, minsize=250)
-
-        # Title with count
-        title_frame = create_dark_frame(left_frame)
-        title_frame.pack(fill=tk.X, pady=(0, 5))
-
-        title_label = tk.Label(title_frame, text='Weight Groups')
-        apply_label_style(title_label, 'heading_md')
-        title_label.pack(side=tk.LEFT)
-
-        # Total participant counter
-        self.preview_count_var = tk.StringVar(value="(0)")
-        count_label = tk.Label(title_frame, textvariable=self.preview_count_var)
-        apply_label_style(count_label, 'info')
-        count_label.pack(side=tk.RIGHT)
-
-        # Search box
-        search_frame = create_dark_frame(left_frame)
-        search_frame.pack(fill=tk.X, pady=(0, 5))
-
-        search_label = tk.Label(search_frame, text='Search:')
-        apply_label_style(search_label, 'info')
-        search_label.pack(side=tk.LEFT)
-
-        self.preview_search_var = tk.StringVar()
-        self.preview_search_var.trace('w', self._filter_group_list)
-        search_entry = tk.Entry(search_frame, textvariable=self.preview_search_var, fg=COLORS['text_muted'])
-        search_entry.insert(0, "M, W, age, or kg")
-        search_entry.bind('<FocusIn>', lambda e: self._on_search_focus_in(search_entry))
-        apply_entry_style(search_entry)
-        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
-
-        # Group listbox
-        self.group_listbox = tk.Listbox(left_frame, width=30, height=20)
-        apply_listbox_style(self.group_listbox)
-        self.group_listbox.pack(fill=tk.BOTH, expand=True, pady=5)
-
-        # Bind double-click to show preview
-        self.group_listbox.bind('<Double-Button-1>', self._on_group_double_click)
-
-        # Store mapping for display text to bracket key
-        self.group_listbox_map = {}
-
-    def _create_participant_preview_panel(self, parent_paned):
-        """Create the right panel for participant preview."""
-        right_frame = create_dark_frame(parent_paned)
-        parent_paned.add(right_frame, minsize=450)
-
-        # Title area (will be updated when group is selected)
-        self.preview_title_var = tk.StringVar(value="Participant Preview")
-        title_label = tk.Label(right_frame, textvariable=self.preview_title_var)
-        apply_label_style(title_label, 'heading_md')
-        title_label.pack(pady=(0, 10))
-
-        # Create container for participant display
-        self.participant_display_frame = create_dark_frame(right_frame)
-        self.participant_display_frame.pack(fill=tk.BOTH, expand=True)
-
-        # Initial placeholder message
-        placeholder = tk.Label(self.participant_display_frame,
-                              text="Double-click a group to preview participants")
-        apply_label_style(placeholder, 'info')
-        placeholder.pack(expand=True)
-
-    def _create_preview_navigation_buttons(self, parent_frame):
-        """Create navigation buttons at bottom of preview window."""
-        button_frame = create_dark_frame(parent_frame)
-        button_frame.pack(fill=tk.X, pady=(10, 0))
-
-        # Back button (left side)
-        back_btn = tk.Button(button_frame, text='← Back to File Loader',
-                            command=self.show_file_loader)
-        apply_button_style(back_btn, 'secondary')
-        back_btn.pack(side=tk.LEFT, padx=5)
-
-        # Continue button (right side) - goes to generation method selection
-        continue_btn = tk.Button(button_frame, text='Continue to Generation Setup →',
-                                command=self.show_generation_method_screen)
-        apply_button_style(continue_btn, 'primary')
-        continue_btn.pack(side=tk.RIGHT, padx=5)
-
-    def _populate_group_list(self):
-        """Populate the group list with all non-empty brackets."""
-        if not hasattr(self, 'group_listbox') or not self.group_listbox.winfo_exists():
-            return
-        self.group_listbox.delete(0, tk.END)
-        self.group_listbox_map.clear()
-
-        total_participants = 0
-
-        # Filter out empty groups and sort
-        for bracket_key in sorted(self.brackets.keys()):
-            fighters = self.brackets[bracket_key].get('fighters', [])
-            if fighters:  # Only show groups with participants
-                count = len(fighters)
-                total_participants += count
-
-                # Format: "M | U13 | -50kg (12)"
-                display_text = f"{bracket_key} ({count})"
-                self.group_listbox.insert(tk.END, display_text)
-                self.group_listbox_map[display_text] = bracket_key
-
-        # Update total counter
-        self.preview_count_var.set(f"({total_participants})")
-
-    def _on_search_focus_in(self, search_entry):
-        """Clear placeholder text on focus."""
-        if search_entry.get() == "M, W, age, or kg":
-            search_entry.delete(0, tk.END)
-            search_entry.config(fg=COLORS['text_primary'])
-
-    def _filter_group_list(self, *args):
-        """Filter the group list based on search term (supports multiple parameters)."""
-        if not hasattr(self, 'group_listbox') or not self.group_listbox.winfo_exists():
-            return
-        
-        search_term = self.preview_search_var.get().lower().strip()
-        
-        # Skip placeholder text
-        if search_term == "m, w, age, or kg" or not search_term:
-            self.logger.debug("Search cleared or placeholder - showing all groups")
-            self._populate_group_list()
-            return
-        
-        self.logger.debug(f"Filtering groups with search term: '{search_term}'")
-        self.group_listbox.delete(0, tk.END)
-        total_filtered = 0
-        matched_brackets = []
-
-        for bracket_key in sorted(self.brackets.keys()):
-            fighters = self.brackets[bracket_key].get('fighters', [])
-            if not fighters:
-                continue
-            
-            bracket_key_lower = bracket_key.lower()
-            
-            # Split search into individual terms, filter out empty strings
-            search_terms = [term for term in search_term.split() if term]
-            self.logger.debug(f"Search terms: {search_terms}")
-            
-            # Check if ALL search terms match in the bracket key
-            if search_terms and all(term in bracket_key_lower for term in search_terms):
-                count = len(fighters)
-                total_filtered += count
-                matched_brackets.append(bracket_key)
-                display_text = f"{bracket_key} ({count})"
-                self.group_listbox.insert(tk.END, display_text)
-
-        # Update counter with filtered count
-        self.logger.debug(f"Search results: {len(matched_brackets)} brackets matched, {total_filtered} total fighters")
-        if matched_brackets:
-            self.logger.debug(f"Matched brackets: {', '.join(matched_brackets)}")
-        self.preview_count_var.set(f"({total_filtered})")
-
-    def _on_group_double_click(self, event):
-        """Handle double-click on a group - show participant details."""
-        selection = self.group_listbox.curselection()
-        if not selection:
-            return
-
-        display_text = self.group_listbox.get(selection[0])
-        bracket_key = self.group_listbox_map.get(display_text, display_text)
-
-        # Display participants for this group
-        self._display_participants(bracket_key)
-
-    def _display_participants(self, bracket_key):
-        """Display participant details for the selected group."""
-        # Clear previous content
-        for widget in self.participant_display_frame.winfo_children():
-            widget.destroy()
-
-        # Get fighters for this bracket
-        fighters = self.brackets[bracket_key].get('fighters', [])
-        count = len(fighters)
-
-        print(f"[DEBUG] Displaying {count} fighters for bracket: {bracket_key}")
-
-        # Update title
-        self.preview_title_var.set(f"{bracket_key} - {count} participants")
-
-        # Create a Text widget with scrollbar (much simpler!)
-        text_frame = create_dark_frame(self.participant_display_frame)
-        text_frame.pack(fill=tk.BOTH, expand=True)
-
-        scrollbar = tk.Scrollbar(text_frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        text_widget = tk.Text(text_frame,
-                             wrap=tk.NONE,
-                             yscrollcommand=scrollbar.set,
-                             bg=COLORS['bg_panel'],
-                             fg=COLORS['text_primary'],
-                             font=FONTS['body_sm'],
-                             padx=10,
-                             pady=10)
-        text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.config(command=text_widget.yview)
-
-        # Add header line - headers positioned more to the right within columns
-        header = f"{'Name':<35}             {'Weight (kg)':<15}             {'Club/Verein':<30}                  {'Age':<10}\n"
-        text_widget.insert(tk.END, header, 'header')
-        text_widget.insert(tk.END, "=" * 100 + "\n\n")
-
-        # Add participant rows with original spacing
-        for i, fighter in enumerate(fighters):
-            # Extract data with fallbacks
-            name = fighter.get('Name', fighter.get('name', 'N/A'))
-            weight = fighter.get('Weight', fighter.get('weight', 'N/A'))
-            club = fighter.get('Verein', fighter.get('verein', fighter.get('club', 'N/A')))
-            age = fighter.get('Age', fighter.get('age', 'N/A'))
-
-            # Format weight
-            if isinstance(weight, (int, float)):
-                weight_str = f"{weight:.1f}"
-            else:
-                weight_str = str(weight)
-
-            # Create row text with original fixed-width spacing
-            row = f"{str(name):<35} {weight_str:<15} {str(club):<30} {str(age):<10}\n"
-            text_widget.insert(tk.END, row)
-
-            if i < 3:
-                print(f"[DEBUG] Fighter {i}: {name}, {weight_str}kg, {club}, Age {age}")
-
-        # Style the header
-        text_widget.tag_configure('header', font=FONTS['heading_sm'], foreground=COLORS['accent_blue'])
-
-        # Make text widget read-only
-        text_widget.config(state=tk.DISABLED)
-
-        print(f"[DEBUG] Text widget created with {count} fighters")
 
     def show_loading_progress(self, message):
         """Show a loading progress dialog."""
@@ -947,6 +671,22 @@ class BracketViewerApp(tk.Tk):
             if color:
                 self.status_label.config(fg=color)
             self.update_idletasks()
+        
+        # Also update file loader screen if it exists and is displayed
+        if hasattr(self, 'file_loader_screen') and self.file_loader_screen.winfo_exists():
+            style = 'status_success'
+            if color and color == COLORS['accent_red']:
+                style = 'status_error'
+            elif color and color == COLORS['text_secondary']:
+                style = 'info'
+            self.file_loader_screen.set_status_text(msg, style)
+
+    def set_info_text(self, text):
+        """Update info text on file loader screen if available."""
+        if hasattr(self, 'info_var'):
+            self.info_var.set(text)
+        if hasattr(self, 'file_loader_screen') and self.file_loader_screen.winfo_exists():
+            self.file_loader_screen.set_info_text(text)
 
     def load_and_generate(self):
         """Load participants from XLSX file and generate brackets."""
@@ -983,7 +723,7 @@ class BracketViewerApp(tk.Tk):
                 return
 
             total_fighters = len(participants)
-            self.info_var.set(f"✓ {total_fighters} participants loaded")
+            self.set_info_text(f"✓ {total_fighters} participants loaded")
             self.update_progress(50)
 
             self.set_status("Generating brackets...", COLORS['text_secondary'])
@@ -1038,7 +778,7 @@ class BracketViewerApp(tk.Tk):
                 return
 
             total_fighters = len(participants)
-            self.info_var.set(f"✓ {total_fighters} participants loaded from database")
+            self.set_info_text(f"✓ {total_fighters} participants loaded from database")
             self.update_progress(50)
 
             self.set_status("Generating brackets...", COLORS['text_secondary'])
@@ -1144,7 +884,7 @@ class BracketViewerApp(tk.Tk):
                 return
 
             total_fighters = len(all_participants)
-            self.info_var.set(f"✓ {total_fighters} participants loaded from JSON files")
+            self.set_info_text(f"✓ {total_fighters} participants loaded from JSON files")
 
             self.set_status("Generating brackets...", COLORS['text_secondary'])
 
@@ -1462,12 +1202,12 @@ class BracketViewerApp(tk.Tk):
                 rounds.append(current)
 
                 while len(current) > 1:
-                    nextRound = []
+                    next_round = []
                     for i in range(0, len(current), 2):
                         p1 = f"Winner {i+1}"
                         p2 = f"Winner {i+2}" if i+1 < len(current) else 'BYE'
-                        nextRound.append((p1, p2))
-                    current = nextRound
+                        next_round.append((p1, p2))
+                    current = next_round
                     rounds.append(current)
 
                 # Cache the bracket structure
