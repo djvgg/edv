@@ -8,6 +8,11 @@ This screen allows users to choose which generation method each bracket will use
 Displays unassigned brackets on the left and 4 method tables on the right in a 2x2 grid.
 """
 
+# ===== DEBUG CONFIGURATION =====
+# Set to True to print debug logs to console; False to only log to file
+DEBUG_VERBOSE = True
+# ==============================
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 import sys
@@ -39,6 +44,9 @@ class GenerationMethodScreen(tk.Frame):
     - KO Brackets (11+ fighters)
     - Special Cases (edge cases)
     """
+
+    # Debug flag - set to True for verbose logging
+    DEBUG = False
 
     # Method constants
     METHOD_POOLS = 'pools'
@@ -95,6 +103,9 @@ class GenerationMethodScreen(tk.Frame):
 
             self.filtered_keys = self.unassigned.copy()
             self.logger.info(f"Loaded {len(self.brackets)} brackets, {len(self.unassigned)} unassigned")
+            if self.DEBUG:
+                self.logger.debug(f"DEBUG: Bracket keys: {list(self.brackets.keys())}")
+                self.logger.debug(f"DEBUG: Unassigned keys: {self.unassigned}")
 
         # Build or refresh UI
         if self.main_frame:
@@ -191,14 +202,41 @@ class GenerationMethodScreen(tk.Frame):
         self.unassigned_listbox.bind('<<ListboxSelect>>', self.on_unassigned_select)
         scrollbar.config(command=self.unassigned_listbox.yview)
 
-        # Assign button
-        assign_btn = tk.Button(
-            left_panel,
-            text="Assign Selected →",
-            command=self.on_assign_selected,
+        # Method assignment buttons (4 buttons for 4 methods)
+        buttons_frame = tk.Frame(left_panel, bg=COLORS['bg_panel'])
+        buttons_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        pools_btn = tk.Button(
+            buttons_frame,
+            text="Pools≤5",
+            command=lambda: self.on_assign_to_method(self.METHOD_POOLS),
         )
-        apply_button_style(assign_btn, style='secondary')
-        assign_btn.pack(pady=5, fill=tk.X, padx=5)
+        apply_button_style(pools_btn, style='secondary')
+        pools_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        double_btn = tk.Button(
+            buttons_frame,
+            text="Double6-10",
+            command=lambda: self.on_assign_to_method(self.METHOD_DOUBLE),
+        )
+        apply_button_style(double_btn, style='secondary')
+        double_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        ko_btn = tk.Button(
+            buttons_frame,
+            text="KO11+",
+            command=lambda: self.on_assign_to_method(self.METHOD_KO),
+        )
+        apply_button_style(ko_btn, style='secondary')
+        ko_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        special_btn = tk.Button(
+            buttons_frame,
+            text="Special",
+            command=lambda: self.on_assign_to_method(self.METHOD_SPECIAL),
+        )
+        apply_button_style(special_btn, style='secondary')
+        special_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
 
         # RIGHT PANEL: 4 Tables in 2x2 Grid
         right_panel = tk.Frame(self.main_frame, bg=COLORS['bg_dark'])
@@ -264,11 +302,12 @@ class GenerationMethodScreen(tk.Frame):
         # Unassign button
         unassign_btn = tk.Button(
             frame,
-            text="← Unassign",
+            text="×",
             command=lambda m=method_key: self.on_unassign_from_table(m),
+            width=3,
         )
         apply_button_style(unassign_btn, style='secondary')
-        unassign_btn.pack(pady=5, fill=tk.X, padx=5)
+        unassign_btn.pack(pady=5, padx=5)
 
         self.tables[method_key] = {
             'listbox': listbox,
@@ -277,6 +316,7 @@ class GenerationMethodScreen(tk.Frame):
 
     def on_back(self):
         """Go back to group preview screen."""
+        self.logger.info("User navigated back to group preview")
         self.master.show_group_preview_window()
 
     def on_search(self):
@@ -285,8 +325,10 @@ class GenerationMethodScreen(tk.Frame):
 
         if search_term:
             self.filtered_keys = [k for k in self.unassigned if search_term in k.lower()]
+            self.logger.debug(f"Search term '{search_term}': found {len(self.filtered_keys)} brackets")
         else:
             self.filtered_keys = self.unassigned.copy()
+            self.logger.debug("Search cleared - showing all unassigned brackets")
 
         self._refresh_unassigned_display()
 
@@ -296,6 +338,7 @@ class GenerationMethodScreen(tk.Frame):
         if selection:
             idx = selection[0]
             self.selected_unassigned = self.filtered_keys[idx]
+            self.logger.debug(f"Selected unassigned bracket: {self.selected_unassigned}")
 
     def on_table_select(self, method, event):
         """Handle selection in method table."""
@@ -306,27 +349,29 @@ class GenerationMethodScreen(tk.Frame):
             # Get the bracket key from the listbox
             bracket_key = listbox.get(idx).split(' (')[0]  # Extract key before " (N)"
             self.selected_in_tables[method] = bracket_key
+            self.logger.debug(f"Selected bracket in {method} table: {bracket_key}")
 
-    def on_assign_selected(self):
-        """Assign selected unassigned bracket to a method (user needs to choose)."""
+    def on_assign_to_method(self, method):
+        """Assign selected unassigned bracket to specified method."""
         if not self.selected_unassigned:
+            self.logger.debug("Assign action failed: no bracket selected")
             messagebox.showwarning("Warning", "Please select a bracket from the unassigned list")
             return
 
-        # Ask user which method
-        method = self._ask_method()
-        if not method:
-            return
-
+        self.logger.debug(f"Assigning {self.selected_unassigned} to {method}")
         self._assign_bracket(self.selected_unassigned, method)
+        self.selected_unassigned = None  # Clear selection after assignment
+        self.unassigned_listbox.selection_clear(0, tk.END)
 
     def on_unassign_from_table(self, method):
         """Unassign selected bracket from a method."""
         if method not in self.selected_in_tables:
+            self.logger.debug(f"Unassign action failed: no bracket selected in {method} table")
             messagebox.showwarning("Warning", "Please select a bracket from the table")
             return
 
         bracket_key = self.selected_in_tables[method]
+        self.logger.debug(f"Unassigning {bracket_key} from {method}")
         self._unassign_bracket(bracket_key)
 
     def on_auto_assign(self):
@@ -370,6 +415,8 @@ class GenerationMethodScreen(tk.Frame):
     def _assign_bracket(self, bracket_key, method):
         """Assign a bracket to a method."""
         if bracket_key not in self.brackets:
+            if self.DEBUG:
+                self.logger.debug(f"DEBUG: Cannot assign - bracket {bracket_key} not found")
             return
 
         self.brackets[bracket_key]["method"] = method
@@ -378,20 +425,27 @@ class GenerationMethodScreen(tk.Frame):
             self.unassigned.remove(bracket_key)
             self.filtered_keys = [k for k in self.filtered_keys if k != bracket_key]
 
+        if self.DEBUG:
+            self.logger.debug(f"DEBUG: Assigned {bracket_key} → {method}. Unassigned remaining: {self.unassigned}")
         self._refresh_all_displays()
         self.logger.info(f"Assigned {bracket_key} to {method}")
 
     def _unassign_bracket(self, bracket_key):
         """Unassign a bracket from a method."""
         if bracket_key not in self.brackets:
+            if self.DEBUG:
+                self.logger.debug(f"DEBUG: Cannot unassign - bracket {bracket_key} not found")
             return
 
+        old_method = self.brackets[bracket_key]["method"]
         self.brackets[bracket_key]["method"] = None
 
         if bracket_key not in self.unassigned:
             self.unassigned.append(bracket_key)
             self.filtered_keys.append(bracket_key)
 
+        if self.DEBUG:
+            self.logger.debug(f"DEBUG: Unassigned {bracket_key} from {old_method}. Unassigned now: {self.unassigned}")
         self._refresh_all_displays()
         self.logger.info(f"Unassigned {bracket_key}")
 
@@ -444,54 +498,17 @@ class GenerationMethodScreen(tk.Frame):
     def _recommend_method(self, fighter_count):
         """Recommend a generation method based on fighter count."""
         if fighter_count < 3:
-            return self.METHOD_SPECIAL
+            method = self.METHOD_SPECIAL
         elif fighter_count <= 5:
-            return self.METHOD_POOLS
+            method = self.METHOD_POOLS
         elif fighter_count <= 10:
-            return self.METHOD_DOUBLE
+            method = self.METHOD_DOUBLE
         else:
-            return self.METHOD_KO
-
-    def _ask_method(self):
-        """Ask user which method to assign to."""
-        # Simple dialog - could be improved with a popup dialog
-        methods = {
-            self.METHOD_POOLS: 'Pools (≤5 fighters)',
-            self.METHOD_DOUBLE: 'Double Pools (6-10)',
-            self.METHOD_KO: 'KO Brackets (11+)',
-            self.METHOD_SPECIAL: 'Special Cases',
-        }
-
-        # Create a simple popup for method selection
-        popup = tk.Toplevel(self)
-        popup.title("Select Generation Method")
-        popup.geometry("300x200")
-        popup.configure(bg=COLORS['bg_dark'])
-
-        label = tk.Label(popup, text="Choose generation method:", bg=COLORS['bg_dark'], fg=COLORS['text_primary'])
-        label.pack(pady=10)
-
-        selected_method = {'value': None}
-
-        for method_key, method_name in methods.items():
-            btn = tk.Button(
-                popup,
-                text=method_name,
-                command=lambda m=method_key: self._on_method_selected(popup, selected_method, m),
-            )
-            apply_button_style(btn, style='secondary')
-            btn.pack(pady=5, fill=tk.X, padx=10)
-
-        popup.transient(self)
-        popup.grab_set()
-        self.wait_window(popup)
-
-        return selected_method['value']
-
-    def _on_method_selected(self, popup, selected_method, method):
-        """Handle method selection."""
-        selected_method['value'] = method
-        popup.destroy()
+            method = self.METHOD_KO
+        
+        if self.DEBUG:
+            self.logger.debug(f"DEBUG: {fighter_count} fighters → recommend {method}")
+        return method
 
     def on_close(self):
         """Close screen and proceed to generation."""
@@ -509,6 +526,11 @@ class GenerationMethodScreen(tk.Frame):
         final_brackets = {k: v['method'] for k, v in self.brackets.items()}
 
         self.logger.info(f"Finalized bracket assignments: {final_brackets}")
+        if self.DEBUG:
+            methods_count = {}
+            for method in final_brackets.values():
+                methods_count[method] = methods_count.get(method, 0) + 1
+            self.logger.debug(f"DEBUG: Final distribution - {methods_count}")
 
         # Call callback if available
         if hasattr(self.master, 'on_generation_methods_selected'):

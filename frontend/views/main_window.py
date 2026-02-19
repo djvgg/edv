@@ -293,7 +293,9 @@ class BracketViewerApp(tk.Tk):
 
         self.preview_search_var = tk.StringVar()
         self.preview_search_var.trace('w', self._filter_group_list)
-        search_entry = tk.Entry(search_frame, textvariable=self.preview_search_var)
+        search_entry = tk.Entry(search_frame, textvariable=self.preview_search_var, fg=COLORS['text_muted'])
+        search_entry.insert(0, "M, W, age, or kg")
+        search_entry.bind('<FocusIn>', lambda e: self._on_search_focus_in(search_entry))
         apply_entry_style(search_entry)
         search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
 
@@ -348,6 +350,8 @@ class BracketViewerApp(tk.Tk):
 
     def _populate_group_list(self):
         """Populate the group list with all non-empty brackets."""
+        if not hasattr(self, 'group_listbox') or not self.group_listbox.winfo_exists():
+            return
         self.group_listbox.delete(0, tk.END)
         self.group_listbox_map.clear()
 
@@ -368,22 +372,53 @@ class BracketViewerApp(tk.Tk):
         # Update total counter
         self.preview_count_var.set(f"({total_participants})")
 
-    def _filter_group_list(self, *args):
-        """Filter the group list based on search term."""
-        search_term = self.preview_search_var.get().lower()
-        self.group_listbox.delete(0, tk.END)
+    def _on_search_focus_in(self, search_entry):
+        """Clear placeholder text on focus."""
+        if search_entry.get() == "M, W, age, or kg":
+            search_entry.delete(0, tk.END)
+            search_entry.config(fg=COLORS['text_primary'])
 
+    def _filter_group_list(self, *args):
+        """Filter the group list based on search term (supports multiple parameters)."""
+        if not hasattr(self, 'group_listbox') or not self.group_listbox.winfo_exists():
+            return
+        
+        search_term = self.preview_search_var.get().lower().strip()
+        
+        # Skip placeholder text
+        if search_term == "m, w, age, or kg" or not search_term:
+            self.logger.debug("Search cleared or placeholder - showing all groups")
+            self._populate_group_list()
+            return
+        
+        self.logger.debug(f"Filtering groups with search term: '{search_term}'")
+        self.group_listbox.delete(0, tk.END)
         total_filtered = 0
+        matched_brackets = []
 
         for bracket_key in sorted(self.brackets.keys()):
             fighters = self.brackets[bracket_key].get('fighters', [])
-            if fighters and search_term in bracket_key.lower():
+            if not fighters:
+                continue
+            
+            bracket_key_lower = bracket_key.lower()
+            
+            # Split search into individual terms, filter out empty strings
+            search_terms = [term for term in search_term.split() if term]
+            self.logger.debug(f"Search terms: {search_terms}")
+            
+            # Check if ALL search terms match in the bracket key
+            if search_terms and all(term in bracket_key_lower for term in search_terms):
                 count = len(fighters)
                 total_filtered += count
+                matched_brackets.append(bracket_key)
                 display_text = f"{bracket_key} ({count})"
                 self.group_listbox.insert(tk.END, display_text)
 
         # Update counter with filtered count
+        self.logger.debug(f"Search results: {len(matched_brackets)} brackets matched, {total_filtered} total fighters")
+        if matched_brackets:
+            self.logger.debug(f"Matched brackets: {', '.join(matched_brackets)}")
         self.preview_count_var.set(f"({total_filtered})")
 
     def _on_group_double_click(self, event):
