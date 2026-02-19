@@ -49,6 +49,9 @@ from ..utils import (  # noqa: E402
     draw_pools_on_canvas,
 )
 
+# Import generation method screen
+from .generation_method_screen import GenerationMethodScreen  # noqa: E402
+
 # ===== DEBUG CONFIGURATION =====
 # Set to True to print debug logs to console; False to only log to file
 DEBUG_VERBOSE = True
@@ -94,6 +97,7 @@ class BracketViewerApp(tk.Tk):
         # Data
         self.brackets = {}  # {bracket_key: Bracket data}
         self.bracket_cache_file = None
+        self.bracket_generation_methods = {}  # {bracket_key: method_name}
         self.viewer_shown = False
         self.zoom_level = 1.0  # Zoom level for bracket visualization
         self.current_bracket_key = None  # Track currently displayed bracket
@@ -229,6 +233,37 @@ class BracketViewerApp(tk.Tk):
         # Populate the group list
         self._populate_group_list()
 
+    def show_generation_method_screen(self):
+        """Show the generation method selection screen."""
+        # Clear existing widgets
+        for widget in self.winfo_children():
+            widget.destroy()
+
+        # Create the generation method screen
+        gen_screen = GenerationMethodScreen(self)
+        gen_screen.pack(fill=tk.BOTH, expand=True)
+
+        # Store reference for access
+        self.generation_method_screen = gen_screen
+
+        # Prepare bracket data for the screen
+        # Convert brackets to the format expected by GenerationMethodScreen
+        brackets_dict = {}
+        for bracket_key, bracket_data in self.brackets.items():
+            fighters = bracket_data.get('fighters', [])
+            # Create a bracket tuple from fighters list
+            # For now, use fighters list as the tuple
+            brackets_dict[bracket_key] = {
+                'tuple': fighters,
+                'method': None,  # Not assigned yet
+            }
+
+        # Load the data into the screen
+        gen_screen.load_data(brackets_dict)
+
+        # Set up callback for when generation methods are selected
+        gen_screen.on_generation_complete = self.on_generation_methods_selected
+
     def _create_group_list_panel(self, parent_paned):
         """Create the left panel with group list and search."""
         left_frame = create_dark_frame(parent_paned)
@@ -305,9 +340,9 @@ class BracketViewerApp(tk.Tk):
         apply_button_style(back_btn, 'secondary')
         back_btn.pack(side=tk.LEFT, padx=5)
 
-        # Continue button (right side)
-        continue_btn = tk.Button(button_frame, text='Continue to Bracket Viewer →',
-                                command=self.show_bracket_viewer)
+        # Continue button (right side) - goes to generation method selection
+        continue_btn = tk.Button(button_frame, text='Continue to Generation Setup →',
+                                command=self.show_generation_method_screen)
         apply_button_style(continue_btn, 'primary')
         continue_btn.pack(side=tk.RIGHT, padx=5)
 
@@ -664,6 +699,21 @@ class BracketViewerApp(tk.Tk):
             self.bracket_canvas.yview_scroll(1, "units")
         elif event.num == 4 or event.delta > 0:
             self.bracket_canvas.yview_scroll(-1, "units")
+
+    def on_generation_methods_selected(self, final_assignments):
+        """
+        Callback when generation methods have been assigned to all brackets.
+        
+        Args:
+            final_assignments: Dict of {bracket_key: method_name}
+        """
+        self.logger.info(f"Generation methods assigned: {final_assignments}")
+        
+        # Store the assignments for use in bracket viewer
+        self.bracket_generation_methods = final_assignments
+        
+        # Proceed to bracket viewer
+        self.show_bracket_viewer()
 
     def show_tables(self):
         """Show table assignment view."""
