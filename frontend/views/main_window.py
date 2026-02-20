@@ -56,7 +56,7 @@ from .group_preview_screen import GroupPreviewScreen  # noqa: E402
 
 # ===== DEBUG CONFIGURATION =====
 # Set to True to print debug logs to console; False to only log to file
-DEBUG_VERBOSE = True
+DEBUG = True
 # ==============================
 
 # Import from judgefrontend for flexible xlsx handling
@@ -77,7 +77,7 @@ class BracketViewerApp(tk.Tk):
     def __init__(self):
         super().__init__()
         # Initialize logger
-        self.logger = get_logger('main_window')
+        self.logger = get_logger('main_window', debug_verbose=DEBUG)
         
         self.title('Tournament Bracket Manager')
         self.geometry('520x440')  
@@ -208,14 +208,15 @@ class BracketViewerApp(tk.Tk):
 
         # Prepare bracket data for the screen
         # Convert brackets to the format expected by GenerationMethodScreen
+        # Merge with cached assignments if they exist
         brackets_dict = {}
         for bracket_key, bracket_data in self.brackets.items():
             fighters = bracket_data.get('fighters', [])
-            # Create a bracket tuple from fighters list
-            # For now, use fighters list as the tuple
+            # Use cached assignment if available, otherwise None
+            cached_method = self.bracket_generation_methods.get(bracket_key)
             brackets_dict[bracket_key] = {
                 'tuple': fighters,
-                'method': None,  # Not assigned yet
+                'method': cached_method,  # Load cached assignment or None
             }
 
         # Load the data into the screen
@@ -1156,18 +1157,28 @@ class BracketViewerApp(tk.Tk):
             num_participants = len(participants)
             self.logger.debug(f"Found {num_participants} participants")
 
-            # Check if this should be a pool (3-10 participants)
-            if 3 <= num_participants <= 10:
-                self.logger.debug(f"Rendering pool for {num_participants} participants")
-                pool_type = "Single Pool" if num_participants <= 5 else "Double Pool"
+            # Check user's assigned method from generation screen
+            assigned_method = self.bracket_generation_methods.get(bracket_key)
+            self.logger.debug(f"Bracket {bracket_key} assigned method: {assigned_method}")
+
+            # Determine rendering method: pools or KO (default)
+            if assigned_method == 'pools':
+                self.logger.debug(f"Using assigned 'pools' method")
                 if hasattr(self, 'viz_title_var'):
-                    self.viz_title_var.set(f'Pool Visualization ({pool_type})')
+                    self.viz_title_var.set('Pool Visualization (Single Pool)')
+                self._render_pool(bracket_key, participants)
+                return
+            elif assigned_method == 'double':
+                self.logger.debug(f"Using assigned 'double' method")
+                if hasattr(self, 'viz_title_var'):
+                    self.viz_title_var.set('Pool Visualization (Double Pool)')
                 self._render_pool(bracket_key, participants)
                 return
 
-            # Update title for bracket view
+            # Default to KO bracket rendering (includes 'ko', 'special', and unassigned)
+            self.logger.debug(f"Rendering as KO bracket (method: {assigned_method})")
             if hasattr(self, 'viz_title_var'):
-                self.viz_title_var.set('Bracket Visualization')
+                self.viz_title_var.set('Bracket Visualization (KO)')
 
             # Otherwise render bracket (11+ participants)
             # Check if we have cached bracket structure
@@ -1342,8 +1353,15 @@ class BracketViewerApp(tk.Tk):
             self.bracket_canvas.configure(scrollregion=(0, 0, total_width, total_height))
 
             num_participants = len(normalized_participants)
+            assigned_method = self.bracket_generation_methods.get(bracket_key, 'unknown')
+            
+            # Calculate number of matches in round-robin
+            num_matches = (num_participants * (num_participants - 1)) // 2
+            
+            # Determine pool type for display
             pool_type = "Single Pool" if num_participants <= 5 else "Double Pool"
-            self.logger.debug(f"Successfully rendered {pool_type} with {num_participants} participants at {int(self.zoom_level*100)}% zoom")
+            
+            self.logger.debug(f"Successfully rendered {pool_type} (method: {assigned_method}) with {num_participants} participants, {num_matches} total matches at {int(self.zoom_level*100)}% zoom")
 
         except Exception as e:
             self.logger.error(f"Exception rendering pool: {e}", exc_info=True)

@@ -49,7 +49,7 @@ def _generate_fight_schedule(pool_size):
         ]
 
     # For larger pools, use circle method and flatten to one match per column
-    # This is a fallback - may need refinement
+    # This generates all matches for the pool
     n = pool_size if pool_size % 2 == 0 else pool_size + 1
     players = list(range(n))
     all_matches = []
@@ -63,7 +63,7 @@ def _generate_fight_schedule(pool_size):
 
         players = [players[0]] + [players[-1]] + players[1:-1]
 
-    return all_matches[:pool_size]  # Limit to pool_size columns
+    return all_matches  # Return all generated matches for complete round-robin
 
 
 def split_into_pools(participants, num_pools=1):

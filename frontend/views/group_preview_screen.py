@@ -27,7 +27,10 @@ from ..styles import (
     create_dark_frame,
 )
 
-logger = get_logger('group_preview_screen')
+# Debug flag - set to True for verbose logging
+DEBUG = True
+
+logger = get_logger('group_preview_screen', debug_verbose=DEBUG)
 
 
 class GroupPreviewScreen(tk.Frame):
@@ -41,7 +44,7 @@ class GroupPreviewScreen(tk.Frame):
     """
 
     # Debug flag - set to True for verbose logging
-    DEBUG = False
+    DEBUG = DEBUG
 
     def __init__(self, parent, **kwargs):
         super().__init__(parent, **kwargs)

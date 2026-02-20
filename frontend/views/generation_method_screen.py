@@ -10,7 +10,7 @@ Displays unassigned brackets on the left and 4 method tables on the right in a 2
 
 # ===== DEBUG CONFIGURATION =====
 # Set to True to print debug logs to console; False to only log to file
-DEBUG_VERBOSE = True
+DEBUG = True
 # ==============================
 
 import tkinter as tk
@@ -31,7 +31,7 @@ from ..styles import (
     create_dark_frame,
 )
 
-logger = get_logger('generation_method_screen')
+logger = get_logger('generation_method_screen', debug_verbose=DEBUG)
 
 
 class GenerationMethodScreen(tk.Frame):
@@ -46,7 +46,7 @@ class GenerationMethodScreen(tk.Frame):
     """
 
     # Debug flag - set to True for verbose logging
-    DEBUG = False
+    DEBUG = DEBUG
 
     # Method constants
     METHOD_POOLS = 'pools'
@@ -83,6 +83,7 @@ class GenerationMethodScreen(tk.Frame):
         if brackets_dict:
             self.brackets = {}
             self.unassigned = []
+            assigned_brackets = {}  # Track pre-assigned brackets
 
             # Normalize bracket data
             for key, data in brackets_dict.items():
@@ -100,12 +101,16 @@ class GenerationMethodScreen(tk.Frame):
 
                 if method is None:
                     self.unassigned.append(key)
+                else:
+                    assigned_brackets[key] = method
 
             self.filtered_keys = self.unassigned.copy()
-            self.logger.info(f"Loaded {len(self.brackets)} brackets, {len(self.unassigned)} unassigned")
+            self.logger.info(f"Loaded {len(self.brackets)} brackets, {len(self.unassigned)} unassigned, {len(assigned_brackets)} cached")
             if self.DEBUG:
                 self.logger.debug(f"DEBUG: Bracket keys: {list(self.brackets.keys())}")
                 self.logger.debug(f"DEBUG: Unassigned keys: {self.unassigned}")
+                if assigned_brackets:
+                    self.logger.debug(f"DEBUG: Cached assignments: {assigned_brackets}")
 
         # Build or refresh UI
         if self.main_frame:
@@ -156,7 +161,7 @@ class GenerationMethodScreen(tk.Frame):
 
         close_btn = tk.Button(
             control_frame,
-            text="Close & Proceed",
+            text="Proceed",
             command=self.on_close,
         )
         apply_button_style(close_btn, style='success')
@@ -483,15 +488,8 @@ class GenerationMethodScreen(tk.Frame):
                 listbox.insert(tk.END, display_text)
 
     def _count_fighters(self, bracket_tuple):
-        """Count fighters in a bracket tuple."""
+        """Count fighters in a bracket tuple (list of fighter dicts)."""
         if isinstance(bracket_tuple, list):
-            # List of (name1, name2) tuples
-            return len(bracket_tuple) * 2
-        elif isinstance(bracket_tuple, (tuple, list)) and len(bracket_tuple) > 0:
-            # Check if it's a list of tuples
-            if isinstance(bracket_tuple[0], (tuple, list)):
-                return len(bracket_tuple) * 2
-            # Otherwise count items
             return len(bracket_tuple)
         return 0
 
@@ -511,7 +509,7 @@ class GenerationMethodScreen(tk.Frame):
         return method
 
     def on_close(self):
-        """Close screen and proceed to generation."""
+        """Proceed with bracket generation after assignment."""
         unassigned_count = len(self.unassigned)
 
         if unassigned_count > 0:
