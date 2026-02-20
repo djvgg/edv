@@ -824,10 +824,6 @@ class BracketViewerApp(tk.Tk):
             # Wait a moment then show bracket viewer
             self.after(800, self.show_bracket_viewer)
 
-        except Exception as e:
-            self.set_status(f"Database Error: {e}", COLORS['accent_red'])
-            messagebox.showerror("Database Error", f"Failed to load from database:\n{str(e)}")
-
     def load_json_and_generate(self):
         """Load 2 JSON files (male/female), merge them, and generate brackets."""
         # Select 2 JSON files
@@ -1163,13 +1159,13 @@ class BracketViewerApp(tk.Tk):
 
             # Determine rendering method: pools or KO (default)
             if assigned_method == 'pools':
-                self.logger.debug(f"Using assigned 'pools' method")
+                self.logger.debug("Using assigned 'pools' method")
                 if hasattr(self, 'viz_title_var'):
                     self.viz_title_var.set('Pool Visualization (Single Pool)')
                 self._render_pool(bracket_key, participants)
                 return
             elif assigned_method == 'double':
-                self.logger.debug(f"Using assigned 'double' method")
+                self.logger.debug("Using assigned 'double' method")
                 if hasattr(self, 'viz_title_var'):
                     self.viz_title_var.set('Pool Visualization (Double Pool)')
                 self._render_pool(bracket_key, participants)

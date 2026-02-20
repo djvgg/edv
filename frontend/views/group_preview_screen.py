@@ -11,7 +11,6 @@ Shows bracket groups (weight categories) with participant details:
 """
 
 import tkinter as tk
-from tkinter import ttk
 import sys
 import os
 
