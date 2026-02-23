@@ -4,56 +4,27 @@
 """Participant loading and normalization from spreadsheet files."""
 
 import logging
-import os
-import sys
 
 
 def load_participants_from_xlsx(file_path):
-    """Load participants from XLSX file.
-    
-    Tries judgefrontend first, then pandas as fallback.
-    
+    """Load participants from XLSX file using pandas.
+
     Args:
         file_path: Path to XLSX file
-    
+
     Returns:
         List of participant dicts with Name, Verein, and other fields
-    
+
     Raises:
-        ImportError: If neither judgefrontend nor pandas available
+        ImportError: If pandas is not available
         Exception: If file cannot be parsed
     """
     logger = logging.getLogger(__name__)
     
-    # Try judgefrontend's flexible handler first
-    try:
-        judgefrontend_path = os.path.join(os.path.dirname(file_path), '..', '..', '..', 'judgefrontend')
-        if os.path.exists(judgefrontend_path):
-            sys.path.insert(0, judgefrontend_path)
-        
-        from src.xlsxHandler import processXlsx
-        logger.debug('Using judgefrontend xlsx handler')
-        groups = processXlsx(file_path)
-        
-        # Convert groups to participants format
-        participants = []
-        for group in groups:
-            for fighter in group.get('fighters', []):
-                participants.append({
-                    'Name': fighter.get('name', fighter.get('Name', '')),
-                    'Gender': fighter.get('geschlecht', fighter.get('Gender', fighter.get('gender', ''))),
-                    'Age': fighter.get('alter', fighter.get('Age', fighter.get('age'))),
-                    'Weight': fighter.get('gewicht', fighter.get('Weight', fighter.get('weight'))),
-                    'Verein': fighter.get('verein', fighter.get('Club', fighter.get('club', '')))
-                })
-        return participants
-    except ImportError:
-        pass
-    
-    # Fallback to pandas
+    # Use pandas
     try:
         import pandas as pd
-        logger.debug('Using pandas fallback for xlsx reading')
+        logger.debug('Using pandas for xlsx reading')
         df = pd.read_excel(file_path)
         
         # Build name from Vorname + Nachname if needed
@@ -72,7 +43,7 @@ def load_participants_from_xlsx(file_path):
         return participants
     except ImportError as e:
         raise ImportError(
-            "Neither judgefrontend nor pandas available for XLSX parsing"
+            "pandas is required for XLSX parsing"
         ) from e
 
 
