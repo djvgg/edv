@@ -40,6 +40,15 @@ options = [
     {'OptionName': 'U11_pool_size', 'Value': '4'},
 ]
 
+# Data for GenerationMethods sheet
+# Defines bracket generation methods with display labels
+generationMethods = [
+    {'MethodKey': 'pools', 'DisplayLabel': 'Pools (≤5 fighters)', 'ButtonLabel': 'Pools', 'Order': 1},
+    {'MethodKey': 'double', 'DisplayLabel': 'Double Pools (6-10)', 'ButtonLabel': 'Double', 'Order': 2},
+    {'MethodKey': 'ko', 'DisplayLabel': 'KO Brackets (11+)', 'ButtonLabel': 'KO', 'Order': 3},
+    {'MethodKey': 'special', 'DisplayLabel': 'Special Cases', 'ButtonLabel': 'Special', 'Order': 4},
+]
+
 # Data for WeightClasses sheet
 # Note: U9 and U11 have no fixed weight classes (configurable pool size)
 # Only U13, U15, U18, and 18+ have defined weight classes
@@ -155,12 +164,14 @@ def create_bracket_config_excel(filename='bracket_config.xlsx'):
     
     df_options = pd.DataFrame(options)
     df_weight = pd.DataFrame(weight_classes)
+    df_methods = pd.DataFrame(generationMethods)
     
     # Write to Excel
     with pd.ExcelWriter(filepath) as writer:
         df_age.to_excel(writer, sheet_name='AgeEligibility', index=False)
         df_options.to_excel(writer, sheet_name='Options', index=False)
         df_weight.to_excel(writer, sheet_name='WeightClasses', index=False)
+        df_methods.to_excel(writer, sheet_name='GenerationMethods', index=False)
     print(f"Excel file '{filepath}' created successfully.")
 
 if __name__ == '__main__':
