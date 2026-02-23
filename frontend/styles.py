@@ -3,7 +3,7 @@
 
 """
 Reusable UI styles for Tournament Management frontend.
-Based on judgefrontend dark theme with modern, clean aesthetics.
+Dark theme with modern, clean aesthetics.
 
 Usage:
     from frontend.styles import COLORS, FONTS, apply_button_style

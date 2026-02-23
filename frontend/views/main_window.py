@@ -16,9 +16,6 @@ import pandas as pd
 
 # Setup sys.path for backend imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-_judgefrontend_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'judgefrontend')
-if os.path.exists(_judgefrontend_path):
-    sys.path.insert(0, _judgefrontend_path)
 
 from utils.logging import get_logger  # noqa: E402
 from backend.services.bracket_service import (  # noqa: E402
@@ -58,17 +55,6 @@ from .group_preview_screen import GroupPreviewScreen  # noqa: E402
 # Set to True to print debug logs to console; False to only log to file
 DEBUG = True
 # ==============================
-
-# Import from judgefrontend for flexible xlsx handling
-judgefrontend_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'judgefrontend')
-if os.path.exists(judgefrontend_path):
-    sys.path.insert(0, judgefrontend_path)
-    try:
-        from src.xlsxHandler import processXlsx
-    except ImportError:
-        processXlsx = None
-else:
-    processXlsx = None
 
 
 class BracketViewerApp(tk.Tk):
@@ -113,7 +99,7 @@ class BracketViewerApp(tk.Tk):
         self.bracket_structure_cache = {}  # {bracket_key: rounds}
         self.bracket_render_cache = {}  # {(bracket_key, zoom_level): rendered canvas items}
 
-        # Start with file loading UI (judgefrontend style)
+        # Start with file loading UI
         self.show_file_loader()
 
     def setup_ttk_styles(self):
