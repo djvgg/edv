@@ -10,7 +10,9 @@ Refactored structure:
 - backend/data/repositories/config_repository.py: Configuration management
 """
 
+from backend.data.database import init_db
 from frontend.views.main_window import main
 
 if __name__ == '__main__':
+    init_db()
     main()

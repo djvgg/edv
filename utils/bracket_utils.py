@@ -98,9 +98,9 @@ def _create_first_round(participants):
         if i * 2 + 1 < len(pool):
             first_round.append((pool[i*2]['Name'], pool[i*2 + 1]['Name']))
         elif i * 2 < len(pool):
-            first_round.append((pool[i*2]['Name'], 'BYE'))
+            first_round.append((pool[i*2]['Name'], 'Freilos'))
         else:
-            first_round.append(('BYE', 'BYE'))
+            first_round.append(('Freilos', 'Freilos'))
     
     return first_round
 
@@ -196,7 +196,7 @@ def export_all_brackets(participants, event_year=None):
                 b = pool.pop(0)
                 pairs.append((a.get('Name'), b.get('Name')))
             if pool:
-                pairs.append((pool[0].get('Name'), 'BYE'))
+                pairs.append((pool[0].get('Name'), 'Freilos'))
             brackets[key]['bracket'] = pairs
     
     
@@ -254,8 +254,8 @@ def _group_by_club(participants: list) -> dict:
 
 
 def _create_bye_fighter() -> dict:
-    """Create a BYE placeholder fighter."""
-    return {'Name': 'BYE', 'Verein': 'BYE', 'id': -1}
+    """Create a Freilos placeholder fighter."""
+    return {'Name': 'Freilos', 'Verein': '', 'id': -1}
 
 
 def _distribute_round_robin(club_groups: dict) -> list:
@@ -322,8 +322,8 @@ def _compute_balanced_bracket(participants: list) -> list:
         if i + 1 < bracket_size:
             p1 = bracket_slots[i]
             p2 = bracket_slots[i + 1]
-            name1 = p1.get('Name') if p1 else 'BYE'
-            name2 = p2.get('Name') if p2 else 'BYE'
+            name1 = p1.get('Name') if p1 else 'Freilos'
+            name2 = p2.get('Name') if p2 else 'Freilos'
             bracket.append((name1, name2))
     
     return bracket
