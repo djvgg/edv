@@ -17,6 +17,12 @@ class ConfigRepository:
         self.age_eligibility = pd.read_excel(self.excel_path, sheet_name='AgeEligibility')
         self.options = pd.read_excel(self.excel_path, sheet_name='Options')
         self.weight_classes = pd.read_excel(self.excel_path, sheet_name='WeightClasses')
+        
+        # Load GenerationMethods if available (new in v2)
+        try:
+            self.generation_methods = pd.read_excel(self.excel_path, sheet_name='GenerationMethods')
+        except Exception:
+            self.generation_methods = None
 
     def get_event_year(self):
         row = self.options[self.options['OptionName'] == 'event_year']
@@ -102,6 +108,38 @@ class ConfigRepository:
             if row['MinWeight'] <= weight < row['MaxWeight']:
                 return row['Label']
         return 'unknown'
+    
+    def get_generation_methods(self):
+        """
+        Get the list of generation methods from config.
+        
+        Returns:
+            Dict mapping MethodKey to {
+                'DisplayLabel': str, 
+                'ButtonLabel': str, 
+                'MinFighters': int (inclusive),
+                'MaxFighters': int (exclusive),
+                'Order': int
+            }
+            or empty dict if GenerationMethods sheet is not available
+        """
+        if self.generation_methods is None:
+            return {}
+        
+        methods = {}
+        for _, row in self.generation_methods.iterrows():
+            method_key = row.get('MethodKey')
+            if method_key:
+                methods[method_key] = {
+                    'DisplayLabel': row.get('DisplayLabel', method_key),
+                    'ButtonLabel': row.get('ButtonLabel', method_key),
+                    'MinFighters': int(row.get('MinFighters', 0)) if pd.notna(row.get('MinFighters')) else 0,
+                    'MaxFighters': int(row.get('MaxFighters', 999)) if pd.notna(row.get('MaxFighters')) else 999,
+                    'Order': row.get('Order', 0),
+                }
+        
+        # Sort by Order field
+        return dict(sorted(methods.items(), key=lambda x: x[1].get('Order', 0)))
 
 # Example usage:
 # config = ConfigRepository('bracket_config.xlsx')

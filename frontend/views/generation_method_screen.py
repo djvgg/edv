@@ -529,15 +529,30 @@ class GenerationMethodScreen(tk.Frame):
         return 0
 
     def _recommend_method(self, fighter_count):
-        """Recommend a generation method based on fighter count."""
-        if fighter_count < 3:
-            method = self.METHOD_SPECIAL
-        elif fighter_count <= 5:
-            method = self.METHOD_POOLS
-        elif fighter_count <= 10:
-            method = self.METHOD_DOUBLE
+        """Recommend a generation method based on fighter count using config thresholds."""
+        # If no thresholds loaded, use fallback
+        if not self.method_labels:
+            if fighter_count < 3:
+                method = self.METHOD_SPECIAL
+            elif fighter_count <= 5:
+                method = self.METHOD_POOLS
+            elif fighter_count <= 10:
+                method = self.METHOD_DOUBLE
+            else:
+                method = self.METHOD_KO
         else:
-            method = self.METHOD_KO
+            # Find method by fighter count range from config
+            method = None
+            for method_key, config in self.method_labels.items():
+                min_fighters = config.get('MinFighters', 0)
+                max_fighters = config.get('MaxFighters', 999)
+                if min_fighters <= fighter_count < max_fighters:
+                    method = method_key
+                    break
+            
+            # Fallback to KO if no method matches
+            if method is None:
+                method = self.METHOD_KO
         
         if self.DEBUG:
             self.logger.debug(f"DEBUG: {fighter_count} fighters → recommend {method}")

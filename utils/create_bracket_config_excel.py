@@ -41,12 +41,13 @@ options = [
 ]
 
 # Data for GenerationMethods sheet
-# Defines bracket generation methods with display labels
+# Defines bracket generation methods with display labels and auto-assignment thresholds
+# MinFighters/MaxFighters: Range for auto-assignment (inclusive of min, exclusive of max)
 generationMethods = [
-    {'MethodKey': 'pools', 'DisplayLabel': 'Pools (≤5 fighters)', 'ButtonLabel': 'Pools', 'Order': 1},
-    {'MethodKey': 'double', 'DisplayLabel': 'Double Pools (6-10)', 'ButtonLabel': 'Double', 'Order': 2},
-    {'MethodKey': 'ko', 'DisplayLabel': 'KO Brackets (11+)', 'ButtonLabel': 'KO', 'Order': 3},
-    {'MethodKey': 'special', 'DisplayLabel': 'Special Cases', 'ButtonLabel': 'Special', 'Order': 4},
+    {'MethodKey': 'special', 'DisplayLabel': 'Special Cases', 'ButtonLabel': 'Special', 'MinFighters': 0, 'MaxFighters': 3, 'Order': 4},
+    {'MethodKey': 'pools', 'DisplayLabel': 'Pools (≤5 fighters)', 'ButtonLabel': 'Pools', 'MinFighters': 3, 'MaxFighters': 6, 'Order': 1},
+    {'MethodKey': 'double', 'DisplayLabel': 'Double Pools (6-10)', 'ButtonLabel': 'Double', 'MinFighters': 6, 'MaxFighters': 11, 'Order': 2},
+    {'MethodKey': 'ko', 'DisplayLabel': 'KO Brackets (11+)', 'ButtonLabel': 'KO', 'MinFighters': 11, 'MaxFighters': 999, 'Order': 3},
 ]
 
 # Data for WeightClasses sheet
