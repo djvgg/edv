@@ -110,7 +110,7 @@ def calculate_pool_box_size(pool_participants, zoom_level):
         zoom_level: Current zoom level multiplier
 
     Returns:
-        Tuple of (boxWidth, boxHeight, cellSize, padding) in pixels
+        Tuple of (box_width, box_height, cell_size, padding) in pixels
     """
     # Find longest name + club combination
     max_text_len = 0
@@ -122,21 +122,21 @@ def calculate_pool_box_size(pool_participants, zoom_level):
 
     # Scale dimensions - increased multiplier for wider name column
     base_width = max(150, int(max_text_len * 10))
-    boxWidth = int(base_width * zoom_level)
-    boxHeight = int(40 * zoom_level)
-    cellSize = int(60 * zoom_level)  # Size of match cells
+    box_width = int(base_width * zoom_level)
+    box_height = int(40 * zoom_level)
+    cell_size = int(60 * zoom_level)  # Size of match cells
     padding = int(20 * zoom_level)
 
-    return boxWidth, boxHeight, cellSize, padding
+    return box_width, box_height, cell_size, padding
 
 
-def calculate_pool_positions(pools, boxWidth, boxHeight, cellSize, padding, start_x=50, start_y=50):
+def calculate_pool_positions(pools, box_width, box_height, cell_size, padding, start_x=50, start_y=50):
     """Calculate positions for all pools and their components.
 
     Args:
         pools: List of pools (each pool is a list of participants)
-        boxWidth, boxHeight: Dimensions of fighter name boxes
-        cellSize: Size of match result cells
+        box_width, box_height: Dimensions of fighter name boxes
+        cell_size: Size of match result cells
         padding: Padding between elements
         start_x, start_y: Starting coordinates
 
@@ -153,12 +153,12 @@ def calculate_pool_positions(pools, boxWidth, boxHeight, cellSize, padding, star
         fight_schedule = _generate_fight_schedule(pool_size)
         num_fights = len(fight_schedule)
 
-        # Calculate grid dimensions (numWidth + nameWidth + kampfnummerWidth + match columns)
-        numWidth = cellSize  # Start-nr column width
-        nameWidth = boxWidth  # Name/Verein column width
-        kampfnummerWidth = int(cellSize * 1.5)  # Kampfnummer column (Punkte + Ubw.)
-        grid_width = numWidth + nameWidth + kampfnummerWidth + (num_fights * cellSize) + (3 * cellSize) + padding
-        grid_height = (pool_size * boxHeight) + boxHeight + padding * 2  # +1 row for Kampfzeit
+        # Calculate grid dimensions (num_width + name_width + kampfnummer_width + match columns)
+        num_width = cell_size  # Start-nr column width
+        name_width = box_width  # Name/Verein column width
+        kampfnummer_width = int(cell_size * 1.5)  # Kampfnummer column (Punkte + Ubw.)
+        grid_width = num_width + name_width + kampfnummer_width + (num_fights * cell_size) + (3 * cell_size) + padding
+        grid_height = (pool_size * box_height) + box_height + padding * 2  # +1 row for Kampfzeit
 
         positions[pool_idx] = {
             'start_x': start_x,
@@ -175,8 +175,8 @@ def calculate_pool_positions(pools, boxWidth, boxHeight, cellSize, padding, star
     return positions
 
 
-def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHeight,
-                    cellSize, padding, zoom_level, colors, fonts, pool_label="Pool 1",
+def draw_pool_table(canvas, pool_participants, start_x, start_y, box_width, box_height,
+                    cell_size, padding, zoom_level, colors, fonts, pool_label="Pool 1",
                     fight_numbers=None):
     """Draw a single pool table on canvas.
 
@@ -184,8 +184,8 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
         canvas: tkinter Canvas widget
         pool_participants: List of participants in this pool
         start_x, start_y: Starting coordinates for the pool
-        boxWidth, boxHeight: Dimensions of fighter name boxes
-        cellSize: Size of match result cells
+        box_width, box_height: Dimensions of fighter name boxes
+        cell_size: Size of match result cells
         padding: Padding between elements
         zoom_level: Current zoom level
         colors: Dict of color constants
@@ -210,16 +210,16 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
         fight_numbers = list(range(1, num_fights + 1))
 
     # Define column widths
-    numWidth = cellSize  # Width of the number column
-    nameWidth = boxWidth  # Width of the name column
-    kampfnummerWidth = int(cellSize * 1.5)  # Width of Kampfnummer column (Punkte + Ubw.)
-    punkteWidth = kampfnummerWidth // 2  # Half for Punkte
-    ubwWidth = kampfnummerWidth - punkteWidth  # Other half for Ubw.
+    num_width = cell_size  # Width of the number column
+    name_width = box_width  # Width of the name column
+    kampfnummer_width = int(cell_size * 1.5)  # Width of Kampfnummer column (Punkte + Ubw.)
+    punkte_width = kampfnummer_width // 2  # Half for Punkte
+    ubw_width = kampfnummer_width - punkte_width  # Other half for Ubw.
 
     # Draw pool label/title
     title_y = start_y - padding
     canvas.create_text(
-        start_x + (numWidth + nameWidth + kampfnummerWidth) // 2,
+        start_x + (num_width + name_width + kampfnummer_width) // 2,
         title_y,
         text=pool_label,
         anchor='c',
@@ -229,14 +229,14 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
 
     # Draw "Start-nr" header cell (top-left)
     canvas.create_rectangle(
-        start_x, start_y, start_x + numWidth, start_y + boxHeight,
+        start_x, start_y, start_x + num_width, start_y + box_height,
         outline=colors['accent_green'],
         fill=colors['bg_panel'],
         width=line_width
     )
     canvas.create_text(
-        start_x + numWidth // 2,
-        start_y + boxHeight // 2,
+        start_x + num_width // 2,
+        start_y + box_height // 2,
         text="Start\nnr",
         anchor='c',
         fill=colors['white'],
@@ -245,14 +245,14 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
 
     # Draw "Kämpfername/Verein" header cell (second column header)
     canvas.create_rectangle(
-        start_x + numWidth, start_y, start_x + numWidth + nameWidth, start_y + boxHeight,
+        start_x + num_width, start_y, start_x + num_width + name_width, start_y + box_height,
         outline=colors['accent_green'],
         fill=colors['bg_panel'],
         width=line_width
     )
     canvas.create_text(
-        start_x + numWidth + nameWidth // 2,
-        start_y + boxHeight // 2,
+        start_x + num_width + name_width // 2,
+        start_y + box_height // 2,
         text="Kämpfername\nVerein",
         anchor='c',
         fill=colors['white'],
@@ -260,9 +260,9 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
     )
 
     # Draw "Kampfnummer" header cell (third column header)
-    kampf_x = start_x + numWidth + nameWidth
+    kampf_x = start_x + num_width + name_width
     canvas.create_rectangle(
-        kampf_x, start_y, kampf_x + kampfnummerWidth, start_y + boxHeight,
+        kampf_x, start_y, kampf_x + kampfnummer_width, start_y + box_height,
         outline=colors['accent_green'],
         fill=colors['bg_panel'],
         width=line_width
@@ -270,8 +270,8 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
 
     # Draw "Kampfnummer" header text
     canvas.create_text(
-        kampf_x + kampfnummerWidth // 2,
-        start_y + boxHeight // 2,
+        kampf_x + kampfnummer_width // 2,
+        start_y + box_height // 2,
         text="Kampfnummer",
         anchor='c',
         fill=colors['white'],
@@ -280,12 +280,12 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
 
     # Draw column headers (fight numbers across top)
     for col in range(num_fights):
-        x = start_x + numWidth + nameWidth + kampfnummerWidth + (col * cellSize)
+        x = start_x + num_width + name_width + kampfnummer_width + (col * cell_size)
         y = start_y
 
         # Draw header cell
         canvas.create_rectangle(
-            x, y, x + cellSize, y + boxHeight,
+            x, y, x + cell_size, y + box_height,
             outline=colors['accent_green'],
             fill=colors['bg_panel'],
             width=line_width
@@ -293,8 +293,8 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
 
         # Draw fight number (use provided fight_numbers list)
         canvas.create_text(
-            x + cellSize // 2,
-            y + boxHeight // 2,
+            x + cell_size // 2,
+            y + box_height // 2,
             text=str(fight_numbers[col]),
             anchor='c',
             fill=colors['white'],
@@ -304,16 +304,16 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
     # Draw summary column headers (Punkte, Ubw., Platz) after fight columns
     summary_labels = ["Punkte", "Ubw.", "Platz"]
     for i, label in enumerate(summary_labels):
-        x = start_x + numWidth + nameWidth + kampfnummerWidth + (num_fights * cellSize) + (i * cellSize)
+        x = start_x + num_width + name_width + kampfnummer_width + (num_fights * cell_size) + (i * cell_size)
         canvas.create_rectangle(
-            x, start_y, x + cellSize, start_y + boxHeight,
+            x, start_y, x + cell_size, start_y + box_height,
             outline=colors['accent_green'],
             fill=colors['bg_panel'],
             width=line_width
         )
         canvas.create_text(
-            x + cellSize // 2,
-            start_y + boxHeight // 2,
+            x + cell_size // 2,
+            start_y + box_height // 2,
             text=label,
             anchor='c',
             fill=colors['white'],
@@ -322,7 +322,7 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
 
     # Draw rows (each fighter)
     for row in range(pool_size):
-        y = start_y + ((row + 1) * boxHeight)
+        y = start_y + ((row + 1) * box_height)
 
         fighter = pool_participants[row]
         name = fighter.get('Name', 'Unknown')
@@ -331,14 +331,14 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
 
         # Draw number cell (first column)
         canvas.create_rectangle(
-            start_x, y, start_x + numWidth, y + boxHeight,
+            start_x, y, start_x + num_width, y + box_height,
             outline=colors['accent_green'],
             fill=colors['bg_panel'],
             width=line_width
         )
         canvas.create_text(
-            start_x + numWidth // 2,
-            y + boxHeight // 2,
+            start_x + num_width // 2,
+            y + box_height // 2,
             text=str(fighter_num),
             anchor='c',
             fill=colors['white'],
@@ -348,14 +348,14 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
         # Draw name cell (second column)
         display_text = f"{name} [{club}]" if club else name
         canvas.create_rectangle(
-            start_x + numWidth, y, start_x + numWidth + nameWidth, y + boxHeight,
+            start_x + num_width, y, start_x + num_width + name_width, y + box_height,
             outline=colors['accent_green'],
             fill=colors['bg_panel'],
             width=line_width
         )
         canvas.create_text(
-            start_x + numWidth + padding // 2,
-            y + boxHeight // 2,
+            start_x + num_width + padding // 2,
+            y + box_height // 2,
             text=display_text,
             anchor='w',
             fill=colors['white'],
@@ -363,9 +363,9 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
         )
 
         # Draw Kampfnummer cell (third column) with Punkte and Ubw. sub-columns
-        kampf_x = start_x + numWidth + nameWidth
+        kampf_x = start_x + num_width + name_width
         canvas.create_rectangle(
-            kampf_x, y, kampf_x + kampfnummerWidth, y + boxHeight,
+            kampf_x, y, kampf_x + kampfnummer_width, y + box_height,
             outline=colors['accent_green'],
             fill=colors['bg_panel'],
             width=line_width
@@ -373,8 +373,8 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
 
         # Draw "Punkte" text in left sub-column
         canvas.create_text(
-            kampf_x + punkteWidth // 2,
-            y + boxHeight // 2,
+            kampf_x + punkte_width // 2,
+            y + box_height // 2,
             text="Punkte",
             anchor='c',
             fill=colors['white'],
@@ -383,8 +383,8 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
 
         # Draw "Ubw." text in right sub-column
         canvas.create_text(
-            kampf_x + punkteWidth + ubwWidth // 2,
-            y + boxHeight // 2,
+            kampf_x + punkte_width + ubw_width // 2,
+            y + box_height // 2,
             text="Ubw.",
             anchor='c',
             fill=colors['white'],
@@ -393,8 +393,8 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
 
         # Draw vertical separator line between Punkte and Ubw. for this row
         canvas.create_line(
-            kampf_x + punkteWidth, y,
-            kampf_x + punkteWidth, y + boxHeight,
+            kampf_x + punkte_width, y,
+            kampf_x + punkte_width, y + box_height,
             fill=colors['accent_green'],
             width=line_width
         )
@@ -402,7 +402,7 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
         # Draw fight cells for this fighter
         # Columns represent FIGHT numbers (blue numbers), not fighter numbers
         for fight_num in range(num_fights):
-            x = start_x + numWidth + nameWidth + kampfnummerWidth + (fight_num * cellSize)
+            x = start_x + num_width + name_width + kampfnummer_width + (fight_num * cell_size)
 
             # Determine if this fighter participates in this fight
             should_have_divider = False
@@ -417,7 +417,7 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
             if should_have_divider:
                 # Draw bright cell with vertical divider (fighter participates in this fight)
                 canvas.create_rectangle(
-                    x, y, x + cellSize, y + boxHeight,
+                    x, y, x + cell_size, y + box_height,
                     outline=colors['accent_green'],
                     fill=colors['white'],
                     width=line_width
@@ -425,15 +425,15 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
 
                 # Draw vertical divider in the middle of the cell
                 canvas.create_line(
-                    x + cellSize // 2, y,
-                    x + cellSize // 2, y + boxHeight,
+                    x + cell_size // 2, y,
+                    x + cell_size // 2, y + box_height,
                     fill=colors['black'],
                     width=line_width
                 )
             else:
                 # Draw empty/blank cell (fighter doesn't participate in this fight)
                 canvas.create_rectangle(
-                    x, y, x + cellSize, y + boxHeight,
+                    x, y, x + cell_size, y + box_height,
                     outline=colors['accent_green'],
                     fill=colors['bg_panel'],
                     width=line_width
@@ -441,29 +441,29 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
 
         # Draw blank summary cells (Punkte, Ubw., Platz) for this row — stop before Kampfzeit
         for i in range(3):
-            x = start_x + numWidth + nameWidth + kampfnummerWidth + (num_fights * cellSize) + (i * cellSize)
+            x = start_x + num_width + name_width + kampfnummer_width + (num_fights * cell_size) + (i * cell_size)
             canvas.create_rectangle(
-                x, y, x + cellSize, y + boxHeight,
+                x, y, x + cell_size, y + box_height,
                 outline=colors['accent_green'],
                 fill=colors['bg_panel'],
                 width=line_width
             )
 
     # Draw Kampfzeit bottom row
-    bottom_y = start_y + ((pool_size + 1) * boxHeight)
+    bottom_y = start_y + ((pool_size + 1) * box_height)
 
     # Kampfzeit cell spanning Punkte + Ubw. columns
-    kampf_x = start_x + numWidth + nameWidth
+    kampf_x = start_x + num_width + name_width
     canvas.create_rectangle(
         kampf_x, bottom_y,
-        kampf_x + kampfnummerWidth, bottom_y + boxHeight,
+        kampf_x + kampfnummer_width, bottom_y + box_height,
         outline=colors['accent_green'],
         fill=colors['bg_panel'],
         width=line_width
     )
     canvas.create_text(
-        kampf_x + kampfnummerWidth // 2,
-        bottom_y + boxHeight // 2,
+        kampf_x + kampfnummer_width // 2,
+        bottom_y + box_height // 2,
         text="Kampfzeit",
         anchor='c',
         fill=colors['white'],
@@ -472,16 +472,16 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
 
     # Blank cells under each fight column
     for fight_num in range(num_fights):
-        x = start_x + numWidth + nameWidth + kampfnummerWidth + (fight_num * cellSize)
+        x = start_x + num_width + name_width + kampfnummer_width + (fight_num * cell_size)
         canvas.create_rectangle(
-            x, bottom_y, x + cellSize, bottom_y + boxHeight,
+            x, bottom_y, x + cell_size, bottom_y + box_height,
             outline=colors['accent_green'],
             fill=colors['bg_panel'],
             width=line_width
         )
 
     # Draw legend at bottom
-    legend_y = start_y + ((pool_size + 2) * boxHeight) + padding
+    legend_y = start_y + ((pool_size + 2) * box_height) + padding
     legend_text = f"{pool_size} fighters • Round-robin format"
     canvas.create_text(
         start_x,
@@ -514,7 +514,7 @@ def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_
     pools = split_into_pools(participants, num_pools)
 
     # Calculate box sizes
-    boxWidth, boxHeight, cellSize, padding = calculate_pool_box_size(participants, zoom_level)
+    box_width, box_height, cell_size, padding = calculate_pool_box_size(participants, zoom_level)
 
     # Draw title
     header_font = ('Arial', max(10, int(14 * zoom_level)), 'bold')
@@ -578,20 +578,20 @@ def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_
 
         draw_pool_table(
             canvas, pool, start_x, current_y,
-            boxWidth, boxHeight, cellSize, padding,
+            box_width, box_height, cell_size, padding,
             zoom_level, colors, fonts, pool_label,
             fight_numbers
         )
 
-        # Calculate dimensions (numWidth + nameWidth + kampfnummerWidth + match columns)
+        # Calculate dimensions (num_width + name_width + kampfnummer_width + match columns)
         pool_size = len(pool)
         fight_schedule = _generate_fight_schedule(pool_size)
         num_fights = len(fight_schedule)
-        numWidth = cellSize  # Start-nr column
-        nameWidth = boxWidth  # Name/Verein column
-        kampfnummerWidth = int(cellSize * 1.5)  # Kampfnummer column (Punkte + Ubw.)
-        grid_width = numWidth + nameWidth + kampfnummerWidth + (num_fights * cellSize) + (3 * cellSize) + padding * 2
-        grid_height = ((pool_size + 2) * boxHeight) + padding * 3  # +1 for header, +1 for Kampfzeit row
+        num_width = cell_size  # Start-nr column
+        name_width = box_width  # Name/Verein column
+        kampfnummer_width = int(cell_size * 1.5)  # Kampfnummer column (Punkte + Ubw.)
+        grid_width = num_width + name_width + kampfnummer_width + (num_fights * cell_size) + (3 * cell_size) + padding * 2
+        grid_height = ((pool_size + 2) * box_height) + padding * 3  # +1 for header, +1 for Kampfzeit row
 
         max_width = max(max_width, grid_width)
         current_y += grid_height + padding * 2

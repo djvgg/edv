@@ -27,12 +27,12 @@ def build_bracket_rounds(bracket, normalized_participants):
     
     # Build subsequent rounds (winners don't have clubs)
     while len(current) > 1:
-        nextRound = []
+        next_round = []
         for i in range(0, len(current), 2):
             p1 = f"Winner {i+1}"
             p2 = f"Winner {i+2}" if i+1 < len(current) else 'BYE'
-            nextRound.append((p1, p2, '', ''))
-        current = nextRound
+            next_round.append((p1, p2, '', ''))
+        current = next_round
         rounds.append(current)
     
     return rounds
@@ -46,7 +46,7 @@ def calculate_box_size(rounds, zoom_level):
         zoom_level: Current zoom level multiplier
     
     Returns:
-        Tuple of (boxWidth, boxHeight, xGap, yGap) in pixels
+        Tuple of (box_width, box_height, x_gap, y_gap) in pixels
     """
     # Find longest text in all rounds
     max_text_len = 0
@@ -65,15 +65,15 @@ def calculate_box_size(rounds, zoom_level):
     
     # Scale box width based on longest text (roughly 8 pixels per character)
     base_width = max(120, int(max_text_len * 8))
-    boxWidth = int(base_width * zoom_level)
-    boxHeight = int(50 * zoom_level)
-    xGap = int(80 * zoom_level)
-    yGap = int(40 * zoom_level)
+    box_width = int(base_width * zoom_level)
+    box_height = int(50 * zoom_level)
+    x_gap = int(80 * zoom_level)
+    y_gap = int(40 * zoom_level)
     
-    return boxWidth, boxHeight, xGap, yGap
+    return box_width, box_height, x_gap, y_gap
 
 
-def draw_bracket_on_canvas(canvas, rounds, positions, boxWidth, boxHeight, 
+def draw_bracket_on_canvas(canvas, rounds, positions, box_width, box_height, 
                           zoom_level, colors, fonts):
     """Draw bracket visualization on canvas.
     
@@ -81,7 +81,7 @@ def draw_bracket_on_canvas(canvas, rounds, positions, boxWidth, boxHeight,
         canvas: tkinter Canvas widget
         rounds: List of match rounds with (name1, name2, club1, club2) tuples
         positions: Dict mapping (round, match) to (x, y) coordinates
-        boxWidth, boxHeight: Dimensions of match boxes
+        box_width, box_height: Dimensions of match boxes
         zoom_level: Current zoom level
         colors: Dict of color constants
         fonts: Dict of font constants
@@ -103,9 +103,9 @@ def draw_bracket_on_canvas(canvas, rounds, positions, boxWidth, boxHeight,
             x, y = positions[(r, m)]
             
             # Draw box (white outline)
-            canvas.create_rectangle(x, y, x + boxWidth, y + boxHeight,
+            canvas.create_rectangle(x, y, x + box_width, y + box_height,
                                    outline=colors['white'], width=line_width)
-            canvas.create_line(x, y + boxHeight // 2, x + boxWidth, y + boxHeight // 2,
+            canvas.create_line(x, y + box_height // 2, x + box_width, y + box_height // 2,
                              fill=colors['text_secondary'], dash=(2, 2))
             
             # Format display with club info on single line
@@ -113,15 +113,15 @@ def draw_bracket_on_canvas(canvas, rounds, positions, boxWidth, boxHeight,
             p2_display = f"{p2} [{club2}]" if club2 and club2 != 'BYE' else p2
             
             # Draw fighter names
-            canvas.create_text(x + boxWidth // 2, y + boxHeight // 4,
+            canvas.create_text(x + box_width // 2, y + box_height // 4,
                              text=p1_display, anchor='c',
                              fill=colors['white'], font=scaled_font)
-            canvas.create_text(x + boxWidth // 2, y + 3 * boxHeight // 4,
+            canvas.create_text(x + box_width // 2, y + 3 * box_height // 4,
                              text=p2_display, anchor='c',
                              fill=colors['white'], font=scaled_font)
             
             # Draw "vs" separator
-            canvas.create_text(x + boxWidth // 2, y + boxHeight // 2,
+            canvas.create_text(x + box_width // 2, y + box_height // 2,
                              text='vs', anchor='c',
                              font=vs_font,
                              fill=colors['accent_red'])
@@ -131,8 +131,8 @@ def draw_bracket_on_canvas(canvas, rounds, positions, boxWidth, boxHeight,
                 next_match_idx = m // 2
                 nx, ny = positions[(r + 1, next_match_idx)]
                 canvas.create_line(
-                    x + boxWidth, y + boxHeight // 2,
-                    nx, ny + boxHeight // 2,
+                    x + box_width, y + box_height // 2,
+                    nx, ny + box_height // 2,
                     arrow=tk.LAST, width=line_width,
                     fill=colors['white']
                 )

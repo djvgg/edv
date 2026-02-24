@@ -50,6 +50,7 @@ from ..utils import (  # noqa: E402
 from .generation_method_screen import GenerationMethodScreen  # noqa: E402
 from .file_loader_screen import FileLoaderScreen  # noqa: E402
 from .group_preview_screen import GroupPreviewScreen  # noqa: E402
+from ..search_utils import filter_items  # noqa: E402
 
 # ===== DEBUG CONFIGURATION =====
 # Set to True to print debug logs to console; False to only log to file
@@ -810,10 +811,6 @@ class BracketViewerApp(tk.Tk):
             # Wait a moment then show bracket viewer
             self.after(800, self.show_bracket_viewer)
 
-        except Exception as e:
-            self.set_status(f"Database Error: {e}", COLORS['accent_red'])
-            messagebox.showerror("Database Error", f"Failed to load from database:\n{str(e)}")
-
     def load_json_and_generate(self):
         """Load 2 JSON files (male/female), merge them, and generate brackets."""
         # Select 2 JSON files
@@ -1086,29 +1083,36 @@ class BracketViewerApp(tk.Tk):
         self.logger.info(f"Saved brackets to cache: {self.bracket_cache_file}")
 
     def update_bracket_list(self, *args):
-        """Update the bracket list based on search filter - only show unassigned."""
+        """Update the bracket list based on search filter - only show unassigned (supports multi-term AND search)."""
         if not hasattr(self, 'search_var'):
             return
 
-        search_term = self.search_var.get().lower()
+        search_term = self.search_var.get()
         self.bracket_listbox.delete(0, tk.END)
         # Store mapping of display text to bracket_key for safe lookup
         self.bracket_listbox_map = {}
         
+        # Get unassigned bracket keys
+        unassigned_keys = [k for k in sorted(self.brackets.keys()) if not self.bracket_table_assignment.get(k)]
+        
+        # Use shared search utility
+        filtered_keys, matched_count, search_terms = filter_items(unassigned_keys, search_term)
+        
+        if search_terms:
+            self.logger.debug(f"Bracket search: {search_terms}, found {matched_count} brackets")
+        
         # Calculate total unassigned participants
         total_unassigned = 0
 
-        # Only show unassigned brackets
-        for bracket_key in sorted(self.brackets.keys()):
-            if not self.bracket_table_assignment.get(bracket_key):
-                if search_term in bracket_key.lower():
-                    fighter_count = len(self.brackets[bracket_key].get('fighters', []))
-                    display_text = f"{bracket_key} ({fighter_count})"
-                    self.bracket_listbox.insert(tk.END, display_text)
-                    # Store the mapping
-                    self.bracket_listbox_map[display_text] = bracket_key
-                    # Add to total
-                    total_unassigned += fighter_count
+        # Display filtered brackets
+        for bracket_key in filtered_keys:
+            fighter_count = len(self.brackets[bracket_key].get('fighters', []))
+            display_text = f"{bracket_key} ({fighter_count})"
+            self.bracket_listbox.insert(tk.END, display_text)
+            # Store the mapping
+            self.bracket_listbox_map[display_text] = bracket_key
+            # Add to total
+            total_unassigned += fighter_count
         
         # Update counter
         if hasattr(self, 'unassigned_count_var'):
@@ -1149,13 +1153,13 @@ class BracketViewerApp(tk.Tk):
 
             # Determine rendering method: pools or KO (default)
             if assigned_method == 'pools':
-                self.logger.debug(f"Using assigned 'pools' method")
+                self.logger.debug("Using assigned 'pools' method")
                 if hasattr(self, 'viz_title_var'):
                     self.viz_title_var.set('Pool Visualization (Single Pool)')
                 self._render_pool(bracket_key, participants)
                 return
             elif assigned_method == 'double':
-                self.logger.debug(f"Using assigned 'double' method")
+                self.logger.debug("Using assigned 'double' method")
                 if hasattr(self, 'viz_title_var'):
                     self.viz_title_var.set('Pool Visualization (Double Pool)')
                 self._render_pool(bracket_key, participants)

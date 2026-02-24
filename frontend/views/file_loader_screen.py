@@ -22,7 +22,6 @@ from ..styles import (
     COLORS, FONTS,
     apply_button_style,
     apply_label_style,
-    create_dark_frame,
 )
 
 # Debug flag - set to True for verbose logging
