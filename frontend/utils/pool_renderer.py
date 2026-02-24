@@ -157,8 +157,8 @@ def calculate_pool_positions(pools, boxWidth, boxHeight, cellSize, padding, star
         numWidth = cellSize  # Start-nr column width
         nameWidth = boxWidth  # Name/Verein column width
         kampfnummerWidth = int(cellSize * 1.5)  # Kampfnummer column (Punkte + Ubw.)
-        grid_width = numWidth + nameWidth + kampfnummerWidth + (num_fights * cellSize) + padding
-        grid_height = (pool_size * boxHeight) + padding * 2
+        grid_width = numWidth + nameWidth + kampfnummerWidth + (num_fights * cellSize) + (3 * cellSize) + padding
+        grid_height = (pool_size * boxHeight) + boxHeight + padding * 2  # +1 row for Kampfzeit
 
         positions[pool_idx] = {
             'start_x': start_x,
@@ -301,6 +301,25 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
             font=cell_font
         )
 
+    # Draw summary column headers (Punkte, Ubw., Platz) after fight columns
+    summary_labels = ["Punkte", "Ubw.", "Platz"]
+    for i, label in enumerate(summary_labels):
+        x = start_x + numWidth + nameWidth + kampfnummerWidth + (num_fights * cellSize) + (i * cellSize)
+        canvas.create_rectangle(
+            x, start_y, x + cellSize, start_y + boxHeight,
+            outline=colors['accent_green'],
+            fill=colors['bg_panel'],
+            width=line_width
+        )
+        canvas.create_text(
+            x + cellSize // 2,
+            start_y + boxHeight // 2,
+            text=label,
+            anchor='c',
+            fill=colors['white'],
+            font=cell_font
+        )
+
     # Draw rows (each fighter)
     for row in range(pool_size):
         y = start_y + ((row + 1) * boxHeight)
@@ -420,8 +439,49 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, boxWidth, boxHe
                     width=line_width
                 )
 
+        # Draw blank summary cells (Punkte, Ubw., Platz) for this row — stop before Kampfzeit
+        for i in range(3):
+            x = start_x + numWidth + nameWidth + kampfnummerWidth + (num_fights * cellSize) + (i * cellSize)
+            canvas.create_rectangle(
+                x, y, x + cellSize, y + boxHeight,
+                outline=colors['accent_green'],
+                fill=colors['bg_panel'],
+                width=line_width
+            )
+
+    # Draw Kampfzeit bottom row
+    bottom_y = start_y + ((pool_size + 1) * boxHeight)
+
+    # Kampfzeit cell spanning Punkte + Ubw. columns
+    kampf_x = start_x + numWidth + nameWidth
+    canvas.create_rectangle(
+        kampf_x, bottom_y,
+        kampf_x + kampfnummerWidth, bottom_y + boxHeight,
+        outline=colors['accent_green'],
+        fill=colors['bg_panel'],
+        width=line_width
+    )
+    canvas.create_text(
+        kampf_x + kampfnummerWidth // 2,
+        bottom_y + boxHeight // 2,
+        text="Kampfzeit",
+        anchor='c',
+        fill=colors['white'],
+        font=cell_font
+    )
+
+    # Blank cells under each fight column
+    for fight_num in range(num_fights):
+        x = start_x + numWidth + nameWidth + kampfnummerWidth + (fight_num * cellSize)
+        canvas.create_rectangle(
+            x, bottom_y, x + cellSize, bottom_y + boxHeight,
+            outline=colors['accent_green'],
+            fill=colors['bg_panel'],
+            width=line_width
+        )
+
     # Draw legend at bottom
-    legend_y = start_y + ((pool_size + 1) * boxHeight) + padding
+    legend_y = start_y + ((pool_size + 2) * boxHeight) + padding
     legend_text = f"{pool_size} fighters • Round-robin format"
     canvas.create_text(
         start_x,
@@ -530,8 +590,8 @@ def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_
         numWidth = cellSize  # Start-nr column
         nameWidth = boxWidth  # Name/Verein column
         kampfnummerWidth = int(cellSize * 1.5)  # Kampfnummer column (Punkte + Ubw.)
-        grid_width = numWidth + nameWidth + kampfnummerWidth + (num_fights * cellSize) + padding * 2
-        grid_height = ((pool_size + 1) * boxHeight) + padding * 3
+        grid_width = numWidth + nameWidth + kampfnummerWidth + (num_fights * cellSize) + (3 * cellSize) + padding * 2
+        grid_height = ((pool_size + 2) * boxHeight) + padding * 3  # +1 for header, +1 for Kampfzeit row
 
         max_width = max(max_width, grid_width)
         current_y += grid_height + padding * 2

@@ -336,7 +336,7 @@ class BracketViewerApp(tk.Tk):
 
         # Table assignment buttons - one per line
         for t in range(1, 5):
-            btn = tk.Button(assign_container, text=f'→ Table {t}',
+            btn = tk.Button(assign_container, text=f'→ Matte {t}',
                           command=lambda t=t: self.assign_to_table(t))
             apply_button_style(btn, 'secondary')
             btn.pack(fill=tk.X, pady=1)
@@ -411,7 +411,7 @@ class BracketViewerApp(tk.Tk):
         x_scroll.pack(side=tk.BOTTOM, fill=tk.X)
         self.bracket_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        back_btn = tk.Button(self.bracket_view_frame, text='Back to Tables',
+        back_btn = tk.Button(self.bracket_view_frame, text='Back to Matten',
                             command=self.show_tables)
         apply_button_style(back_btn, 'secondary')
         back_btn.pack(pady=5)
@@ -431,7 +431,7 @@ class BracketViewerApp(tk.Tk):
         self.table_panels = {}
         for i, (row, col) in enumerate([(1, 0), (1, 1), (2, 0), (2, 1)]):
             table_num = i + 1
-            panel = tk.LabelFrame(self.tables_frame, text=f'Table {table_num}',
+            panel = tk.LabelFrame(self.tables_frame, text=f'Matte {table_num}',
                                  width=180, height=120, labelanchor='n')
             apply_table_panel_style(panel)
             panel.grid(row=row, column=col, padx=18, pady=18, sticky='nsew')
@@ -523,15 +523,15 @@ class BracketViewerApp(tk.Tk):
         # Check if table is full (max 2 brackets per table)
         assigned = [k for k, v in self.bracket_table_assignment.items() if v == table_num]
         if len(assigned) >= 2:
-            messagebox.showwarning('Table Full',
-                                  f'Table {table_num} already has 2 brackets assigned.')
+            messagebox.showwarning('Matte Voll',
+                                  f'Matte {table_num} already has 2 brackets assigned.')
             return
 
         # Assign the bracket
         self.bracket_table_assignment[bracket_key] = table_num
         self.update_bracket_list()
         self.update_table_panels()
-        self.logger.info(f"Assigned '{bracket_key}' to Table {table_num}")
+        self.logger.info(f"Assigned '{bracket_key}' to Matte {table_num}")
 
     def unassign_bracket(self, bracket_key=None):
         """Unassign bracket from its table (can be called directly or from selection)."""
@@ -553,7 +553,7 @@ class BracketViewerApp(tk.Tk):
         self.bracket_table_assignment[bracket_key] = None
         self.update_bracket_list()
         self.update_table_panels()
-        self.logger.info(f"Unassigned '{bracket_key}' from Table {old_table}")
+        self.logger.info(f"Unassigned '{bracket_key}' from Matte {old_table}")
 
     def auto_assign_tables(self):
         """Automatically distribute unassigned brackets across tables."""
