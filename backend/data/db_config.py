@@ -3,13 +3,18 @@
 
 """
 Database configuration for PostgreSQL connection.
-TODO: Move credentials to environment variables for production.
+Credentials are loaded from environment variables.
 """
 
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 DB_CONFIG = {
-    'host': '172.17.192.42',
-    'port': 5432,
-    'database': 'mydatabase',
-    'user': 'myuser',
-    'password': 'mypassword'
+    'host': os.getenv('DB_HOST', 'localhost'),
+    'port': int(os.getenv('DB_PORT', '5432')),
+    'database': os.getenv('DB_NAME', 'mydatabase'),
+    'user': os.getenv('DB_USER', 'myuser'),
+    'password': os.getenv('DB_PASSWORD', '')
 }

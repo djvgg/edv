@@ -1,5 +1,6 @@
-<!--# SPDX-FileCopyrightText: 2026 TOP Team Combat Control
-# SPDX-License-Identifier: CC0-1.0-->
+<!-- SPDX-FileCopyrightText: 2026 TOP Team Combat Control
+SPDX-License-Identifier: GPL-3.0-or-later-->
+
 # Frontend Styles Guide
 
 Reusable dark-themed UI components for Python Tkinter applications.

@@ -3,43 +3,63 @@
 
 # Extracted GUI code from bracket_viewer.py
 
-# ===== DEBUG CONFIGURATION =====
-# Set to True to print debug logs to console; False to only log to file
-DEBUG_VERBOSE = True
-# ==============================
-
-import os
-import tkinter as tk
-from tkinter import messagebox, filedialog, ttk
 import json
+import os
+import sys
+import threading
+import traceback
 from datetime import datetime
 
-# Import backend services
-import sys
+import tkinter as tk
+from tkinter import messagebox, filedialog, ttk
+import pandas as pd
+
+# Setup sys.path for backend imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-from backend.services.bracket_service import set_bracket_config, export_all_brackets
-from backend.data.repositories.participant_repository import fetch_participants_from_db
 
-# Import logging service
-from libraries.logging import get_logger
+from utils.logging import get_logger  # noqa: E402
+from backend.services.bracket_service import (  # noqa: E402
+    export_all_brackets,
+    make_bracket,
+    set_bracket_config,
+)
+from backend.data.repositories.participant_repository import (  # noqa: E402
+    fetch_participants_from_db,
+)
+import backend.data.database as _db_module  # noqa: E402
+from backend.data.database import SessionLocal  # noqa: E402
+from backend.services.tournament_service import TournamentService  # noqa: E402
 
-# Import styles
-from ..styles import (
-    COLORS, FONTS, BUTTON_STYLES,
-    apply_button_style, apply_label_style, apply_listbox_style,
-    apply_entry_style, apply_table_panel_style, create_dark_frame
+from ..styles import (  # noqa: E402
+    COLORS,
+    FONTS,
+    apply_button_style,
+    apply_entry_style,
+    apply_label_style,
+    apply_listbox_style,
+    apply_table_panel_style,
+    create_dark_frame,
 )
 
-# Import from judgefrontend for flexible xlsx handling
-judgefrontend_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'judgefrontend')
-if os.path.exists(judgefrontend_path):
-    sys.path.insert(0, judgefrontend_path)
-    try:
-        from src.xlsxHandler import processXlsx
-    except ImportError:
-        processXlsx = None
-else:
-    processXlsx = None
+# Import frontend utilities
+from ..utils import (  # noqa: E402
+    calculate_box_size,
+    load_participants_from_xlsx,
+    normalize_participants,
+    draw_pools_on_canvas,
+)
+
+# Import generation method screen
+from .generation_method_screen import GenerationMethodScreen  # noqa: E402
+from .file_loader_screen import FileLoaderScreen  # noqa: E402
+from .group_preview_screen import GroupPreviewScreen  # noqa: E402
+from .fight_monitoring_window import FightMonitoringScreen  # noqa: E402
+from ..search_utils import filter_items  # noqa: E402
+
+# ===== DEBUG CONFIGURATION =====
+# Set to True to print debug logs to console; False to only log to file
+DEBUG = True
+# ==============================
 
 
 class BracketViewerApp(tk.Tk):
@@ -47,13 +67,12 @@ class BracketViewerApp(tk.Tk):
 
     def __init__(self):
         super().__init__()
+        # Initialize logger
+        self.logger = get_logger('main_window', debug_verbose=DEBUG)
+        
         self.title('Tournament Bracket Manager')
-        self.geometry('520x440')  # Start small like judgefrontend
+        self.geometry('520x440')  
         self.configure(bg="#1e1e1e")
-
-        # Initialize logger (debug_verbose controlled by DEBUG_VERBOSE flag at top of file)
-        self.logger = get_logger('bracket_viewer', debug_verbose=DEBUG_VERBOSE)
-        self.logger.info('Tournament Bracket Manager application started')
 
         # Configure dark theme for ttk widgets (scrollbars)
         self.setup_ttk_styles()
@@ -66,21 +85,48 @@ class BracketViewerApp(tk.Tk):
         try:
             set_bracket_config(config_path)
         except Exception as e:
-            print(f"Warning: Could not load config: {e}")
+            self.logger.warning(f"Could not load config: {e}")
 
         # Data
         self.brackets = {}  # {bracket_key: Bracket data}
         self.bracket_cache_file = None
+        self.bracket_generation_methods = {}  # {bracket_key: method_name}
         self.viewer_shown = False
         self.zoom_level = 1.0  # Zoom level for bracket visualization
         self.current_bracket_key = None  # Track currently displayed bracket
+
+        # Fight monitoring state – persists across window open/close
+        # {bracket_key: {(round_idx, match_idx): winner_name}}
+        self.match_results = {}
+
+        # Preview window state
+        self.group_listbox_map = {}
+        self.preview_search_var = None
+        self.preview_count_var = None
 
         # Rendering cache - stores pre-computed bracket structures
         self.bracket_structure_cache = {}  # {bracket_key: rounds}
         self.bracket_render_cache = {}  # {(bracket_key, zoom_level): rendered canvas items}
 
-        # Start with file loading UI (judgefrontend style)
+        # Start with file loading UI
         self.show_file_loader()
+
+    def _with_db(self, fn):
+        """
+        Create a fresh SQLAlchemy session, run fn(TournamentService(db)), then close.
+        Thread-safe: each call owns its own session.
+        Errors are logged but never crash the app — DB writes are best-effort.
+        """
+        if not _db_module.DB_AVAILABLE:
+            return
+        db = SessionLocal()
+        try:
+            fn(TournamentService(db))
+        except Exception as e:
+            db.rollback()
+            self.logger.error(f"DB operation failed: {e}", exc_info=True)
+        finally:
+            db.close()
 
     def setup_ttk_styles(self):
         """Configure ttk styles for dark theme scrollbars."""
@@ -117,49 +163,128 @@ class BracketViewerApp(tk.Tk):
                  arrowcolor=[('active', COLORS['text_primary'])])
 
     def show_file_loader(self):
-        """Show initial file loading UI (judgefrontend style)."""
+        """Show file loading screen."""
         # Clear any existing widgets
         for widget in self.winfo_children():
             widget.destroy()
 
-        # Header
-        title = tk.Label(self, text="Tournament Bracket Manager")
-        apply_label_style(title, 'heading_xl')
-        title.pack(pady=(20, 5))
+        # Create the file loader screen
+        loader_screen = FileLoaderScreen(self)
+        loader_screen.pack(fill=tk.BOTH, expand=True)
 
-        subtitle = tk.Label(self, text="Bracket Generator & Viewer")
-        apply_label_style(subtitle, 'subtitle')
-        subtitle.pack(pady=(0, 5))
+        # Store reference and set up callbacks
+        self.file_loader_screen = loader_screen
+        loader_screen.on_load_xlsx = self.load_and_generate
+        loader_screen.on_load_database = self.load_from_database
+        loader_screen.on_load_json = self.load_json_and_generate
+        loader_screen.on_split_gender = self.split_gender_to_json
 
-        # Info label
-        self.info_var = tk.StringVar(value="[Waiting for XLSX file...]")
-        info_label = tk.Label(self, textvariable=self.info_var)
-        apply_label_style(info_label, 'info')
-        info_label.pack(pady=(0, 20))
+        self.logger.debug("File loader screen displayed")
 
-        # Status label (bottom)
-        self.status_var = tk.StringVar(value="Ready.")
-        self.status_label = tk.Label(self, textvariable=self.status_var, wraplength=480)
-        apply_label_style(self.status_label, 'status_success')
-        self.status_label.pack(side="bottom", pady=15)
+    def show_group_preview_window(self):
+        """Show group preview screen."""
+        # Resize window
+        self.geometry('1000x600')
+        self.configure(bg=COLORS['bg_dark'])
 
-        # Main buttons
-        load_btn = tk.Button(self, text="Load Participant List (XLSX) & Generate Brackets",
-                            command=self.load_and_generate)
-        apply_button_style(load_btn, 'primary')
-        load_btn.pack(pady=8, fill="x", padx=40)
+        # Clear existing widgets
+        for widget in self.winfo_children():
+            widget.destroy()
 
-        # Database load button
-        db_btn = tk.Button(self, text="Load from Database & Generate Brackets",
-                          command=self.load_from_database)
-        apply_button_style(db_btn, 'primary')
-        db_btn.pack(pady=8, fill="x", padx=40)
+        # Create and display preview screen
+        preview_screen = GroupPreviewScreen(self)
+        preview_screen.pack(fill=tk.BOTH, expand=True)
 
-        # Split M/W button
-        split_btn = tk.Button(self, text="Split M/W Contestants (XLSX → JSON)",
-                             command=self.split_gender_to_json)
-        apply_button_style(split_btn, 'secondary')
-        split_btn.pack(pady=8, fill="x", padx=40)
+        # Store reference and set up callbacks
+        self.group_preview_screen = preview_screen
+        preview_screen.on_back = self.show_file_loader
+        preview_screen.on_continue = self.show_generation_method_screen
+
+        # Load bracket data
+        preview_screen.load_data(self.brackets)
+
+        self.logger.debug("Group preview screen displayed")
+
+    def show_generation_method_screen(self):
+        """Show the generation method selection screen."""
+        # Clear existing widgets
+        for widget in self.winfo_children():
+            widget.destroy()
+
+        # Create the generation method screen
+        gen_screen = GenerationMethodScreen(self)
+        gen_screen.pack(fill=tk.BOTH, expand=True)
+
+        # Store reference for access
+        self.generation_method_screen = gen_screen
+
+        # Prepare bracket data for the screen
+        # Convert brackets to the format expected by GenerationMethodScreen
+        # Merge with cached assignments if they exist
+        brackets_dict = {}
+        for bracket_key, bracket_data in self.brackets.items():
+            fighters = bracket_data.get('fighters', [])
+            # Use cached assignment if available, otherwise None
+            cached_method = self.bracket_generation_methods.get(bracket_key)
+            brackets_dict[bracket_key] = {
+                'tuple': fighters,
+                'method': cached_method,  # Load cached assignment or None
+            }
+
+        # Load the data into the screen
+        gen_screen.load_data(brackets_dict)
+
+        # Set up callback for when generation methods are selected
+        gen_screen.on_generation_complete = self.on_generation_methods_selected
+
+    def show_loading_progress(self, message):
+        """Show a loading progress dialog."""
+        # Create a loading window
+        self.loading_window = tk.Toplevel(self)
+        self.loading_window.title("Loading...")
+        self.loading_window.geometry("400x150")
+        self.loading_window.configure(bg=COLORS['bg_dark'])
+        self.loading_window.resizable(False, False)
+        
+        # Make it modal
+        self.loading_window.transient(self)
+        self.loading_window.grab_set()
+        
+        # Center on parent window
+        self.loading_window.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - 400) // 2
+        y = self.winfo_y() + (self.winfo_height() - 150) // 2
+        self.loading_window.geometry(f"+{x}+{y}")
+        
+        # Message label
+        msg_label = tk.Label(self.loading_window, text=message)
+        apply_label_style(msg_label, 'heading_md')
+        msg_label.pack(pady=(20, 10))
+        
+        # Progress bar
+        self.progress_var = tk.IntVar(value=0)
+        progress_bar = ttk.Progressbar(self.loading_window, variable=self.progress_var,
+                                       maximum=100, length=350, mode='determinate')
+        progress_bar.pack(pady=10, padx=20)
+        
+        # Percentage label
+        self.progress_label = tk.Label(self.loading_window, text="0%")
+        apply_label_style(self.progress_label, 'info')
+        self.progress_label.pack(pady=(0, 10))
+        
+        self.loading_window.update_idletasks()
+
+    def update_progress(self, value):
+        """Update the progress bar."""
+        if hasattr(self, 'progress_var') and hasattr(self, 'loading_window'):
+            self.progress_var.set(value)
+            self.progress_label.config(text=f"{value}%")
+            self.loading_window.update_idletasks()
+
+    def hide_loading_progress(self):
+        """Hide the loading progress dialog."""
+        if hasattr(self, 'loading_window') and self.loading_window.winfo_exists():
+            self.loading_window.destroy()
 
     def show_bracket_viewer(self):
         """Show bracket list and visualization (dark themed)."""
@@ -168,8 +293,9 @@ class BracketViewerApp(tk.Tk):
         self.configure(bg=COLORS['bg_dark'])
         self.viewer_shown = True
 
-        # Initialize table assignments
-        self.bracket_table_assignment = {k: None for k in self.brackets.keys()}
+        # Initialize table assignments only on first visit – preserve on return from monitoring
+        if not hasattr(self, 'bracket_table_assignment'):
+            self.bracket_table_assignment = {k: None for k in self.brackets.keys()}
 
         # Clear existing widgets
         for widget in self.winfo_children():
@@ -194,9 +320,18 @@ class BracketViewerApp(tk.Tk):
         left_frame = create_dark_frame(paned)
         paned.add(left_frame, width=250, minsize=200)
 
-        title_label = tk.Label(left_frame, text='Unassigned Brackets')
+        title_frame = create_dark_frame(left_frame)
+        title_frame.pack(fill=tk.X, pady=(0, 5))
+
+        title_label = tk.Label(title_frame, text='Unassigned Brackets')
         apply_label_style(title_label, 'heading_md')
-        title_label.pack(pady=(0, 5))
+        title_label.pack(side=tk.LEFT)
+
+        # Counter for unassigned participants
+        self.unassigned_count_var = tk.StringVar(value="(0)")
+        count_label = tk.Label(title_frame, textvariable=self.unassigned_count_var)
+        apply_label_style(count_label, 'info')
+        count_label.pack(side=tk.RIGHT)
 
         search_frame = create_dark_frame(left_frame)
         search_frame.pack(fill=tk.X, pady=(0, 5))
@@ -228,7 +363,7 @@ class BracketViewerApp(tk.Tk):
 
         # Table assignment buttons - one per line
         for t in range(1, 5):
-            btn = tk.Button(assign_container, text=f'→ Table {t}',
+            btn = tk.Button(assign_container, text=f'→ Matte {t}',
                           command=lambda t=t: self.assign_to_table(t))
             apply_button_style(btn, 'secondary')
             btn.pack(fill=tk.X, pady=1)
@@ -250,7 +385,8 @@ class BracketViewerApp(tk.Tk):
         top_bar = create_dark_frame(self.bracket_view_frame)
         top_bar.pack(fill=tk.X, pady=(0, 5))
 
-        viz_title = tk.Label(top_bar, text='Bracket Visualization')
+        self.viz_title_var = tk.StringVar(value='Bracket Visualization')
+        viz_title = tk.Label(top_bar, textvariable=self.viz_title_var)
         apply_label_style(viz_title, 'heading_md')
         viz_title.pack(side=tk.LEFT, pady=0)
 
@@ -302,25 +438,41 @@ class BracketViewerApp(tk.Tk):
         x_scroll.pack(side=tk.BOTTOM, fill=tk.X)
         self.bracket_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        back_btn = tk.Button(self.bracket_view_frame, text='Back to Tables',
+        back_btn = tk.Button(self.bracket_view_frame, text='Back to Matten',
                             command=self.show_tables)
         apply_button_style(back_btn, 'secondary')
         back_btn.pack(pady=5)
 
         # Create table panels frame (shown initially)
         self.tables_frame = create_dark_frame(self.right_frame)
+        
+        # Add navigation row at the top
+        tables_nav_frame = create_dark_frame(self.tables_frame)
+        tables_nav_frame.grid(row=0, column=0, columnspan=2, sticky='ew', padx=18, pady=10)
+        
+        back_to_gen_btn = tk.Button(tables_nav_frame, text='← Back to Generation Setup',
+                                    command=self.show_generation_method_screen)
+        apply_button_style(back_to_gen_btn, 'secondary')
+        back_to_gen_btn.pack(side=tk.LEFT, padx=5)
+
+        monitor_btn = tk.Button(tables_nav_frame, text='Fight Monitoring',
+                                command=self.show_fight_monitoring_screen)
+        apply_button_style(monitor_btn, 'primary')
+        monitor_btn.pack(side=tk.RIGHT, padx=5)
+        
         self.table_panels = {}
-        for i, (row, col) in enumerate([(0, 0), (0, 1), (1, 0), (1, 1)]):
+        for i, (row, col) in enumerate([(1, 0), (1, 1), (2, 0), (2, 1)]):
             table_num = i + 1
-            panel = tk.LabelFrame(self.tables_frame, text=f'Table {table_num}',
+            panel = tk.LabelFrame(self.tables_frame, text=f'Matte {table_num}',
                                  width=180, height=120, labelanchor='n')
             apply_table_panel_style(panel)
             panel.grid(row=row, column=col, padx=18, pady=18, sticky='nsew')
             panel.grid_propagate(False)
             self.table_panels[table_num] = panel
 
-        self.tables_frame.grid_rowconfigure(0, weight=1)
+        self.tables_frame.grid_rowconfigure(0, weight=0)
         self.tables_frame.grid_rowconfigure(1, weight=1)
+        self.tables_frame.grid_rowconfigure(2, weight=1)
         self.tables_frame.grid_columnconfigure(0, weight=1)
         self.tables_frame.grid_columnconfigure(1, weight=1)
 
@@ -336,6 +488,53 @@ class BracketViewerApp(tk.Tk):
             self.bracket_canvas.yview_scroll(1, "units")
         elif event.num == 4 or event.delta > 0:
             self.bracket_canvas.yview_scroll(-1, "units")
+
+    def on_generation_methods_selected(self, final_assignments):
+        """
+        Callback when generation methods have been assigned to all brackets.
+        
+        Args:
+            final_assignments: Dict of {bracket_key: method_name}
+        """
+        self.logger.info(f"Generation methods assigned: {final_assignments}")
+        
+        # Store the assignments for use in bracket viewer
+        self.bracket_generation_methods = final_assignments
+        self._with_db(lambda svc, b=self.brackets, m=final_assignments:
+                      svc.save_groups_and_brackets(b, m))
+
+        # Proceed to bracket viewer
+        self.show_bracket_viewer()
+
+    def show_fight_monitoring_screen(self):
+        """Switch to the Fight Monitoring screen (in-app, no separate window)."""
+        # Create fight rows in DB for every assigned bracket (idempotent — skips if already created)
+        def _create_fights(svc):
+            for bracket_key, table_num in self.bracket_table_assignment.items():
+                if table_num and bracket_key in self.brackets:
+                    fight_pairs = self.brackets[bracket_key].get('bracket', [])
+                    try:
+                        svc.open_bracket_for_monitoring(bracket_key, fight_pairs)
+                    except ValueError:
+                        pass  # bracket not yet saved to DB (e.g. loaded from DB path)
+        self._with_db(_create_fights)
+
+        # Clear existing widgets
+        for widget in self.winfo_children():
+            widget.destroy()
+
+        self.geometry('1200x750')
+
+        screen = FightMonitoringScreen(
+            parent=self,
+            brackets=self.brackets,
+            bracket_table_assignment=self.bracket_table_assignment,
+            bracket_generation_methods=self.bracket_generation_methods,
+            match_results=self.match_results,
+        )
+        screen.pack(fill=tk.BOTH, expand=True)
+        screen.on_back = self.show_bracket_viewer
+        screen.show_matten_view()
 
     def show_tables(self):
         """Show table assignment view."""
@@ -379,25 +578,25 @@ class BracketViewerApp(tk.Tk):
         """Assign selected bracket to a table."""
         selection = self.bracket_listbox.curselection()
         if not selection:
-            self.logger.debug('Assignment failed: no bracket selected')
             messagebox.showinfo('No Selection', 'Please select a bracket first.')
             return
 
-        bracket_key = self.bracket_listbox.get(selection[0])
+        display_text = self.bracket_listbox.get(selection[0])
+        bracket_key = self.bracket_listbox_map.get(display_text, display_text)
 
         # Check if table is full (max 2 brackets per table)
         assigned = [k for k, v in self.bracket_table_assignment.items() if v == table_num]
         if len(assigned) >= 2:
-            self.logger.warning(f'Table {table_num} is full; cannot assign {bracket_key}')
-            messagebox.showwarning('Table Full',
-                                  f'Table {table_num} already has 2 brackets assigned.')
+            messagebox.showwarning('Matte Voll',
+                                  f'Matte {table_num} already has 2 brackets assigned.')
             return
 
         # Assign the bracket
         self.bracket_table_assignment[bracket_key] = table_num
-        self.logger.info(f'Assigned bracket {bracket_key} to Table {table_num}')
+        self._with_db(lambda svc, k=bracket_key, t=table_num: svc.assign_mat(k, t))
         self.update_bracket_list()
         self.update_table_panels()
+        self.logger.info(f"Assigned '{bracket_key}' to Matte {table_num}")
 
     def unassign_bracket(self, bracket_key=None):
         """Unassign bracket from its table (can be called directly or from selection)."""
@@ -405,23 +604,21 @@ class BracketViewerApp(tk.Tk):
         if bracket_key is None:
             selection = self.bracket_listbox.curselection()
             if not selection:
-                self.logger.debug('Unassignment failed: no bracket selected')
                 messagebox.showinfo('No Selection', 'Please select a bracket first.')
                 return
             bracket_key = self.bracket_listbox.get(selection[0])
 
         # Check if this bracket is even assigned
         if not self.bracket_table_assignment.get(bracket_key):
-            self.logger.warning(f'Bracket {bracket_key} is not assigned to any table')
             messagebox.showinfo('Not Assigned', 'This bracket is not assigned to any table.')
             return
 
         # Unassign it
         old_table = self.bracket_table_assignment[bracket_key]
         self.bracket_table_assignment[bracket_key] = None
-        self.logger.info(f'Unassigned bracket {bracket_key} from Table {old_table}')
         self.update_bracket_list()
         self.update_table_panels()
+        self.logger.info(f"Unassigned '{bracket_key}' from Matte {old_table}")
 
     def auto_assign_tables(self):
         """Automatically distribute unassigned brackets across tables."""
@@ -429,11 +626,8 @@ class BracketViewerApp(tk.Tk):
                      if not self.bracket_table_assignment.get(k)]
 
         if not unassigned:
-            self.logger.debug('Auto-assign: No unassigned brackets to assign')
             messagebox.showinfo('Auto-assign', 'No unassigned brackets to assign.')
             return
-
-        self.logger.info(f'Auto-assigning {len(unassigned)} brackets to tables')
 
         # Count current assignments per table
         assigned_count = {t: len([k for k, v in self.bracket_table_assignment.items() if v == t])
@@ -446,12 +640,17 @@ class BracketViewerApp(tk.Tk):
                 if assigned_count[table] < 2:
                     self.bracket_table_assignment[bracket_key] = table
                     assigned_count[table] += 1
-                    self.logger.debug(f'Assigned {bracket_key} to Table {table}')
                     table = table % 4 + 1
                     break
                 table = table % 4 + 1
 
-        self.logger.info('Auto-assignment complete')
+        # Persist all auto-assignments to DB in one pass
+        assignments = {k: v for k, v in self.bracket_table_assignment.items() if v}
+        def _save_auto_assignments(svc):
+            for bkey, tnum in assignments.items():
+                svc.assign_mat(bkey, tnum)
+        self._with_db(_save_auto_assignments)
+
         self.update_bracket_list()
         self.update_table_panels()
 
@@ -462,6 +661,9 @@ class BracketViewerApp(tk.Tk):
             for widget in panel.winfo_children():
                 widget.destroy()
 
+        # Track totals for each table
+        table_totals = {}
+
         # Add assigned brackets to panels
         for bracket_key, table_num in self.bracket_table_assignment.items():
             if table_num:
@@ -471,8 +673,17 @@ class BracketViewerApp(tk.Tk):
                 row_frame = create_dark_frame(panel)
                 row_frame.pack(fill=tk.X, pady=2, padx=4)
 
+                # Get fighter count
+                fighter_count = len(self.brackets[bracket_key].get('fighters', []))
+                
+                # Track total for this table
+                if table_num not in table_totals:
+                    table_totals[table_num] = 0
+                table_totals[table_num] += fighter_count
+                
                 # Truncate long names
                 display_text = bracket_key[:25] + '...' if len(bracket_key) > 25 else bracket_key
+                display_text = f"{display_text} ({fighter_count})"
                 label = tk.Label(row_frame, text=display_text, wraplength=110,
                                justify='left', anchor='w', cursor='hand2',
                                bg=COLORS['bg_panel'], fg=COLORS['text_primary'],
@@ -486,11 +697,30 @@ class BracketViewerApp(tk.Tk):
                 apply_button_style(unassign_btn, 'secondary')
                 unassign_btn.pack(side=tk.RIGHT, padx=2)
 
+        # Add totals footer to each table
+        for table_num, panel in self.table_panels.items():
+            total = table_totals.get(table_num, 0)
+            
+            # Add separator
+            separator = tk.Frame(panel, height=1, bg=COLORS['border'])
+            separator.pack(fill=tk.X, pady=4, padx=4)
+            
+            # Add total label
+            total_frame = create_dark_frame(panel)
+            total_frame.pack(fill=tk.X, pady=2, padx=4)
+            
+            total_label = tk.Label(total_frame, text=f"Total Players: {total}",
+                                  justify='left', anchor='w',
+                                  bg=COLORS['bg_panel'], fg=COLORS['accent_orange'],
+                                  font=FONTS['heading_sm'])
+            total_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
     def on_bracket_double_click(self, event):
         """Handle double-click on bracket - show visualization."""
         selection = self.bracket_listbox.curselection()
         if selection:
-            bracket_key = self.bracket_listbox.get(selection[0])
+            display_text = self.bracket_listbox.get(selection[0])
+            bracket_key = self.bracket_listbox_map.get(display_text, display_text)
             self.show_bracket_view(bracket_key)
 
     def set_status(self, msg, color=None):
@@ -500,6 +730,22 @@ class BracketViewerApp(tk.Tk):
             if color:
                 self.status_label.config(fg=color)
             self.update_idletasks()
+        
+        # Also update file loader screen if it exists and is displayed
+        if hasattr(self, 'file_loader_screen') and self.file_loader_screen.winfo_exists():
+            style = 'status_success'
+            if color and color == COLORS['accent_red']:
+                style = 'status_error'
+            elif color and color == COLORS['text_secondary']:
+                style = 'info'
+            self.file_loader_screen.set_status_text(msg, style)
+
+    def set_info_text(self, text):
+        """Update info text on file loader screen if available."""
+        if hasattr(self, 'info_var'):
+            self.info_var.set(text)
+        if hasattr(self, 'file_loader_screen') and self.file_loader_screen.winfo_exists():
+            self.file_loader_screen.set_info_text(text)
 
     def load_and_generate(self):
         """Load participants from XLSX file and generate brackets."""
@@ -508,105 +754,102 @@ class BracketViewerApp(tk.Tk):
             filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")]
         )
         if not filepath:
-            self.logger.debug('File selection cancelled by user')
             return
 
+        # Show loading progress dialog
+        self.show_loading_progress("Loading and generating brackets...")
+        
+        # Run loading in background thread
+        thread = threading.Thread(target=self._load_and_generate_thread, args=(filepath,), daemon=True)
+        thread.start()
+
+    def _load_and_generate_thread(self, filepath):
+        """Background thread for loading XLSX and generating brackets."""
         try:
-            self.logger.info(f'Loading participants from file: {filepath}')
             self.set_status("Reading XLSX file...", COLORS['text_secondary'])
+            self.update_progress(10)
 
-            # Use judgefrontend's flexible xlsx handler if available
-            if processXlsx:
-                self.logger.debug('Using judgefrontend xlsx handler')
-                groups = processXlsx(filepath)
-                # Convert groups to participants format
-                participants = []
-                for group in groups:
-                    for fighter in group.get('fighters', []):
-                        # Normalize field names to what backend expects
-                        participants.append({
-                            'Name': fighter.get('name', fighter.get('Name', '')),
-                            'Gender': fighter.get('geschlecht', fighter.get('Gender', fighter.get('gender', ''))),
-                            'Age': fighter.get('alter', fighter.get('Age', fighter.get('age'))),
-                            'Weight': fighter.get('gewicht', fighter.get('Weight', fighter.get('weight'))),
-                            'Verein': fighter.get('verein', fighter.get('Club', fighter.get('club', '')))
-                        })
-            else:
-                # Fallback: simple pandas read
-                self.logger.debug('Using pandas fallback for xlsx reading')
-                import pandas as pd
-                df = pd.read_excel(filepath)
-
-                # Build name from Vorname + Nachname if needed
-                if 'Name' not in df.columns and 'Vorname' in df.columns and 'Nachname' in df.columns:
-                    df['Name'] = df['Vorname'].astype(str) + ' ' + df['Nachname'].astype(str)
-
-                participants = []
-                for _, row in df.iterrows():
-                    participants.append({
-                        'Name': row.get('Name', ''),
-                        'Gender': row.get('Geschlecht', row.get('Gender', '')),
-                        'Age': row.get('Alter', row.get('Age')),
-                        'Weight': row.get('Gewicht', row.get('Weight')),
-                        'Verein': row.get('Verein', row.get('Club', ''))
-                    })
+            # Load and normalize participants from XLSX using utility function
+            raw_participants = load_participants_from_xlsx(filepath)
+            self.update_progress(30)
+            
+            participants = normalize_participants(raw_participants)
+            self.update_progress(40)
+            self._with_db(lambda svc, p=participants: svc.save_participants(p))
 
             if not participants:
-                error_msg = "No valid participants found in file"
-                self.logger.error(error_msg)
                 self.set_status("Error: No valid participants found.", COLORS['accent_red'])
+                self.hide_loading_progress()
                 return
 
             total_fighters = len(participants)
-            self.logger.info(f'Successfully loaded {total_fighters} participants')
-            self.info_var.set(f"✓ {total_fighters} participants loaded")
+            self.set_info_text(f"✓ {total_fighters} participants loaded")
+            self.update_progress(50)
 
-            self.logger.debug('Generating brackets from participants')
             self.set_status("Generating brackets...", COLORS['text_secondary'])
 
             # Generate brackets using backend service
             self.brackets = export_all_brackets(participants)
-            self.logger.info(f'Generated {len(self.brackets)} brackets')
+            self.update_progress(80)
 
-            # Clear rendering caches for new brackets
+            # Full in-memory reset — fresh start on every XLSX load
             self.bracket_structure_cache.clear()
             self.bracket_render_cache.clear()
+            self.match_results.clear()
+            self.bracket_generation_methods.clear()
+            if hasattr(self, 'bracket_table_assignment'):
+                del self.bracket_table_assignment  # re-initialised when bracket viewer opens
 
             # Save to JSON cache
             self.save_brackets_to_cache(filepath)
+            self.update_progress(95)
 
-            success_msg = f"Successfully generated {len(self.brackets)} brackets"
-            self.logger.info(success_msg)
             self.set_status(f"Success! Generated {len(self.brackets)} brackets (cached for fast viewing).", COLORS['accent_green'])
+            self.update_progress(100)
 
-            # Wait a moment then show bracket viewer
-            self.after(800, self.show_bracket_viewer)
+            # Hide progress and show group preview window
+            self.hide_loading_progress()
+            self.after(500, self.show_group_preview_window)
 
         except Exception as e:
-            error_msg = f"Error loading and generating brackets: {str(e)}"
-            self.logger.error(error_msg)
+            self.logger.error(f"Error during load and generate: {e}", exc_info=True)
             self.set_status(f"Error: {e}", COLORS['accent_red'])
+            self.hide_loading_progress()
 
     def load_from_database(self):
         """Load participants from PostgreSQL database and generate brackets."""
+        # Show loading progress dialog
+        self.show_loading_progress("Loading from database...")
+        
+        # Run loading in background thread
+        thread = threading.Thread(target=self._load_from_database_thread, daemon=True)
+        thread.start()
+
+    def _load_from_database_thread(self):
+        """Background thread for loading from database and generating brackets."""
         try:
             self.set_status("Connecting to database...", COLORS['text_secondary'])
+            self.update_progress(10)
 
             # Fetch participants from database
             participants = fetch_participants_from_db()
+            self.update_progress(30)
 
             if not participants:
                 self.set_status("Error: No valid participants found in database.", COLORS['accent_red'])
-                messagebox.showwarning("No Data", "No valid and paid participants found in database.")
+                self.hide_loading_progress()
+                self.after(500, lambda: messagebox.showwarning("No Data", "No valid and paid participants found in database."))
                 return
 
             total_fighters = len(participants)
-            self.info_var.set(f"✓ {total_fighters} participants loaded from database")
+            self.set_info_text(f"✓ {total_fighters} participants loaded from database")
+            self.update_progress(50)
 
             self.set_status("Generating brackets...", COLORS['text_secondary'])
 
             # Generate brackets using backend service
             self.brackets = export_all_brackets(participants)
+            self.update_progress(80)
 
             # Clear rendering caches for new brackets
             self.bracket_structure_cache.clear()
@@ -614,15 +857,108 @@ class BracketViewerApp(tk.Tk):
 
             # Save to JSON cache
             self.save_brackets_to_cache("database")
+            self.update_progress(95)
 
             self.set_status(f"Success! Generated {len(self.brackets)} brackets from database (cached for fast viewing).", COLORS['accent_green'])
+            self.update_progress(100)
 
-            # Wait a moment then show bracket viewer
-            self.after(800, self.show_bracket_viewer)
+            # Hide progress and show group preview window
+            self.hide_loading_progress()
+            self.after(500, self.show_group_preview_window)
 
         except Exception as e:
+            self.logger.error(f"Database error during load: {e}", exc_info=True)
             self.set_status(f"Database Error: {e}", COLORS['accent_red'])
-            messagebox.showerror("Database Error", f"Failed to load from database:\n{str(e)}")
+            self.hide_loading_progress()
+            self.after(500, lambda err=e: messagebox.showerror("Database Error", f"Failed to load from database:\n{str(err)}"))
+
+    def load_json_and_generate(self):
+        """Load 2 JSON files (male/female), merge them, and generate brackets."""
+        # Select 2 JSON files
+        filepaths = filedialog.askopenfilenames(
+            title="Select 2 JSON Files (Male & Female)",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+
+        if not filepaths:
+            return
+
+        if len(filepaths) != 2:
+            messagebox.showerror("Invalid Selection",
+                               f"Please select exactly 2 JSON files.\nYou selected {len(filepaths)} file(s).")
+            return
+
+        try:
+            self.set_status("Reading JSON files...", COLORS['text_secondary'])
+
+            all_participants = []
+
+            # Load both JSON files
+            for filepath in filepaths:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+                # Validate that data is a list
+                if not isinstance(data, list):
+                    messagebox.showerror("Invalid JSON Format",
+                                       f"File must contain a JSON array.\nFile: {os.path.basename(filepath)}")
+                    return
+
+                # Validate each participant has required fields
+                for i, participant in enumerate(data):
+                    if not isinstance(participant, dict):
+                        messagebox.showerror("Invalid Participant",
+                                           f"Participant {i+1} is not a valid object.\nFile: {os.path.basename(filepath)}")
+                        return
+
+                    # Check for required fields
+                    required_fields = ['Name', 'Gender', 'Age', 'Weight']
+                    missing_fields = [field for field in required_fields if field not in participant]
+
+                    if missing_fields:
+                        messagebox.showerror("Missing Fields",
+                                           f"Participant {i+1} is missing fields: {', '.join(missing_fields)}\nFile: {os.path.basename(filepath)}")
+                        return
+
+                # Add all participants from this file
+                all_participants.extend(data)
+                print(f"[INFO] Loaded {len(data)} participants from: {os.path.basename(filepath)}")
+
+            if not all_participants:
+                self.set_status("Error: No valid participants found.", COLORS['accent_red'])
+                return
+
+            total_fighters = len(all_participants)
+            self.set_info_text(f"✓ {total_fighters} participants loaded from JSON files")
+            self._with_db(lambda svc, p=all_participants: svc.save_participants(p))
+
+            self.set_status("Generating brackets...", COLORS['text_secondary'])
+
+            # Generate brackets using backend service
+            self.brackets = export_all_brackets(all_participants)
+
+            # Full in-memory reset — fresh start on every JSON load
+            self.bracket_structure_cache.clear()
+            self.bracket_render_cache.clear()
+            self.match_results.clear()
+            self.bracket_generation_methods.clear()
+            if hasattr(self, 'bracket_table_assignment'):
+                del self.bracket_table_assignment
+
+            # Save to JSON cache
+            self.save_brackets_to_cache("json_files")
+
+            self.set_status(f"Success! Generated {len(self.brackets)} brackets from JSON files (cached for fast viewing).", COLORS['accent_green'])
+
+            # Wait a moment then show group preview window
+            self.after(800, self.show_group_preview_window)
+
+        except json.JSONDecodeError as e:
+            self.set_status(f"JSON Parse Error: {e}", COLORS['accent_red'])
+            messagebox.showerror("JSON Error", f"Failed to parse JSON file:\n{str(e)}")
+        except Exception as e:
+            self.set_status(f"Error: {e}", COLORS['accent_red'])
+            messagebox.showerror("Error", f"Failed to load JSON files:\n{str(e)}")
 
     def split_gender_to_json(self):
         """Split contestants by gender (M/W) and save to separate JSON files."""
@@ -637,80 +973,69 @@ class BracketViewerApp(tk.Tk):
         try:
             self.set_status("Reading XLSX file...", COLORS['text_secondary'])
 
-            # Read participants from XLSX
-            if processXlsx:
-                groups = processXlsx(input_file)
-                participants = []
-                for group in groups:
-                    for fighter in group.get('fighters', []):
-                        # Extract first and last name
-                        first_name = str(fighter.get('vorname', fighter.get('FirstName', fighter.get('firstname', '')))).strip()
-                        last_name = str(fighter.get('nachname', fighter.get('LastName', fighter.get('lastname', '')))).strip()
-                        name_field = str(fighter.get('name', fighter.get('Name', ''))).strip()
+            # Read participants from XLSX with new column structure
+            # Columns: A=id, B=verein, C=verband, D=name, E=vorname, F=kyu/dan,
+            #          G=jahrgang, H=geschlecht, I=altersklasse, J=gewicht u9+u11,
+            #          K=gewichtsklasse ab u13, L=telefonnummer, M=email
+            df = pd.read_excel(input_file)
 
-                        # Logic:
-                        # - If we have FirstName but no LastName, use Name as LastName
-                        # - If we have LastName but no FirstName, use Name as FirstName
-                        # - If we have neither, split Name into FirstName and LastName
-                        if first_name and not last_name and name_field:
-                            last_name = name_field
-                        elif last_name and not first_name and name_field:
-                            first_name = name_field
-                        elif not first_name and not last_name and name_field:
-                            # Split Name into first and last
-                            parts = name_field.split(' ', 1)
-                            first_name = parts[0] if len(parts) > 0 else ''
-                            last_name = parts[1] if len(parts) > 1 else ''
+            participants = []
+            for index, row in df.iterrows():
+                # Read from new column structure
+                participant_id = row.iloc[0] if len(row) > 0 else index + 1  # Column A: id
+                verein = str(row.iloc[1]).strip() if len(row) > 1 and pd.notna(row.iloc[1]) else ""  # Column B: verein
+                # verband = row.iloc[2]  # Column C: verband (not used in output)
+                nachname = str(row.iloc[3]).strip() if len(row) > 3 and pd.notna(row.iloc[3]) else ""  # Column D: name (nachname)
+                vorname = str(row.iloc[4]).strip() if len(row) > 4 and pd.notna(row.iloc[4]) else ""  # Column E: vorname
+                # kyu_dan = row.iloc[5]  # Column F: kyu/dan grad (not used)
+                jahrgang = row.iloc[6] if len(row) > 6 and pd.notna(row.iloc[6]) else None  # Column G: jahrgang
+                geschlecht = str(row.iloc[7]).strip() if len(row) > 7 and pd.notna(row.iloc[7]) else ""  # Column H: geschlecht
+                # altersklasse = row.iloc[8]  # Column I: altersklasse (not used)
+                # gewicht_u9_u11 = row.iloc[9]  # Column J: gewicht u9 + u11 (ignored)
+                # gewichtsklasse_ab_u13 = row.iloc[10]  # Column K: gewichtsklasse ab u13 (ignored)
+                # telefonnummer = row.iloc[11]  # Column L: telefonnummer (not used)
+                # email = row.iloc[12]  # Column M: email (not used)
 
-                        # Always construct full Name as FirstName + LastName
-                        full_name = f"{first_name} {last_name}".strip()
+                # Skip header rows (ID is "#" or similar header indicators)
+                participant_id_str = str(participant_id).strip()
+                if participant_id_str in ['#', 'ID', 'id', 'Nr', 'Nr.', 'Number']:
+                    continue
 
-                        participants.append({
-                            'FirstName': first_name,
-                            'LastName': last_name,
-                            'Name': full_name,
-                            'Gender': fighter.get('geschlecht', fighter.get('Gender', fighter.get('gender', ''))),
-                            'Age': fighter.get('alter', fighter.get('Age', fighter.get('age'))),
-                            'Weight': fighter.get('gewicht', fighter.get('Weight', fighter.get('weight'))),
-                            'Verein': fighter.get('verein', fighter.get('Club', fighter.get('club', '')))
-                        })
-            else:
-                import pandas as pd
-                df = pd.read_excel(input_file)
+                # Skip rows where all fields except ID (column A) are empty
+                if not verein and not nachname and not vorname and jahrgang is None and not geschlecht:
+                    continue
 
-                participants = []
-                for _, row in df.iterrows():
-                    # Extract first and last name
-                    first_name = str(row.get('Vorname', row.get('FirstName', ''))).strip()
-                    last_name = str(row.get('Nachname', row.get('LastName', ''))).strip()
-                    name_field = str(row.get('Name', '')).strip()
+                # Construct full Name as Vorname + Nachname
+                full_name = f"{vorname} {nachname}".strip()
 
-                    # Logic:
-                    # - If we have FirstName but no LastName, use Name as LastName
-                    # - If we have LastName but no FirstName, use Name as FirstName
-                    # - If we have neither, split Name into FirstName and LastName
-                    if first_name and not last_name and name_field:
-                        last_name = name_field
-                    elif last_name and not first_name and name_field:
-                        first_name = name_field
-                    elif not first_name and not last_name and name_field:
-                        # Split Name into first and last
-                        parts = name_field.split(' ', 1)
-                        first_name = parts[0] if len(parts) > 0 else ''
-                        last_name = parts[1] if len(parts) > 1 else ''
+                # Convert jahrgang to int if possible
+                try:
+                    jahrgang = int(jahrgang) if jahrgang is not None else None
+                except (ValueError, TypeError):
+                    jahrgang = None
 
-                    # Always construct full Name as FirstName + LastName
-                    full_name = f"{first_name} {last_name}".strip()
+                # Convert geschlecht: m → maennlich, w → weiblich
+                geschlecht_lower = geschlecht.lower()
+                if geschlecht_lower == 'm':
+                    geschlecht_normalized = 'maennlich'
+                elif geschlecht_lower == 'w':
+                    geschlecht_normalized = 'weiblich'
+                else:
+                    geschlecht_normalized = geschlecht_lower
 
-                    participants.append({
-                        'FirstName': first_name,
-                        'LastName': last_name,
-                        'Name': full_name,
-                        'Gender': row.get('Geschlecht', row.get('Gender', '')),
-                        'Age': row.get('Alter', row.get('Age')),
-                        'Weight': row.get('Gewicht', row.get('Weight')),
-                        'Verein': row.get('Verein', row.get('Club', ''))
-                    })
+                participants.append({
+                    'ID': participant_id,
+                    'Vorname': vorname,
+                    'Nachname': nachname,
+                    'Name': full_name,
+                    'Geburtsjahr': jahrgang,
+                    'Verein': verein,
+                    'Gewicht (kg)': 0.0,
+                    'Gueltigkeit': False,
+                    'Geschlecht': geschlecht_normalized,
+                    'Bezahlt': False,
+                    'Geburtsdatum': ""
+                })
 
             if not participants:
                 self.set_status("Error: No participants found.", COLORS['accent_red'])
@@ -719,19 +1044,25 @@ class BracketViewerApp(tk.Tk):
 
             self.set_status("Splitting by gender...", COLORS['text_secondary'])
 
-            # Split by gender - normalize to uppercase for comparison
+            # Split by gender - should already be normalized to "maennlich" or "weiblich"
             male_contestants = []
             female_contestants = []
+            skipped_participants = []
 
             for p in participants:
-                gender = str(p.get('Gender', '')).strip().upper()
-                if gender in ['M', 'MALE', 'MÄNNLICH', 'MAENNLICH']:
+                gender = str(p.get('Geschlecht', '')).strip().lower()
+                if gender in ['maennlich', 'm', 'male', 'männlich']:
                     male_contestants.append(p)
-                elif gender in ['W', 'F', 'FEMALE', 'WEIBLICH']:
+                elif gender in ['weiblich', 'w', 'f', 'female']:
                     female_contestants.append(p)
                 else:
-                    # Skip or warn about unknown gender
-                    print(f"[WARNING] Unknown gender '{gender}' for participant: {p.get('Name')}")
+                    # Track skipped participant with gender info
+                    skipped_participants.append({
+                        'name': p.get('Name', 'Unknown'),
+                        'gender': p.get('Geschlecht', ''),
+                        'id': p.get('ID', '')
+                    })
+                    self.logger.warning(f"Unknown gender '{gender}' (original: '{p.get('Geschlecht', '')}') for participant ID {p.get('ID')}: {p.get('Name')}")
 
             # Show split results
             total = len(participants)
@@ -742,6 +1073,12 @@ class BracketViewerApp(tk.Tk):
             result_msg = f"Split complete:\n• Male: {male_count}\n• Female: {female_count}"
             if skipped > 0:
                 result_msg += f"\n• Skipped (unknown gender): {skipped}"
+                if skipped_participants:
+                    result_msg += "\n\nSkipped participants:"
+                    for sp in skipped_participants[:5]:  # Show max 5
+                        result_msg += f"\n  - ID {sp['id']}: {sp['name']} (gender: '{sp['gender']}')"
+                    if len(skipped_participants) > 5:
+                        result_msg += f"\n  ... and {len(skipped_participants) - 5} more"
 
             messagebox.showinfo("Split Results", result_msg)
 
@@ -764,14 +1101,14 @@ class BracketViewerApp(tk.Tk):
                 male_file = os.path.join(save_dir, 'contestants_male.json')
                 with open(male_file, 'w', encoding='utf-8') as f:
                     json.dump(male_contestants, f, indent=2, ensure_ascii=False)
-                print(f"[INFO] Saved {male_count} male contestants to: {male_file}")
+                self.logger.info(f"Saved {male_count} male contestants to: {male_file}")
 
             # Save female contestants if any
             if female_count > 0:
                 female_file = os.path.join(save_dir, 'contestants_female.json')
                 with open(female_file, 'w', encoding='utf-8') as f:
                     json.dump(female_contestants, f, indent=2, ensure_ascii=False)
-                print(f"[INFO] Saved {female_count} female contestants to: {female_file}")
+                self.logger.info(f"Saved {female_count} female contestants to: {female_file}")
 
             success_msg = f"Successfully saved split files to:\n{save_dir}\n\n"
             if male_count > 0:
@@ -809,21 +1146,43 @@ class BracketViewerApp(tk.Tk):
         with open(self.bracket_cache_file, 'w', encoding='utf-8') as f:
             json.dump(cache_data, f, indent=2, ensure_ascii=False)
 
-        print(f"Saved brackets to cache: {self.bracket_cache_file}")
+        self.logger.info(f"Saved brackets to cache: {self.bracket_cache_file}")
 
     def update_bracket_list(self, *args):
-        """Update the bracket list based on search filter - only show unassigned."""
+        """Update the bracket list based on search filter - only show unassigned (supports multi-term AND search)."""
         if not hasattr(self, 'search_var'):
             return
 
-        search_term = self.search_var.get().lower()
+        search_term = self.search_var.get()
         self.bracket_listbox.delete(0, tk.END)
+        # Store mapping of display text to bracket_key for safe lookup
+        self.bracket_listbox_map = {}
+        
+        # Get unassigned bracket keys
+        unassigned_keys = [k for k in sorted(self.brackets.keys()) if not self.bracket_table_assignment.get(k)]
+        
+        # Use shared search utility
+        filtered_keys, matched_count, search_terms = filter_items(unassigned_keys, search_term)
+        
+        if search_terms:
+            self.logger.debug(f"Bracket search: {search_terms}, found {matched_count} brackets")
+        
+        # Calculate total unassigned participants
+        total_unassigned = 0
 
-        # Only show unassigned brackets
-        for bracket_key in sorted(self.brackets.keys()):
-            if not self.bracket_table_assignment.get(bracket_key):
-                if search_term in bracket_key.lower():
-                    self.bracket_listbox.insert(tk.END, bracket_key)
+        # Display filtered brackets
+        for bracket_key in filtered_keys:
+            fighter_count = len(self.brackets[bracket_key].get('fighters', []))
+            display_text = f"{bracket_key} ({fighter_count})"
+            self.bracket_listbox.insert(tk.END, display_text)
+            # Store the mapping
+            self.bracket_listbox_map[display_text] = bracket_key
+            # Add to total
+            total_unassigned += fighter_count
+        
+        # Update counter
+        if hasattr(self, 'unassigned_count_var'):
+            self.unassigned_count_var.set(f"({total_unassigned})")
 
     def on_bracket_select(self, event):
         """Called when user clicks a bracket in the list."""
@@ -831,34 +1190,58 @@ class BracketViewerApp(tk.Tk):
         pass
 
     def render_bracket(self, bracket_key):
-        """Render bracket visualization on canvas."""
+        """Render bracket or pool visualization on canvas."""
         try:
             self.bracket_canvas.delete('all')
 
             bracket_data = self.brackets.get(bracket_key)
             if not bracket_data:
                 self.logger.debug(f'No bracket data found for key: {bracket_key}')
-                # Show message on canvas
                 self.bracket_canvas.create_text(400, 300,
                     text="No bracket data available",
                     font=FONTS['heading_md'], fill='red')
                 return
 
+            participants = bracket_data.get('fighters', [])
+            if not participants:
+                self.logger.debug("No participants in bracket")
+                self.bracket_canvas.create_text(400, 300,
+                    text="No participants in this bracket",
+                    font=FONTS['heading_md'], fill='red')
+                return
+
+            num_participants = len(participants)
+            self.logger.debug(f"Found {num_participants} participants")
+
+            # Check user's assigned method from generation screen
+            assigned_method = self.bracket_generation_methods.get(bracket_key)
+            self.logger.debug(f"Bracket {bracket_key} assigned method: {assigned_method}")
+
+            # Determine rendering method: pools or KO (default)
+            if assigned_method == 'pools':
+                self.logger.debug("Using assigned 'pools' method")
+                if hasattr(self, 'viz_title_var'):
+                    self.viz_title_var.set('Pool Visualization (Single Pool)')
+                self._render_pool(bracket_key, participants)
+                return
+            elif assigned_method == 'double':
+                self.logger.debug("Using assigned 'double' method")
+                if hasattr(self, 'viz_title_var'):
+                    self.viz_title_var.set('Pool Visualization (Double Pool)')
+                self._render_pool(bracket_key, participants)
+                return
+
+            # Default to KO bracket rendering (includes 'ko', 'special', and unassigned)
+            self.logger.debug(f"Rendering as KO bracket (method: {assigned_method})")
+            if hasattr(self, 'viz_title_var'):
+                self.viz_title_var.set('Bracket Visualization (KO)')
+
+            # Otherwise render bracket (11+ participants)
             # Check if we have cached bracket structure
             if bracket_key not in self.bracket_structure_cache:
-                self.logger.debug(f'Generating bracket structure for: {bracket_key}')
+                self.logger.debug(f"Generating bracket structure for: {bracket_key}")
 
-                participants = bracket_data.get('fighters', [])
-                if not participants:
-                    self.logger.debug(f'No participants in bracket: {bracket_key}')
-                    self.bracket_canvas.create_text(400, 300,
-                        text="No participants in this bracket",
-                        font=FONTS['heading_md'], fill='red')
-                    return
-
-                self.logger.debug(f'Found {len(participants)} participants for bracket: {bracket_key}')
-
-                # Ensure participants have correct field names
+                # Normalize participants and generate bracket rounds
                 normalized_participants = []
                 for p in participants:
                     if isinstance(p, dict):
@@ -866,137 +1249,94 @@ class BracketViewerApp(tk.Tk):
                             'Name': p.get('Name', p.get('name', '')),
                             'Verein': p.get('Verein', p.get('verein', p.get('club', '')))
                         })
-                    else:
-                        # If it's not a dict, skip
-                        continue
 
                 if not normalized_participants:
-                    error_msg = "Could not process participants for rendering"
-                    self.logger.error(error_msg)
+                    self.logger.debug("No normalized participants")
                     self.bracket_canvas.create_text(400, 300,
                         text="Error: Could not process participants",
                         font=FONTS['heading_md'], fill='red')
                     return
 
-                self.logger.debug(f'Normalized {len(normalized_participants)} participants for rendering')
+                self.logger.debug(f"Normalized {len(normalized_participants)} participants")
 
-                # Generate bracket visualization using balanced bracket system
-                from edv_backend.backend.services.bracket_service import _compute_snake_bracket
-                bracket = _compute_snake_bracket(normalized_participants)
-                self.logger.debug(f'Generated bracket with {len(bracket)} first round matches')
+                # Generate bracket visualization
+                bracket = make_bracket(normalized_participants)
+                self.logger.debug(f"Generated bracket with {len(bracket)} first round matches")
 
-                # Create a mapping from fighter name to club for display
-                fighter_clubs = {p['Name']: p.get('Verein', '') for p in normalized_participants}
-
-                # Build rounds for single-elimination tree - keep name and club info
+                # Build rounds for single-elimination tree
                 rounds = []
-                current = [(p1, p2, fighter_clubs.get(p1, ''), fighter_clubs.get(p2, '')) 
-                          for p1, p2 in bracket]
+                current = [(p1, p2) for p1, p2 in bracket]
                 rounds.append(current)
 
                 while len(current) > 1:
-                    nextRound = []
+                    next_round = []
                     for i in range(0, len(current), 2):
                         p1 = f"Winner {i+1}"
-                        p2 = f"Winner {i+2}" if i+1 < len(current) else 'BYE'
-                        nextRound.append((p1, p2, '', ''))  # Winners don't have clubs yet
-                    current = nextRound
+                        p2 = f"Winner {i+2}" if i+1 < len(current) else 'Freilos'
+                        next_round.append((p1, p2))
+                    current = next_round
                     rounds.append(current)
 
                 # Cache the bracket structure
                 self.bracket_structure_cache[bracket_key] = rounds
-                self.logger.debug(f'Cached bracket structure with {len(rounds)} rounds')
+                self.logger.debug(f"Cached bracket structure with {len(rounds)} rounds")
             else:
-                # Use cached bracket structure
                 rounds = self.bracket_structure_cache[bracket_key]
-                self.logger.debug(f'Using cached bracket structure: {bracket_key} ({len(rounds)} rounds)')
+                self.logger.debug(f"Using cached bracket structure for: {bracket_key} ({len(rounds)} rounds)")
 
-            # Layout parameters (scaled by zoom level)
-            # Calculate box size based on longest fighter name + club
-            max_text_len = 0
-            for r, matches in enumerate(rounds):
-                for match_data in matches:
-                    if len(match_data) == 4:
-                        p1, p2, club1, club2 = match_data
-                    else:
-                        p1, p2 = match_data
-                        club1, club2 = '', ''
-                    
-                    # Calculate display text length (name + club)
-                    text1_len = len(p1) + (len(club1) + 3 if club1 and club1 != 'BYE' else 0)
-                    text2_len = len(p2) + (len(club2) + 3 if club2 and club2 != 'BYE' else 0)
-                    max_text_len = max(max_text_len, text1_len, text2_len)
-            
-            # Scale box width based on longest text (roughly 8 pixels per character)
-            base_width = max(120, int(max_text_len * 8))
-            boxWidth = int(base_width * self.zoom_level)
-            boxHeight = int(50 * self.zoom_level)  # Increased height for two lines of text
-            xGap = int(80 * self.zoom_level)
-            yGap = int(40 * self.zoom_level)  # Increased gap for taller boxes
+            # Calculate box dimensions using utility function
+            box_width, box_height, x_gap, y_gap = calculate_box_size(rounds, self.zoom_level)
 
-            # Calculate positions
+            # Calculate bracket positions
             positions = {}
-            yOffsets = {}
-            firstTotal = len(rounds[0])
-
+            y_offsets = {}
+            first_total = len(rounds[0])
             start_x = int(60 * self.zoom_level)
             start_y = int(60 * self.zoom_level)
 
-            for m in range(firstTotal):
+            for m in range(first_total):
                 x = start_x
-                y = start_y + m * (boxHeight + yGap)
+                y = start_y + m * (box_height + y_gap)
                 positions[(0, m)] = (x, y)
-                yOffsets[(0, m)] = y + boxHeight // 2
+                y_offsets[(0, m)] = y + box_height // 2
 
             for r in range(1, len(rounds)):
                 matches = rounds[r]
-                x = start_x + r * (boxWidth + xGap)
+                x = start_x + r * (box_width + x_gap)
                 for m in range(len(matches)):
                     prev1 = (r-1, m*2)
                     prev2 = (r-1, m*2+1)
-                    y1 = yOffsets.get(prev1, start_y)
-                    y2 = yOffsets.get(prev2, y1)
-                    y = (y1 + y2) // 2 - boxHeight // 2
+                    y1 = y_offsets.get(prev1, start_y)
+                    y2 = y_offsets.get(prev2, y1)
+                    y = (y1 + y2) // 2 - box_height // 2
                     positions[(r, m)] = (x, y)
-                    yOffsets[(r, m)] = y + boxHeight // 2
+                    y_offsets[(r, m)] = y + box_height // 2
 
             # Draw rounds (INVERTED COLORS - white on black)
             for r, matches in enumerate(rounds):
-                for m, match_data in enumerate(matches):
-                    # Handle both old (2-tuple) and new (4-tuple) formats
-                    if len(match_data) == 4:
-                        p1, p2, club1, club2 = match_data
-                    else:
-                        p1, p2 = match_data
-                        club1, club2 = '', ''
-                    
+                for m, (p1, p2) in enumerate(matches):
                     x, y = positions[(r, m)]
 
                     # Draw box (white outline) - scale line width too
                     line_width = max(1, int(2 * self.zoom_level))
-                    self.bracket_canvas.create_rectangle(x, y, x + boxWidth, y + boxHeight,
+                    self.bracket_canvas.create_rectangle(x, y, x + box_width, y + box_height,
                                                          outline=COLORS['white'], width=line_width)
-                    self.bracket_canvas.create_line(x, y + boxHeight // 2, x + boxWidth, y + boxHeight // 2,
+                    self.bracket_canvas.create_line(x, y + box_height // 2, x + box_width, y + box_height // 2,
                                                    fill=COLORS['text_secondary'], dash=(2, 2))
 
                     # Draw text (white) - scale font size
                     font_size = max(6, int(10 * self.zoom_level))
                     scaled_font = ('Consolas', font_size)
-                    club_font = ('Consolas', max(5, int(8 * self.zoom_level)))
                     vs_font = ('Arial', max(6, int(10 * self.zoom_level)), 'bold')
 
-                    # Format display with club info on single line
-                    p1_display = f"{p1} [{club1}]" if club1 and club1 != 'BYE' else p1
-                    p2_display = f"{p2} [{club2}]" if club2 and club2 != 'BYE' else p2
-
-                    self.bracket_canvas.create_text(x + boxWidth // 2, y + boxHeight // 4,
-                                                   text=p1_display, anchor='c',
+                    self.bracket_canvas.create_text(x + box_width // 2, y + box_height // 4,
+                                                   text=p1, anchor='c',
                                                    fill=COLORS['white'], font=scaled_font)
-                    self.bracket_canvas.create_text(x + boxWidth // 2, y + 3 * boxHeight // 4,
-                                                   text=p2_display, anchor='c',
+                    self.bracket_canvas.create_text(x + box_width // 2, y + 3 * box_height // 4,
+                                                   text=p2, anchor='c',
                                                    fill=COLORS['white'], font=scaled_font)
                     # "vs" in red for visibility
-                    self.bracket_canvas.create_text(x + boxWidth // 2, y + boxHeight // 2,
+                    self.bracket_canvas.create_text(x + box_width // 2, y + box_height // 2,
                                                    text='vs', anchor='c',
                                                    font=vs_font,
                                                    fill=COLORS['accent_red'])
@@ -1006,38 +1346,96 @@ class BracketViewerApp(tk.Tk):
                         next_match_idx = m // 2
                         nx, ny = positions[(r + 1, next_match_idx)]
                         self.bracket_canvas.create_line(
-                            x + boxWidth, y + boxHeight // 2,
-                            nx, ny + boxHeight // 2,
+                            x + box_width, y + box_height // 2,
+                            nx, ny + box_height // 2,
                             arrow=tk.LAST, width=line_width,
                             fill=COLORS['white']
                         )
 
             # Update scroll region based on bracket size and zoom level
-            max_x = max(pos[0] for pos in positions.values()) + boxWidth + start_x
-            max_y = max(pos[1] for pos in positions.values()) + boxHeight + start_y
+            max_x = max(pos[0] for pos in positions.values()) + box_width + start_x
+            max_y = max(pos[1] for pos in positions.values()) + box_height + start_y
             self.bracket_canvas.configure(scrollregion=(0, 0, max_x, max_y))
 
-            self.logger.debug(f'Successfully rendered bracket with {len(rounds)} rounds at {int(self.zoom_level*100)}% zoom')
+            self.logger.debug(f"Successfully rendered bracket with {len(rounds)} rounds at {int(self.zoom_level*100)}% zoom")
 
         except Exception as e:
-            self.logger.error(f'Exception rendering bracket: {e}')
-            import traceback
+            self.logger.error(f"Exception rendering bracket: {e}", exc_info=True)
             traceback.print_exc()
             # Show error on canvas
             self.bracket_canvas.create_text(400, 300,
                 text=f"Error rendering bracket:\n{str(e)}",
                 font=FONTS['body_md'], fill='red')
 
+    def _render_pool(self, bracket_key, participants):
+        """Render pool/round-robin visualization on canvas.
+
+        Args:
+            bracket_key: The bracket identifier
+            participants: List of participant dicts
+        """
+        try:
+            # Normalize participants for pool rendering
+            normalized_participants = []
+            for p in participants:
+                if isinstance(p, dict):
+                    normalized_participants.append({
+                        'Name': p.get('Name', p.get('name', '')),
+                        'Verein': p.get('Verein', p.get('verein', p.get('club', '')))
+                    })
+
+            if not normalized_participants:
+                self.logger.debug("No normalized participants for pool")
+                self.bracket_canvas.create_text(400, 300,
+                    text="Error: Could not process participants",
+                    font=FONTS['heading_md'], fill='red')
+                return
+
+            # Draw pools on canvas
+            start_x = int(50 * self.zoom_level)
+            start_y = int(80 * self.zoom_level)
+
+            total_width, total_height = draw_pools_on_canvas(
+                self.bracket_canvas,
+                normalized_participants,
+                self.zoom_level,
+                COLORS,
+                FONTS,
+                start_x,
+                start_y
+            )
+
+            # Update scroll region
+            self.bracket_canvas.configure(scrollregion=(0, 0, total_width, total_height))
+
+            num_participants = len(normalized_participants)
+            assigned_method = self.bracket_generation_methods.get(bracket_key, 'unknown')
+            
+            # Calculate number of matches in round-robin
+            num_matches = (num_participants * (num_participants - 1)) // 2
+            
+            # Determine pool type for display
+            pool_type = "Single Pool" if num_participants <= 5 else "Double Pool"
+            
+            self.logger.debug(f"Successfully rendered {pool_type} (method: {assigned_method}) with {num_participants} participants, {num_matches} total matches at {int(self.zoom_level*100)}% zoom")
+
+        except Exception as e:
+            self.logger.error(f"Exception rendering pool: {e}", exc_info=True)
+            traceback.print_exc()
+            # Show error on canvas
+            self.bracket_canvas.create_text(400, 300,
+                text=f"Error rendering pool:\n{str(e)}",
+                font=FONTS['body_md'], fill='red')
+
     def on_closing(self):
         """Handle window close event - cleanup cache file."""
-        self.logger.info('Application closing')
         try:
             # Delete the bracket cache file if it exists
             if self.bracket_cache_file and os.path.exists(self.bracket_cache_file):
                 os.remove(self.bracket_cache_file)
-                self.logger.debug(f'Deleted cache file: {self.bracket_cache_file}')
+                self.logger.info(f"Deleted cache file: {self.bracket_cache_file}")
         except Exception as e:
-            self.logger.warning(f'Could not delete cache file: {e}')
+            self.logger.warning(f"Could not delete cache file: {e}")
         finally:
             # Close the application
             self.destroy()

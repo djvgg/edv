@@ -1,22 +1,39 @@
 # SPDX-FileCopyrightText: 2026 TOP Team Combat Control
-#
 # SPDX-License-Identifier: CC0-1.0
 
 image: python:3.13
 
 stages:
+ - pray
+ - lint
  - build
  - test
  - docs
 
-# For debugging
 before_script:
   - python --version
   - pip --version  
   - python -m pip install --upgrade pip
   - pip install -r requirements.txt
-  - apt-get update -y
-  - apt-get install -y doxygen
+
+pray: 
+  stage: pray
+  script:
+    - pip install OmnissiahPrayer
+    - echo "Praying for a successful CI run..."
+    - python -c "from OmnissiahPrayer import pray; pray()"
+
+lint:
+  stage: lint
+  script:
+    - pip install ruff
+    - echo "Running ruff linter..."
+    - ruff check backend/ frontend/ utils/
+    - pip install reuse
+    - reuse lint
+    - echo "Checking SPDX headers..."
+    - echo "Code quality check passed"
+  allow_failure: true
 
 build:
   stage: build
@@ -33,9 +50,10 @@ test:
 build-docs:
   stage: docs
   script:
+  - apt-get update -y
+  - apt-get install -y doxygen
   - echo "Building Doxygen documentation..."
   - doxygen Doxyfile
   artifacts:
     paths:
       - html/
-
