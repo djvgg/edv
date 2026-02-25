@@ -1253,22 +1253,24 @@ class BracketViewerApp(tk.Tk):
             num_participants = len(participants)
             self.logger.debug(f"Found {num_participants} participants")
 
-            # Check user's assigned method from generation screen
+            # Get user's generation method assignment from generation screen
             assigned_method = self.bracket_generation_methods.get(bracket_key)
-            self.logger.debug(f"Bracket {bracket_key} assigned method: {assigned_method}")
+            
+            # Determine default method based on bracket type
+            is_u9_u11 = bracket_key in ('U9', 'U11')
+            default_method = 'pools' if is_u9_u11 else 'ko'
+            
+            method = assigned_method or default_method
+            self.logger.debug(f"Bracket {bracket_key} method: {method} (assigned: {assigned_method}, default: {default_method})")
 
-            # Determine rendering method: pools or KO (default)
-            if assigned_method == 'pools':
-                self.logger.debug("Using assigned 'pools' method")
+            # Render based on assigned or default method
+            if method in ('pools', 'double'):
+                title = f"Pool Visualization ({bracket_key})"
                 if hasattr(self, 'viz_title_var'):
-                    self.viz_title_var.set('Pool Visualization (Single Pool)')
-                self._render_pool(bracket_key, participants)
-                return
-            elif assigned_method == 'double':
-                self.logger.debug("Using assigned 'double' method")
-                if hasattr(self, 'viz_title_var'):
-                    self.viz_title_var.set('Pool Visualization (Double Pool)')
-                self._render_pool(bracket_key, participants)
+                    self.viz_title_var.set(title)
+                # Get pool_size from bracket data
+                pool_size = self.brackets.get(bracket_key, {}).get('pool_size')
+                self._render_pool(bracket_key, participants, pool_size)
                 return
 
             # Default to KO bracket rendering (includes 'ko', 'special', and unassigned)
@@ -1407,12 +1409,15 @@ class BracketViewerApp(tk.Tk):
                 text=f"Error rendering bracket:\n{str(e)}",
                 font=FONTS['body_md'], fill='red')
 
-    def _render_pool(self, bracket_key, participants):
+    def _render_pool(self, bracket_key, participants, pool_size=None):
         """Render pool/round-robin visualization on canvas.
 
         Args:
             bracket_key: The bracket identifier
             participants: List of participant dicts
+            pool_size: Configured pool size (max participants per pool).
+                      If provided, uses this to calculate number of pools.
+                      If None, uses default heuristic.
         """
         try:
             # Normalize participants for pool rendering
@@ -1442,7 +1447,8 @@ class BracketViewerApp(tk.Tk):
                 COLORS,
                 FONTS,
                 start_x,
-                start_y
+                start_y,
+                pool_size=pool_size
             )
 
             # Update scroll region

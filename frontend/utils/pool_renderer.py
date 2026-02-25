@@ -66,39 +66,61 @@ def _generate_fight_schedule(pool_size):
     return all_matches  # Return all generated matches for complete round-robin
 
 
-def split_into_pools(participants, num_pools=1):
+def split_into_pools(participants, pool_size=None, num_pools=None):
     """Split participants into pools.
 
     Args:
         participants: List of participant dicts with 'Name' and 'Verein' keys
-        num_pools: Number of pools (1 or 2)
+        pool_size: Size of each pool (e.g., 4 means max 4 participants per pool)
+                  If provided, calculates num_pools automatically
+        num_pools: Number of pools (1 or 2). Used only if pool_size is None
 
     Returns:
         List of pools, each containing participant dicts
     """
+    # If pool_size is provided, calculate num_pools from it
+    if pool_size is not None and pool_size > 0:
+        num_pools = (len(participants) + pool_size - 1) // pool_size  # Ceiling division
+        num_pools = max(1, num_pools)  # At least 1 pool
+    elif num_pools is None:
+        num_pools = 1
+    
     if num_pools == 1:
         return [participants]
 
-    # For double pools, split evenly
-    mid = len(participants) // 2
-    return [participants[:mid], participants[mid:]]
+    # For multiple pools, split evenly
+    pools = []
+    for i in range(num_pools):
+        start_idx = (i * len(participants)) // num_pools
+        end_idx = ((i + 1) * len(participants)) // num_pools
+        pools.append(participants[start_idx:end_idx])
+    
+    return pools
 
 
-def determine_pool_structure(num_participants):
-    """Determine how many pools are needed based on participant count.
+def determine_pool_structure(num_participants, pool_size=None):
+    """Determine how many pools are needed based on participant count and pool_size.
 
     Args:
         num_participants: Number of participants in group
+        pool_size: Configured pool size (max participants per pool).
+                  If provided, uses this to calculate number of pools.
+                  If None, uses default heuristic.
 
     Returns:
-        Number of pools (1 for 3-5 people, 2 for 6-10 people)
+        Number of pools needed
     """
+    if pool_size is not None and pool_size > 0:
+        # Calculate num_pools based on configured pool_size
+        num_pools = (num_participants + pool_size - 1) // pool_size  # Ceiling division
+        return max(1, num_pools)
+    
+    # Default heuristic if no pool_size configured
     if 3 <= num_participants <= 5:
         return 1
     elif 6 <= num_participants <= 10:
         return 2
     else:
-        # Default to single pool for other sizes
         return 1
 
 
@@ -493,7 +515,7 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, box_width, box_
     )
 
 
-def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_x=50, start_y=80):
+def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_x=50, start_y=80, pool_size=None):
     """Draw pool visualization on canvas based on number of participants.
 
     Args:
@@ -503,15 +525,26 @@ def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_
         colors: Dict of color constants
         fonts: Dict of font constants
         start_x, start_y: Starting coordinates
+        pool_size: Configured pool size (max participants per pool).
+                  If provided, uses this to calculate number of pools.
+                  If None, uses default heuristic.
 
     Returns:
         Tuple of (total_width, total_height) for canvas sizing
     """
+    from utils.logging import get_logger
+    logger = get_logger('pool_renderer')
+    
     num_participants = len(participants)
-    num_pools = determine_pool_structure(num_participants)
+    num_pools = determine_pool_structure(num_participants, pool_size)
+    
+    if pool_size:
+        logger.info(f"Pool rendering: {num_participants} participants with pool_size={pool_size} → {num_pools} pools")
+    else:
+        logger.debug(f"Pool rendering: {num_participants} participants (no config pool_size) → {num_pools} pools")
 
     # Split into pools
-    pools = split_into_pools(participants, num_pools)
+    pools = split_into_pools(participants, pool_size=pool_size, num_pools=num_pools)
 
     # Calculate box sizes
     box_width, box_height, cell_size, padding = calculate_pool_box_size(participants, zoom_level)
