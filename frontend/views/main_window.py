@@ -8,7 +8,6 @@ import os
 import sys
 import threading
 import traceback
-from datetime import datetime
 
 import tkinter as tk
 from tkinter import messagebox, filedialog, ttk
@@ -74,9 +73,6 @@ class BracketViewerApp(tk.Tk):
         # Configure dark theme for ttk widgets (scrollbars)
         self.setup_ttk_styles()
 
-        # Setup window close handler to cleanup cache
-        self.protocol("WM_DELETE_WINDOW", self.on_closing)
-
         # Initialize backend config
         config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'bracket_config.xlsx')
         try:
@@ -86,7 +82,6 @@ class BracketViewerApp(tk.Tk):
 
         # Data
         self.brackets = {}  # {bracket_key: Bracket data}
-        self.bracket_cache_file = None
         self.bracket_generation_methods = {}  # {bracket_key: method_name}
         self.viewer_shown = False
         self.zoom_level = 1.0  # Zoom level for bracket visualization
@@ -96,10 +91,6 @@ class BracketViewerApp(tk.Tk):
         self.group_listbox_map = {}
         self.preview_search_var = None
         self.preview_count_var = None
-
-        # Rendering cache - stores pre-computed bracket structures
-        self.bracket_structure_cache = {}  # {bracket_key: rounds}
-        self.bracket_render_cache = {}  # {(bracket_key, zoom_level): rendered canvas items}
 
         # Start with file loading UI
         self.show_file_loader()
@@ -709,15 +700,7 @@ class BracketViewerApp(tk.Tk):
             self.brackets = export_all_brackets(participants)
             self.update_progress(80)
 
-            # Clear rendering caches for new brackets
-            self.bracket_structure_cache.clear()
-            self.bracket_render_cache.clear()
-
-            # Save to JSON cache
-            self.save_brackets_to_cache(filepath)
-            self.update_progress(95)
-
-            self.set_status(f"Success! Generated {len(self.brackets)} brackets (cached for fast viewing).", COLORS['accent_green'])
+            self.set_status(f"Success! Generated {len(self.brackets)} brackets.", COLORS['accent_green'])
             self.update_progress(100)
 
             # Hide progress and show group preview window
@@ -764,15 +747,7 @@ class BracketViewerApp(tk.Tk):
             self.brackets = export_all_brackets(participants)
             self.update_progress(80)
 
-            # Clear rendering caches for new brackets
-            self.bracket_structure_cache.clear()
-            self.bracket_render_cache.clear()
-
-            # Save to JSON cache
-            self.save_brackets_to_cache("database")
-            self.update_progress(95)
-
-            self.set_status(f"Success! Generated {len(self.brackets)} brackets from database (cached for fast viewing).", COLORS['accent_green'])
+            self.set_status(f"Success! Generated {len(self.brackets)} brackets from database.", COLORS['accent_green'])
             self.update_progress(100)
 
             # Hide progress and show group preview window
@@ -788,14 +763,7 @@ class BracketViewerApp(tk.Tk):
             # Generate brackets using backend service
             self.brackets = export_all_brackets(participants)
 
-            # Clear rendering caches for new brackets
-            self.bracket_structure_cache.clear()
-            self.bracket_render_cache.clear()
-
-            # Save to JSON cache
-            self.save_brackets_to_cache("database")
-
-            self.set_status(f"Success! Generated {len(self.brackets)} brackets from database (cached for fast viewing).", COLORS['accent_green'])
+            self.set_status(f"Success! Generated {len(self.brackets)} brackets from database.", COLORS['accent_green'])
 
             # Wait a moment then show bracket viewer
             self.after(800, self.show_bracket_viewer)
@@ -946,15 +914,8 @@ class BracketViewerApp(tk.Tk):
             # Generate brackets using backend service
             self.brackets = export_all_brackets(all_participants)
 
-            # Clear rendering caches for new brackets
-            self.bracket_structure_cache.clear()
-            self.bracket_render_cache.clear()
-
-            # Save to JSON cache
-            self.save_brackets_to_cache("json_files")
-
             self.logger.info(f"Successfully generated {len(self.brackets)} brackets")
-            self.set_status(f"Success! Generated {len(self.brackets)} brackets from JSON files (cached for fast viewing).", COLORS['accent_green'])
+            self.set_status(f"Success! Generated {len(self.brackets)} brackets from JSON files.", COLORS['accent_green'])
 
             # Wait a moment then show group preview window
             self.after(800, self.show_group_preview_window)
@@ -1150,30 +1111,9 @@ class BracketViewerApp(tk.Tk):
             self.logger.exception(f"Failed to split participants: {e}")
             messagebox.showerror("Error", f"Failed to split participants:\n{str(e)}")
 
-    def save_brackets_to_cache(self, source_file):
-        """Save generated brackets to JSON cache file."""
-        cache_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'cache')
-        os.makedirs(cache_dir, exist_ok=True)
-
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.bracket_cache_file = os.path.join(cache_dir, f'brackets_{timestamp}.json')
-
-        cache_data = {
-            'source_file': source_file,
-            'generated_at': datetime.now().isoformat(),
-            'brackets': {}
-        }
-
-        for key, bracket_data in self.brackets.items():
-            cache_data['brackets'][key] = {
-                'fighters': bracket_data.get('fighters', []),
-                'bracket': bracket_data.get('bracket', [])
-            }
-
-        with open(self.bracket_cache_file, 'w', encoding='utf-8') as f:
-            json.dump(cache_data, f, indent=2, ensure_ascii=False)
-
-        self.logger.info(f"Saved brackets to cache: {self.bracket_cache_file}")
+    def on_closing(self):
+        """Handle window closing."""
+        self.destroy()
 
     def update_bracket_list(self, *args):
         """Update the bracket list based on search filter - only show unassigned (supports multi-term AND search)."""
@@ -1461,17 +1401,8 @@ class BracketViewerApp(tk.Tk):
                 font=FONTS['body_md'], fill='red')
 
     def on_closing(self):
-        """Handle window close event - cleanup cache file."""
-        try:
-            # Delete the bracket cache file if it exists
-            if self.bracket_cache_file and os.path.exists(self.bracket_cache_file):
-                os.remove(self.bracket_cache_file)
-                self.logger.info(f"Deleted cache file: {self.bracket_cache_file}")
-        except Exception as e:
-            self.logger.warning(f"Could not delete cache file: {e}")
-        finally:
-            # Close the application
-            self.destroy()
+        """Handle window closing."""
+        self.destroy()
 
 
 def main():
