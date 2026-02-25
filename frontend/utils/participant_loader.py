@@ -3,7 +3,6 @@
 
 """Participant loading and normalization from spreadsheet files."""
 
-import os
 from utils.logging import get_logger
 
 

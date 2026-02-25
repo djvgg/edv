@@ -12,7 +12,6 @@ from datetime import datetime
 
 import tkinter as tk
 from tkinter import messagebox, filedialog, ttk
-import pandas as pd
 
 # Setup sys.path for backend imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -30,6 +29,8 @@ from backend.data.repositories.participant_repository import (  # noqa: E402
 from ..styles import (  # noqa: E402
     COLORS,
     FONTS,
+    SCROLLBAR_STYLE,
+    SCROLLBAR_ACTIVE_STYLE,
     apply_button_style,
     apply_entry_style,
     apply_label_style,
@@ -68,7 +69,7 @@ class BracketViewerApp(tk.Tk):
         
         self.title('Tournament Bracket Manager')
         self.geometry('520x440')  
-        self.configure(bg="#1e1e1e")
+        self.configure(bg=COLORS['bg_dark'])
 
         # Configure dark theme for ttk widgets (scrollbars)
         self.setup_ttk_styles()
@@ -111,31 +112,19 @@ class BracketViewerApp(tk.Tk):
         style.theme_use('clam')  # Use clam theme as base (most customizable)
 
         # Vertical scrollbar
-        style.configure('Vertical.TScrollbar',
-                       background=COLORS['bg_panel'],
-                       troughcolor=COLORS['bg_dark'],
-                       bordercolor=COLORS['bg_dark'],
-                       arrowcolor=COLORS['text_secondary'],
-                       lightcolor=COLORS['bg_panel'],
-                       darkcolor=COLORS['bg_panel'])
+        style.configure('Vertical.TScrollbar', **SCROLLBAR_STYLE)
 
         # Horizontal scrollbar
-        style.configure('Horizontal.TScrollbar',
-                       background=COLORS['bg_panel'],
-                       troughcolor=COLORS['bg_dark'],
-                       bordercolor=COLORS['bg_dark'],
-                       arrowcolor=COLORS['text_secondary'],
-                       lightcolor=COLORS['bg_panel'],
-                       darkcolor=COLORS['bg_panel'])
+        style.configure('Horizontal.TScrollbar', **SCROLLBAR_STYLE)
 
         # Active (hover) state
         style.map('Vertical.TScrollbar',
-                 background=[('active', COLORS['bg_input'])],
-                 arrowcolor=[('active', COLORS['text_primary'])])
+                 background=[('active', SCROLLBAR_ACTIVE_STYLE['background'])],
+                 arrowcolor=[('active', SCROLLBAR_ACTIVE_STYLE['arrowcolor'])])
 
         style.map('Horizontal.TScrollbar',
-                 background=[('active', COLORS['bg_input'])],
-                 arrowcolor=[('active', COLORS['text_primary'])])
+                 background=[('active', SCROLLBAR_ACTIVE_STYLE['background'])],
+                 arrowcolor=[('active', SCROLLBAR_ACTIVE_STYLE['arrowcolor'])])
 
     def show_file_loader(self):
         """Show file loading screen."""
@@ -872,7 +861,6 @@ class BracketViewerApp(tk.Tk):
                 self.logger.debug(f"[File {file_idx}] Found {len(data)} entries")
                 
                 valid_count = 0
-                skipped_count = 0
 
                 # Validate each participant
                 for idx, participant in enumerate(data, 1):
@@ -1102,7 +1090,6 @@ class BracketViewerApp(tk.Tk):
                     female_contestants.append(contestant)
 
             # Show split results
-            total = len(raw_participants)
             male_count = len(male_contestants)
             female_count = len(female_contestants)
             skipped = len(skipped_participants)
@@ -1152,8 +1139,8 @@ class BracketViewerApp(tk.Tk):
                 success_msg += f"• contestants_male.json ({male_count} entries)\n"
             if female_count > 0:
                 success_msg += f"• contestants_female.json ({female_count} entries)\n"
-            success_msg += f"\nFiles are ready for external weighing process.\n"
-            success_msg += f"After weighing, reimport JSON files to generate brackets."
+            success_msg += "\nFiles are ready for external weighing process.\n"
+            success_msg += "After weighing, reimport JSON files to generate brackets."
 
             messagebox.showinfo("Success", success_msg)
             self.set_status("Split complete! Files ready for weighing.", COLORS['accent_green'])
