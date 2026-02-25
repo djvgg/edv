@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from sqlalchemy import text
 
-from ..data.models import Participant, GroupParticipant, Group, Bracket, Fight
+from ..data.models import Participant, GroupParticipant
 from ..data.repositories.participant_repository import ParticipantRepository
 from ..data.repositories.group_repository import GroupRepository
 from ..data.repositories.bracket_repository import BracketRepository

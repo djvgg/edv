@@ -70,7 +70,6 @@ class FightMonitoringScreen(tk.Frame):
     def _setup_ttk_styles(self):
         style = ttk.Style()
         for name in ('FM.Vertical.TScrollbar', 'FM.Horizontal.TScrollbar'):
-            orient = 'Vertical' if 'Vertical' in name else 'Horizontal'
             style.configure(name,
                             background=COLORS['bg_panel'],
                             troughcolor=COLORS['bg_dark'],

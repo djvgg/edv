@@ -534,7 +534,8 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, box_width, box_
 def _draw_ko_match_box(canvas, x, y, bw, bh, p1, p2, lw, font, colors, winner=None):
     """Draw a single KO match box with winner/loser colouring."""
     my = y + bh // 2
-    real = lambda n: n and n not in ('', 'TBD')
+    def real(n):
+        return n and n not in ('', 'TBD')
     p1w = winner is not None and winner == p1 and real(p1)
     p2w = winner is not None and winner == p2 and real(p2)
 
