@@ -9,7 +9,7 @@ Displays unassigned brackets on the left and 4 method tables on the right in a 2
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox, ttk
 import sys
 import os
 import threading
@@ -17,7 +17,8 @@ import threading
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from utils.logging import get_logger
-from ..styles import (  
+from backend.data.repositories.config_repository import ConfigRepository
+from ..styles import (
     COLORS, FONTS,
     apply_button_style,
     apply_entry_style,
@@ -25,6 +26,12 @@ from ..styles import (
     apply_listbox_style,
     create_dark_frame,
 )
+from ..search_utils import filter_items
+
+# ===== DEBUG CONFIGURATION =====
+# Set to True to print debug logs to console; False to only log to file
+DEBUG = True
+# ==============================
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
@@ -73,6 +80,37 @@ class GenerationMethodScreen(tk.Frame):
         self.unassigned_listbox = None
         self.search_entry = None
         self.tables = {}  # {method: {listbox, unassign_btn}}
+        
+        # Load method labels from config
+        self.method_labels = {}  # {method_key: {'ButtonLabel': str, 'DisplayLabel': str}}
+        self._load_method_labels()
+    
+    def _load_method_labels(self):
+        """Load generation method labels from config."""
+        try:
+            config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'bracket_config.xlsx')
+            if os.path.exists(config_path):
+                config = ConfigRepository(config_path)
+                methods = config.get_generation_methods()
+                self.method_labels = methods
+                if self.DEBUG:
+                    self.logger.debug(f"DEBUG: Loaded {len(methods)} generation methods from config")
+        except Exception as e:
+            self.logger.warning(f"Could not load generation methods from config: {e}")
+            # Fall back to empty labels
+            self.method_labels = {}
+    
+    def _get_button_label(self, method_key):
+        """Get button label for a method key."""
+        if method_key in self.method_labels:
+            return self.method_labels[method_key].get('ButtonLabel', method_key)
+        return method_key
+    
+    def _get_display_label(self, method_key):
+        """Get display label for a method key (for table titles)."""
+        if method_key in self.method_labels:
+            return self.method_labels[method_key].get('DisplayLabel', method_key)
+        return method_key
 
     def load_data(self, brackets_dict=None):
         """
@@ -215,7 +253,7 @@ class GenerationMethodScreen(tk.Frame):
 
         pools_btn = tk.Button(
             buttons_frame,
-            text="Pools≤5",
+            text=self._get_button_label(self.METHOD_POOLS),
             command=lambda: self.on_assign_to_method(self.METHOD_POOLS),
         )
         apply_button_style(pools_btn, style='secondary')
@@ -223,7 +261,7 @@ class GenerationMethodScreen(tk.Frame):
 
         double_btn = tk.Button(
             buttons_frame,
-            text="Double6-10",
+            text=self._get_button_label(self.METHOD_DOUBLE),
             command=lambda: self.on_assign_to_method(self.METHOD_DOUBLE),
         )
         apply_button_style(double_btn, style='secondary')
@@ -231,7 +269,7 @@ class GenerationMethodScreen(tk.Frame):
 
         ko_btn = tk.Button(
             buttons_frame,
-            text="KO11+",
+            text=self._get_button_label(self.METHOD_KO),
             command=lambda: self.on_assign_to_method(self.METHOD_KO),
         )
         apply_button_style(ko_btn, style='secondary')
@@ -239,7 +277,7 @@ class GenerationMethodScreen(tk.Frame):
 
         special_btn = tk.Button(
             buttons_frame,
-            text="Special",
+            text=self._get_button_label(self.METHOD_SPECIAL),
             command=lambda: self.on_assign_to_method(self.METHOD_SPECIAL),
         )
         apply_button_style(special_btn, style='secondary')
@@ -256,15 +294,15 @@ class GenerationMethodScreen(tk.Frame):
         top_row = tk.Frame(right_panel, bg=COLORS['bg_dark'])
         top_row.pack(fill=tk.BOTH, expand=True, pady=5)
 
-        self._create_method_table(top_row, self.METHOD_POOLS, 'Pools (≤5 fighters)', side=tk.LEFT)
-        self._create_method_table(top_row, self.METHOD_DOUBLE, 'Double Pools (6-10)', side=tk.LEFT)
+        self._create_method_table(top_row, self.METHOD_POOLS, self._get_display_label(self.METHOD_POOLS), side=tk.LEFT)
+        self._create_method_table(top_row, self.METHOD_DOUBLE, self._get_display_label(self.METHOD_DOUBLE), side=tk.LEFT)
 
         # Bottom row
         bottom_row = tk.Frame(right_panel, bg=COLORS['bg_dark'])
         bottom_row.pack(fill=tk.BOTH, expand=True, pady=5)
 
-        self._create_method_table(bottom_row, self.METHOD_KO, 'KO Brackets (11+)', side=tk.LEFT)
-        self._create_method_table(bottom_row, self.METHOD_SPECIAL, 'Special Cases', side=tk.LEFT)
+        self._create_method_table(bottom_row, self.METHOD_KO, self._get_display_label(self.METHOD_KO), side=tk.LEFT)
+        self._create_method_table(bottom_row, self.METHOD_SPECIAL, self._get_display_label(self.METHOD_SPECIAL), side=tk.LEFT)
 
         # Refresh display
         self._refresh_all_displays()
@@ -327,16 +365,18 @@ class GenerationMethodScreen(tk.Frame):
         self.master.show_group_preview_window()
 
     def on_search(self):
-        """Filter unassigned brackets by search term."""
-        search_term = self.search_entry.get().lower()
-
-        if search_term:
-            self.filtered_keys = [k for k in self.unassigned if search_term in k.lower()]
-            self.logger.debug(f"Search term '{search_term}': found {len(self.filtered_keys)} brackets")
+        """Filter unassigned brackets by search term (supports multiple terms with AND logic)."""
+        search_term = self.search_entry.get()
+        
+        # Use shared search utility
+        filtered, matched_count, search_terms = filter_items(self.unassigned, search_term)
+        self.filtered_keys = filtered
+        
+        if search_terms:
+            self.logger.debug(f"Search terms: {search_terms}, found {matched_count} brackets")
         else:
-            self.filtered_keys = self.unassigned.copy()
             self.logger.debug("Search cleared - showing all unassigned brackets")
-
+        
         self._refresh_unassigned_display()
 
     def on_unassigned_select(self, event):
@@ -404,8 +444,8 @@ class GenerationMethodScreen(tk.Frame):
                 # Count fighters in bracket
                 fighter_count = self._count_fighters(bracket_tuple)
 
-                # Recommend method
-                method = self._recommend_method(fighter_count)
+                # Recommend method (pass bracket_key for age group checking)
+                method = self._recommend_method(fighter_count, bracket_key)
 
                 # Assign
                 self._assign_bracket(bracket_key, method)
@@ -495,16 +535,41 @@ class GenerationMethodScreen(tk.Frame):
             return len(bracket_tuple)
         return 0
 
-    def _recommend_method(self, fighter_count):
-        """Recommend a generation method based on fighter count."""
-        if fighter_count < 3:
-            method = self.METHOD_SPECIAL
-        elif fighter_count <= 5:
-            method = self.METHOD_POOLS
-        elif fighter_count <= 10:
-            method = self.METHOD_DOUBLE
+    def _recommend_method(self, fighter_count, bracket_key=None):
+        """Recommend a generation method based on fighter count using config thresholds.
+        
+        Note: U9 and U11 age groups always use 'pools' method since they have configurable 
+        pool sizes instead of fixed weight classes.
+        """
+        # Force U9 and U11 to pools method (they use configurable pool sizes)
+        if bracket_key and ('U9' in bracket_key or 'U11' in bracket_key):
+            if self.DEBUG:
+                self.logger.debug(f"DEBUG: {bracket_key} is U9/U11 → force pools")
+            return self.METHOD_POOLS
+        
+        # If no thresholds loaded, use fallback
+        if not self.method_labels:
+            if fighter_count < 3:
+                method = self.METHOD_SPECIAL
+            elif fighter_count <= 5:
+                method = self.METHOD_POOLS
+            elif fighter_count <= 10:
+                method = self.METHOD_DOUBLE
+            else:
+                method = self.METHOD_KO
         else:
-            method = self.METHOD_KO
+            # Find method by fighter count range from config
+            method = None
+            for method_key, config in self.method_labels.items():
+                min_fighters = config.get('MinFighters', 0)
+                max_fighters = config.get('MaxFighters', 999)
+                if min_fighters <= fighter_count < max_fighters:
+                    method = method_key
+                    break
+            
+            # Fallback to KO if no method matches
+            if method is None:
+                method = self.METHOD_KO
         
         if self.DEBUG:
             self.logger.debug(f"DEBUG: {fighter_count} fighters → recommend {method}")

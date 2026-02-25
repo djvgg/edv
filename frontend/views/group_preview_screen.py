@@ -11,7 +11,6 @@ Shows bracket groups (weight categories) with participant details:
 """
 
 import tkinter as tk
-
 import sys
 import os
 import re
@@ -28,6 +27,7 @@ from ..styles import (
     apply_listbox_style,
     create_dark_frame,
 )
+from ..search_utils import filter_items
 
 # Debug flag - set to True for verbose logging
 DEBUG = True
@@ -234,7 +234,7 @@ class GroupPreviewScreen(tk.Frame):
             search_entry.config(fg=COLORS['text_primary'])
 
     def _on_search_changed(self, *args):
-        """Handle search term changes."""
+        """Handle search term changes (supports multiple terms with AND logic)."""
         if not self.group_listbox or not self.group_listbox.winfo_exists():
             return
 
@@ -242,40 +242,31 @@ class GroupPreviewScreen(tk.Frame):
 
         # Skip placeholder or empty
         if search_term == "m, w, age, or kg" or not search_term:
-            if self.DEBUG:
-                self.logger.debug("DEBUG: Search cleared - showing all groups")
             self.logger.debug("Search cleared - showing all groups")
             self._populate_group_list()
             return
 
-        # Filter groups
-        self.logger.debug(f"Searching groups with term: '{search_term}'")
-        if self.DEBUG:
-            self.logger.debug(f"DEBUG: Full search_term='{search_term}'")
+        # Use shared search utility to filter bracket keys
+        bracket_keys = [k for k in self.brackets.keys() if self.brackets[k].get('fighters', [])]
+        filtered_keys, matched_count, search_terms = filter_items(bracket_keys, search_term)
+        
+        self.logger.debug(f"Search terms: {search_terms}, found {len(filtered_keys)} groups")
+        
+        # Display filtered groups with participant counts
         self.group_listbox.delete(0, tk.END)
         total_filtered = 0
-        matched = []
-
-        for bracket_key in sorted(self.brackets.keys()):
+        
+        for bracket_key in sorted(filtered_keys):
             fighters = self.brackets[bracket_key].get('fighters', [])
-            if not fighters:
-                continue
-
-            bracket_key_lower = bracket_key.lower()
-            search_terms = [t for t in search_term.split() if t]
-
-            if search_terms and all(t in bracket_key_lower for t in search_terms):
-                count = len(fighters)
-                total_filtered += count
-                matched.append(bracket_key)
-
-                display_text = f"{bracket_key} ({count})"
-                self.group_listbox.insert(tk.END, display_text)
+            count = len(fighters)
+            total_filtered += count
+            
+            display_text = f"{bracket_key} ({count})"
+            self.group_listbox.insert(tk.END, display_text)
 
         self.preview_count_var.set(f"({total_filtered})")
         if self.DEBUG:
-            self.logger.debug(f"DEBUG: Search terms parsed: {search_term.split()}")
-        self.logger.debug(f"Search found {len(matched)} groups: {matched}")
+            self.logger.debug(f"DEBUG: Search terms parsed: {search_terms}")
 
     def _on_group_double_click(self, event):
         """Handle group selection."""

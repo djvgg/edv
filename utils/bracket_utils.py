@@ -128,80 +128,103 @@ def export_all_brackets(participants, event_year=None):
     Groups participants by (gender, age group, weight class),
     and returns a dict: {bracket_key: {'fighters': [...], 'bracket': [...], 'pool_size': ...}}
     
-    For U9 and U11 groups, includes pool_size from configuration.
+    U9/U11: Created without gender separation, sorted by weight
+    U13+: Created by (gender, age_group, weight_class)
+    
+    Actual rendering (pools vs KO) is determined by GenerationMethodScreen assignments.
     """
     from collections import defaultdict
     ensure_config_loaded()
     if event_year is None:
         event_year = bracket_config.get_event_year()
+    
     brackets = defaultdict(lambda: {'fighters': [], 'bracket': [], 'pool_size': None})
-    unassigned_count = 0
+    
     # Group participants
     for p in participants:
         raw_gender = p.get('Gender', p.get('gender', 'Unknown'))
-        age = p.get('Age', p.get('age'))
-        weight = p.get('Weight', p.get('weight'))
-        name = p.get('Name', p.get('name'))
+        birth_year = p.get('Age', p.get('age'))
+        weight = p.get('Weight', p.get('weight', 0))
+        name = p.get('Name', p.get('name', ''))
 
-        # Normalize gender for weight lookup
+        # Normalize gender
         gender_norm = str(raw_gender).strip()
         if not gender_norm:
             gender_norm = 'Unknown'
 
-        # Determine age group and weight class
-        age_group = get_age_group(age, event_year)
-        try:
-            weight_class = get_weight_class(weight, gender_norm, age_group)
-        except Exception as e:
-            logger.warning(f"Weight class lookup failed for {name!r}: {e}")
-            weight_class = None
+        # Determine age group
+        age_group = None
+        if birth_year is not None:
+            try:
+                age_group = bracket_config.get_age_group(birth_year)
+            except Exception as e:
+                logger.warning(f"Could not determine age group for birth_year {birth_year}: {e}")
+        
+        if age_group is None:
+            if birth_year is not None:
+                logger.warning(f"Missing/unknown birth year {birth_year!r} for {name!r}, defaulting to '18+'")
+            else:
+                logger.warning(f"Missing age for {name!r}, defaulting to '18+'")
+            age_group = '18+'
 
-        # If either dimension is missing, log a warning and put into an Unassigned bracket
-        # Note: U9 and U11 participants have age_group but weight_class='no-class' which is valid
-        if age_group is None or (weight_class is None) or (str(weight_class).lower() == 'unknown'):
-            unassigned_count += 1
-            logger.warning(f"Participant {name!r} could not be assigned to a bracket (age_group={age_group}, weight_class={weight_class}).")
-            bracket_key = f"Unassigned | {gender_norm} | {age_group or 'UnknownAge'} | {weight_class or 'UnknownWeight'}"
-            brackets[bracket_key]['fighters'].append(p)
-            continue
+        # For U9/U11: no gender separation, group by age only, sorted by weight
+        if age_group in ('U9', 'U11'):
+            bracket_key = f"{age_group}"  # Just age group, no gender/weight class
+        else:
+            # For U13+: group by (gender, age_group, weight_class)
+            try:
+                weight_class = bracket_config.get_weight_class(weight, gender_norm, age_group)
+            except Exception as e:
+                logger.warning(f"Weight class lookup failed for {name!r}: {e}")
+                weight_class = 'unknown'
 
-        # Normal bracket key
-        bracket_key = f"{gender_norm} | {age_group} | {weight_class}"
-        brackets[bracket_key]['fighters'].append(p)
+            if weight_class is None or str(weight_class).lower() == 'unknown':
+                logger.warning(f"Missing weight class for {name!r} (age_group={age_group})")
+                weight_class = 'unknown'
+
+            bracket_key = f"{gender_norm} | {age_group} | {weight_class}"
+
+        # Create participant copy with birth_year
+        p_copy = dict(p)
+        p_copy['Age'] = birth_year
+        
+        brackets[bracket_key]['fighters'].append(p_copy)
     
-    # Generate brackets and set pool sizes
-    for key in brackets:
+    # Post-process: sort U9/U11 by weight, set pool_size
+    for key in list(brackets.keys()):
         fighters = brackets[key]['fighters']
         
-        # Extract age_group from bracket key to get pool size if needed
-        parts = key.split(' | ')
-        if len(parts) >= 2:
-            age_group = parts[1]
-            pool_size = get_pool_size(age_group)
+        # For U9/U11: sort by weight and set pool_size
+        if key in ('U9', 'U11'):
+            # Sort by weight for balanced pools
+            fighters_sorted = sorted(fighters, key=lambda x: x.get('Weight', 0))
+            brackets[key]['fighters'] = fighters_sorted
+            
+            # Get pool size from config
+            pool_size = get_pool_size(key)
             if pool_size is not None:
                 brackets[key]['pool_size'] = pool_size
                 logger.info(f"Bracket {key}: configured pool size = {pool_size}")
-        
-        # Generate bracket - use snake seeding for balanced brackets
-        try:
-            brackets[key]['bracket'] = _compute_snake_bracket(fighters)
-        except Exception as e:
-            logger.warning(f"Bracket generation failed for {key!r}: {e}")
-            # Fallback: simple sequential pairing without randomization
-            ordered = _interleave_by_club(fighters)
-            pairs = []
-            pool = ordered[:]
-            while len(pool) > 1:
-                a = pool.pop(0)
-                b = pool.pop(0)
-                pairs.append((a.get('Name'), b.get('Name')))
-            if pool:
-                pairs.append((pool[0].get('Name'), 'BYE'))
-            brackets[key]['bracket'] = pairs
+        else:
+            # For U13+: generate KO bracket structure
+            try:
+                bracket = _compute_snake_bracket(fighters)
+            except Exception as e:
+                logger.warning(f"Bracket generation failed for {key!r}: {e}")
+                # Fallback: simple sequential pairing
+                ordered = _interleave_by_club(fighters)
+                pairs = []
+                pool = ordered[:]
+                while len(pool) > 1:
+                    a = pool.pop(0)
+                    b = pool.pop(0)
+                    pairs.append((a.get('Name'), b.get('Name')))
+                if pool:
+                    pairs.append((pool[0].get('Name'), 'BYE'))
+                bracket = pairs
+            
+            brackets[key]['bracket'] = bracket
     
-    
-    if unassigned_count:
-        logger.warning(f"Total unassigned participants: {unassigned_count}")
     return dict(brackets)
 
 
