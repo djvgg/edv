@@ -8,11 +8,6 @@ This screen allows users to choose which generation method each bracket will use
 Displays unassigned brackets on the left and 4 method tables on the right in a 2x2 grid.
 """
 
-# ===== DEBUG CONFIGURATION =====
-# Set to True to print debug logs to console; False to only log to file
-DEBUG = True
-# ==============================
-
 import tkinter as tk
 from tkinter import ttk, messagebox
 import sys
@@ -22,7 +17,7 @@ import threading
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from utils.logging import get_logger
-from ..styles import (
+from ..styles import (  
     COLORS, FONTS,
     apply_button_style,
     apply_entry_style,
@@ -30,6 +25,13 @@ from ..styles import (
     apply_listbox_style,
     create_dark_frame,
 )
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+# ===== DEBUG CONFIGURATION =====
+# Set to True to print debug logs to console; False to only log to file
+DEBUG = True
+# ==============================
 
 logger = get_logger('generation_method_screen', debug_verbose=DEBUG)
 

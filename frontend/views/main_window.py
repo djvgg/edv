@@ -1163,13 +1163,13 @@ class BracketViewerApp(tk.Tk):
 
             # Determine rendering method: pools or KO (default)
             if assigned_method == 'pools':
-                self.logger.debug(f"Using assigned 'pools' method")
+                self.logger.debug("Using assigned 'pools' method")
                 if hasattr(self, 'viz_title_var'):
                     self.viz_title_var.set('Pool Visualization (Single Pool)')
                 self._render_pool(bracket_key, participants)
                 return
             elif assigned_method == 'double':
-                self.logger.debug(f"Using assigned 'double' method")
+                self.logger.debug("Using assigned 'double' method")
                 if hasattr(self, 'viz_title_var'):
                     self.viz_title_var.set('Pool Visualization (Double Pool)')
                 self._render_pool(bracket_key, participants)

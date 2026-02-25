@@ -11,7 +11,7 @@ Shows bracket groups (weight categories) with participant details:
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+
 import sys
 import os
 import re
@@ -475,7 +475,7 @@ class GroupPreviewScreen(tk.Frame):
             num_str = x.replace('kg', '').replace('-', '').replace('+', '')
             try:
                 num = float(num_str)
-            except:
+            except ValueError:
                 return (999, 0)
             # Return tuple: (number, 0 if starts with "-" else 1)
             is_plus = 1 if x.startswith('+') else 0
@@ -494,9 +494,12 @@ class GroupPreviewScreen(tk.Frame):
             
             fighter = fighters[fighter_idx]
             gender, age_group, current_weight_class = self._parse_bracket_key(bracket_key)
-            if gender is None: gender = ""
-            if age_group is None: age_group = ""
-            if current_weight_class is None: current_weight_class = ""
+            if gender is None:
+                gender = ""
+            if age_group is None:
+                age_group = ""
+            if current_weight_class is None:
+                current_weight_class = ""
             
             name = fighter.get('Name', fighter.get('name', ''))
             weight = fighter.get('Weight', fighter.get('weight', ''))
@@ -563,9 +566,11 @@ class GroupPreviewScreen(tk.Frame):
                 
                 # Highlight on focus
                 def on_focus_in(e, b=border_frame):
-                    if not is_readonly: b.config(bg=COLORS['accent_blue'])
+                    if not is_readonly:
+                        b.config(bg=COLORS['accent_blue'])
                 def on_focus_out(e, b=border_frame):
-                    if not is_readonly: b.config(bg=COLORS['border'])
+                    if not is_readonly:
+                        b.config(bg=COLORS['border'])
                 
                 entry.bind("<FocusIn>", on_focus_in)
                 entry.bind("<FocusOut>", on_focus_out)
@@ -614,7 +619,7 @@ class GroupPreviewScreen(tk.Frame):
                 num_str = wc_str.replace('kg', '').replace('-', '').replace('+', '')
                 try:
                     num = float(num_str)
-                except:
+                except ValueError:
                     return (999, 0)
                 is_plus = 1 if wc_str.startswith('+') else 0
                 return (num, is_plus)
@@ -703,7 +708,8 @@ class GroupPreviewScreen(tk.Frame):
                             cursor='hand2'
                         )
                         lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-                        if scrollbar: scrollbar.config(command=lb.yview)
+                        if scrollbar:
+                            scrollbar.config(command=lb.yview)
                         
                         for opt in options_to_show:
                             lb.insert(tk.END, f"  {opt}")
@@ -776,7 +782,8 @@ class GroupPreviewScreen(tk.Frame):
                     
                     # Hover effects
                     def on_enter(e):
-                        if popup and popup.winfo_exists() and popup.winfo_viewable(): return
+                        if popup and popup.winfo_exists() and popup.winfo_viewable():
+                            return
                         dropdown_border.config(bg=COLORS['accent_blue'])
                         dropdown_btn.config(bg=COLORS['bg_panel'])
                         text_label.config(bg=COLORS['bg_panel'])
