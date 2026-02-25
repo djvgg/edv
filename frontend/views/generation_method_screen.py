@@ -33,6 +33,13 @@ from ..search_utils import filter_items
 DEBUG = True
 # ==============================
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+# ===== DEBUG CONFIGURATION =====
+# Set to True to print debug logs to console; False to only log to file
+DEBUG = True
+# ==============================
+
 logger = get_logger('generation_method_screen', debug_verbose=DEBUG)
 
 
