@@ -59,8 +59,9 @@ from .group_preview_screen import GroupPreviewScreen  # noqa: E402
 DEBUG = True
 # ==============================
 
-# Import from judgefrontend for flexible xlsx handling
-judgefrontend_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'judgefrontend')
+#TODO cleanup judgefrontend
+# Import from judgefrontend for flexible xlsx handling 
+judgefrontend_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'judgefrontend') 
 if os.path.exists(judgefrontend_path):
     sys.path.insert(0, judgefrontend_path)
     try:
@@ -1083,7 +1084,6 @@ class BracketViewerApp(tk.Tk):
         self.bracket_cache_file = os.path.join(cache_dir, f'brackets_{timestamp}.json')
 
         cache_data = {
-            'source_file': source_file,
             'generated_at': datetime.now().isoformat(),
             'brackets': {}
         }

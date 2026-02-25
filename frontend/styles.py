@@ -62,6 +62,18 @@ FONTS = {
 
     'mono_md': ('Consolas', 10),
     'mono_sm': ('Consolas', 9),
+    
+    # Custom fonts for Group Preview Screen and Editor
+    'preview_title': ('Arial', 14, 'bold'),
+    'preview_label': ('Arial', 9, 'bold'),
+    'preview_text': ('Arial', 11),
+    'preview_small': ('Arial', 9),
+    'preview_info': ('Arial', 10),
+    
+    # Custom lists
+    'list_mono': ('Courier', 10),
+    'list_mono_bold': ('Courier', 10, 'bold'),
+    'list_ui': ('Segoe UI', 11),
 }
 
 # ============================================================================
