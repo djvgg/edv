@@ -736,7 +736,7 @@ class BracketViewerApp(tk.Tk):
             self.after(500, self.show_group_preview_window)
 
         except Exception as e:
-            self.logger.error(f"Error during load and generate: {e}", exc_info=True)
+            self.logger.error(f"Error during load and generate: {e}")
             self.set_status(f"Error: {e}", COLORS['accent_red'])
             self.hide_loading_progress()
 
@@ -791,7 +791,7 @@ class BracketViewerApp(tk.Tk):
             self.after(500, self.show_group_preview_window)
 
         except Exception as e:
-            self.logger.error(f"Database error during load: {e}", exc_info=True)
+            self.logger.error(f"Database error during load: {e}")
             self.set_status(f"Database Error: {e}", COLORS['accent_red'])
             self.hide_loading_progress()
             self.after(500, lambda err=e: messagebox.showerror("Database Error", f"Failed to load from database:\n{str(err)}"))
@@ -812,7 +812,25 @@ class BracketViewerApp(tk.Tk):
             self.after(800, self.show_bracket_viewer)
 
     def load_json_and_generate(self):
-        """Load 2 JSON files (male/female), merge them, and generate brackets."""
+        """Load 2 JSON files (male/female), merge them, and generate brackets.
+        
+        Expected JSON structure:
+        [
+          {
+            "ID": 1,
+            "Firstname": "Leon",
+            "Lastname": "Müller",
+            "Birthyear": 2018,
+            "Club": "JC Sakura Berlin",
+            "Association": "JV Berlin",
+            "Weight": 28.5,
+            "Valid": true,
+            "Gender": "male",
+            "Paid": true
+          },
+          ...
+        ]
+        """
         # Select 2 JSON files
         filepaths = filedialog.askopenfilenames(
             title="Select 2 JSON Files (Male & Female)",
@@ -829,48 +847,113 @@ class BracketViewerApp(tk.Tk):
 
         try:
             self.set_status("Reading JSON files...", COLORS['text_secondary'])
+            self.logger.info(f"Loading {len(filepaths)} JSON files")
 
             all_participants = []
+            
+            # Define expected fields
+            required_core_fields = ['Firstname', 'Lastname', 'Birthyear', 'Weight', 'Gender']
 
             # Load both JSON files
-            for filepath in filepaths:
+            for file_idx, filepath in enumerate(filepaths, 1):
+                filename = os.path.basename(filepath)
+                self.logger.info(f"[File {file_idx}] Loading: {filename}")
+                
                 with open(filepath, 'r', encoding='utf-8') as f:
                     data = json.load(f)
 
                 # Validate that data is a list
                 if not isinstance(data, list):
-                    messagebox.showerror("Invalid JSON Format",
-                                       f"File must contain a JSON array.\nFile: {os.path.basename(filepath)}")
+                    error_msg = f"File must contain a JSON array.\nFile: {filename}\nGot: {type(data).__name__}"
+                    self.logger.error(error_msg)
+                    messagebox.showerror("Invalid JSON Format", error_msg)
                     return
 
-                # Validate each participant has required fields
-                for i, participant in enumerate(data):
+                self.logger.debug(f"[File {file_idx}] Found {len(data)} entries")
+                
+                valid_count = 0
+                skipped_count = 0
+
+                # Validate each participant
+                for idx, participant in enumerate(data, 1):
                     if not isinstance(participant, dict):
-                        messagebox.showerror("Invalid Participant",
-                                           f"Participant {i+1} is not a valid object.\nFile: {os.path.basename(filepath)}")
+                        error_msg = f"Participant {idx} is not a valid object (got {type(participant).__name__}).\nFile: {filename}"
+                        self.logger.error(error_msg)
+                        messagebox.showerror("Invalid Participant", error_msg)
                         return
 
-                    # Check for required fields
-                    required_fields = ['Name', 'Gender', 'Age', 'Weight']
-                    missing_fields = [field for field in required_fields if field not in participant]
+                    # Check for required core fields
+                    missing_fields = [field for field in required_core_fields if field not in participant]
 
                     if missing_fields:
-                        messagebox.showerror("Missing Fields",
-                                           f"Participant {i+1} is missing fields: {', '.join(missing_fields)}\nFile: {os.path.basename(filepath)}")
+                        error_msg = f"Participant {idx} is missing required fields: {', '.join(missing_fields)}\nFile: {filename}"
+                        self.logger.error(error_msg)
+                        messagebox.showerror("Missing Required Fields", error_msg)
                         return
 
-                # Add all participants from this file
-                all_participants.extend(data)
-                print(f"[INFO] Loaded {len(data)} participants from: {os.path.basename(filepath)}")
+                    # Validate field types and values
+                    validation_errors = []
+                    
+                    # Check Firstname/Lastname are strings
+                    if not isinstance(participant.get('Firstname'), str) or not participant.get('Firstname', '').strip():
+                        validation_errors.append("Firstname must be non-empty string")
+                    if not isinstance(participant.get('Lastname'), str) or not participant.get('Lastname', '').strip():
+                        validation_errors.append("Lastname must be non-empty string")
+                    
+                    # Check Birthyear is integer or null
+                    birthyear = participant.get('Birthyear')
+                    if birthyear is not None and not isinstance(birthyear, int):
+                        try:
+                            participant['Birthyear'] = int(birthyear)
+                        except (ValueError, TypeError):
+                            validation_errors.append(f"Birthyear must be integer, got: {birthyear}")
+                    
+                    # Check Weight is number
+                    weight = participant.get('Weight')
+                    if weight is not None:
+                        try:
+                            participant['Weight'] = float(weight)
+                        except (ValueError, TypeError):
+                            validation_errors.append(f"Weight must be number, got: {weight}")
+                    
+                    # Check Gender is male/female
+                    gender = str(participant.get('Gender', '')).strip().lower()
+                    if gender not in ['male', 'female']:
+                        validation_errors.append(f"Gender must be 'male' or 'female', got: {gender}")
+                    
+                    if validation_errors:
+                        error_msg = f"Participant {idx} validation failed:\n" + "\n".join(f"  • {err}" for err in validation_errors) + f"\nFile: {filename}"
+                        self.logger.error(error_msg)
+                        messagebox.showerror("Validation Error", error_msg)
+                        return
+
+                    # Construct Name field from Firstname + Lastname if not present
+                    if 'Name' not in participant:
+                        participant['Name'] = f"{participant['Firstname']} {participant['Lastname']}".strip()
+                    
+                    # Ensure Age field exists (use Birthyear)
+                    if 'Age' not in participant:
+                        participant['Age'] = participant.get('Birthyear')
+
+                    self.logger.debug(f"[File {file_idx}] Participant {idx}: {participant['Name']} (Age: {participant.get('Birthyear')}, Weight: {participant.get('Weight', 0.0)}kg, Gender: {gender})")
+                    
+                    valid_count += 1
+                    all_participants.append(participant)
+
+                self.logger.info(f"[File {file_idx}] Successfully validated {valid_count} participants")
 
             if not all_participants:
-                self.set_status("Error: No valid participants found.", COLORS['accent_red'])
+                error_msg = "No valid participants found in JSON files."
+                self.logger.error(error_msg)
+                self.set_status(error_msg, COLORS['accent_red'])
                 return
 
             total_fighters = len(all_participants)
+            self.logger.info(f"Total participants loaded: {total_fighters}")
             self.set_info_text(f"✓ {total_fighters} participants loaded from JSON files")
 
             self.set_status("Generating brackets...", COLORS['text_secondary'])
+            self.logger.info("Starting bracket generation...")
 
             # Generate brackets using backend service
             self.brackets = export_all_brackets(all_participants)
@@ -882,142 +965,162 @@ class BracketViewerApp(tk.Tk):
             # Save to JSON cache
             self.save_brackets_to_cache("json_files")
 
+            self.logger.info(f"Successfully generated {len(self.brackets)} brackets")
             self.set_status(f"Success! Generated {len(self.brackets)} brackets from JSON files (cached for fast viewing).", COLORS['accent_green'])
 
             # Wait a moment then show group preview window
             self.after(800, self.show_group_preview_window)
 
         except json.JSONDecodeError as e:
-            self.set_status(f"JSON Parse Error: {e}", COLORS['accent_red'])
+            error_msg = f"JSON Parse Error: {e}"
+            self.logger.error(error_msg)
+            self.set_status(error_msg, COLORS['accent_red'])
             messagebox.showerror("JSON Error", f"Failed to parse JSON file:\n{str(e)}")
+        except FileNotFoundError as e:
+            error_msg = f"File not found: {e}"
+            self.logger.error(error_msg)
+            self.set_status(error_msg, COLORS['accent_red'])
+            messagebox.showerror("File Error", f"Could not find file:\n{str(e)}")
         except Exception as e:
-            self.set_status(f"Error: {e}", COLORS['accent_red'])
+            error_msg = f"Unexpected error: {e}"
+            self.logger.exception(error_msg)
+            self.set_status(error_msg, COLORS['accent_red'])
             messagebox.showerror("Error", f"Failed to load JSON files:\n{str(e)}")
 
     def split_gender_to_json(self):
-        """Split contestants by gender (M/W) and save to separate JSON files."""
+        """Split contestants by gender (M/W) and save to separate JSON files with English field names.
+        
+        Reads tournament registration XLSX, extracts all available data, and outputs
+        separate JSON files for male and female participants with all fields populated
+        that are available at registration time (Weight will be filled during weighing).
+        """
+        # Import here to avoid circular dependency
+        from frontend.utils.participant_loader import load_participants_from_xlsx
+        
         # Select input XLSX file
         input_file = filedialog.askopenfilename(
-            title="Select Participant XLSX File to Split",
+            title="Select Tournament Registration XLSX File",
             filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")]
         )
         if not input_file:
             return
 
         try:
-            self.set_status("Reading XLSX file...", COLORS['text_secondary'])
+            self.set_status("Reading tournament XLSX file...", COLORS['text_secondary'])
 
-            # Read participants from XLSX with new column structure
-            # Columns: A=id, B=verein, C=verband, D=name, E=vorname, F=kyu/dan,
-            #          G=jahrgang, H=geschlecht, I=altersklasse, J=gewicht u9+u11,
-            #          K=gewichtsklasse ab u13, L=telefonnummer, M=email
-            df = pd.read_excel(input_file)
+            # Load participants using the tournament format parser
+            raw_participants = load_participants_from_xlsx(input_file)
 
-            participants = []
-            for index, row in df.iterrows():
-                # Read from new column structure
-                participant_id = row.iloc[0] if len(row) > 0 else index + 1  # Column A: id
-                verein = str(row.iloc[1]).strip() if len(row) > 1 and pd.notna(row.iloc[1]) else ""  # Column B: verein
-                # verband = row.iloc[2]  # Column C: verband (not used in output)
-                nachname = str(row.iloc[3]).strip() if len(row) > 3 and pd.notna(row.iloc[3]) else ""  # Column D: name (nachname)
-                vorname = str(row.iloc[4]).strip() if len(row) > 4 and pd.notna(row.iloc[4]) else ""  # Column E: vorname
-                # kyu_dan = row.iloc[5]  # Column F: kyu/dan grad (not used)
-                jahrgang = row.iloc[6] if len(row) > 6 and pd.notna(row.iloc[6]) else None  # Column G: jahrgang
-                geschlecht = str(row.iloc[7]).strip() if len(row) > 7 and pd.notna(row.iloc[7]) else ""  # Column H: geschlecht
-                # altersklasse = row.iloc[8]  # Column I: altersklasse (not used)
-                # gewicht_u9_u11 = row.iloc[9]  # Column J: gewicht u9 + u11 (ignored)
-                # gewichtsklasse_ab_u13 = row.iloc[10]  # Column K: gewichtsklasse ab u13 (ignored)
-                # telefonnummer = row.iloc[11]  # Column L: telefonnummer (not used)
-                # email = row.iloc[12]  # Column M: email (not used)
-
-                # Skip header rows (ID is "#" or similar header indicators)
-                participant_id_str = str(participant_id).strip()
-                if participant_id_str in ['#', 'ID', 'id', 'Nr', 'Nr.', 'Number']:
-                    continue
-
-                # Skip rows where all fields except ID (column A) are empty
-                if not verein and not nachname and not vorname and jahrgang is None and not geschlecht:
-                    continue
-
-                # Construct full Name as Vorname + Nachname
-                full_name = f"{vorname} {nachname}".strip()
-
-                # Convert jahrgang to int if possible
-                try:
-                    jahrgang = int(jahrgang) if jahrgang is not None else None
-                except (ValueError, TypeError):
-                    jahrgang = None
-
-                # Convert geschlecht: m → maennlich, w → weiblich
-                geschlecht_lower = geschlecht.lower()
-                if geschlecht_lower == 'm':
-                    geschlecht_normalized = 'maennlich'
-                elif geschlecht_lower == 'w':
-                    geschlecht_normalized = 'weiblich'
-                else:
-                    geschlecht_normalized = geschlecht_lower
-
-                participants.append({
-                    'ID': participant_id,
-                    'Vorname': vorname,
-                    'Nachname': nachname,
-                    'Name': full_name,
-                    'Geburtsjahr': jahrgang,
-                    'Verein': verein,
-                    'Gewicht (kg)': 0.0,
-                    'Gueltigkeit': False,
-                    'Geschlecht': geschlecht_normalized,
-                    'Bezahlt': False,
-                    'Geburtsdatum': ""
-                })
-
-            if not participants:
+            if not raw_participants:
                 self.set_status("Error: No participants found.", COLORS['accent_red'])
                 messagebox.showerror("Error", "No participants found in the file.")
                 return
 
-            self.set_status("Splitting by gender...", COLORS['text_secondary'])
+            self.set_status("Splitting by gender and converting to English format...", COLORS['text_secondary'])
 
-            # Split by gender - should already be normalized to "maennlich" or "weiblich"
+            # Split by gender and convert to English field names
             male_contestants = []
             female_contestants = []
             skipped_participants = []
 
-            for p in participants:
-                gender = str(p.get('Geschlecht', '')).strip().lower()
-                if gender in ['maennlich', 'm', 'male', 'männlich']:
-                    male_contestants.append(p)
-                elif gender in ['weiblich', 'w', 'f', 'female']:
-                    female_contestants.append(p)
+            for idx, p in enumerate(raw_participants, 1):
+                # Extract gender (should be 'm' or 'w' from parser)
+                gender = str(p.get('Gender', '')).strip().lower()
+                
+                # Try alternative gender field names
+                if not gender:
+                    for gender_field in ['Geschlecht', 'gender']:
+                        if gender_field in p and p[gender_field]:
+                            gender = str(p[gender_field]).strip().lower()
+                            break
+                
+                # Normalize gender to 'male' or 'female'
+                if gender in ['m', 'male', 'männlich', 'maennlich']:
+                    gender_normalized = 'male'
+                elif gender in ['w', 'female', 'weiblich', 'f']:
+                    gender_normalized = 'female'
                 else:
-                    # Track skipped participant with gender info
+                    # Skip participants with missing gender (cannot split without it)
+                    participant_name = p.get('Name', f"ID {idx}")
                     skipped_participants.append({
-                        'name': p.get('Name', 'Unknown'),
-                        'gender': p.get('Geschlecht', ''),
-                        'id': p.get('ID', '')
+                        'name': participant_name,
+                        'gender': gender if gender else '(empty)',
+                        'id': idx
                     })
-                    self.logger.warning(f"Unknown gender '{gender}' (original: '{p.get('Geschlecht', '')}') for participant ID {p.get('ID')}: {p.get('Name')}")
+                    self.logger.warning(f"Skipping participant with missing/invalid gender '{gender}': {participant_name}")
+                    continue
+
+                # Convert to English field names (CamelCase for code)
+                # Split full name into Firstname and Lastname
+                full_name = p.get('Name', '')
+                name_parts = full_name.split(' ', 1)
+                firstname = name_parts[0] if len(name_parts) > 0 else ''
+                lastname = name_parts[1] if len(name_parts) > 1 else ''
+
+                # Extract birthyear (try multiple field names)
+                birthyear = None
+                for year_field in ['BirthYear', 'Jahrgang', 'Age']:
+                    if year_field in p and p[year_field]:
+                        try:
+                            birthyear = int(p[year_field])
+                            break
+                        except (ValueError, TypeError):
+                            pass
+
+                # Extract club (Verein in German)
+                club = p.get('Verein', p.get('Club', ''))
+
+                # Extract association (Verband in German)
+                association = p.get('Verband', p.get('Association', ''))
+
+                # Extract weight (initially 0.0, will be filled during weighing)
+                # Don't use pre-translated weight from XLSX, start fresh
+                weight = 0.0
+
+                # Extract paid status (Bezahlt in German)
+                paid_str = str(p.get('Bezahlt', p.get('Paid', ''))).strip().lower()
+                paid = paid_str in ['true', 'ja', 'yes', '1', 'y']
+
+                # Create contestant record with English field names
+                contestant = {
+                    'ID': idx,
+                    'Firstname': firstname,
+                    'Lastname': lastname,
+                    'Birthyear': birthyear,
+                    'Club': club,
+                    'Association': association,
+                    'Weight': weight,
+                    'Valid': False,  # Will be set during weighing validation
+                    'Gender': gender_normalized,
+                    'Paid': paid
+                }
+
+                # Add to appropriate list
+                if gender_normalized == 'male':
+                    male_contestants.append(contestant)
+                else:
+                    female_contestants.append(contestant)
 
             # Show split results
-            total = len(participants)
+            total = len(raw_participants)
             male_count = len(male_contestants)
             female_count = len(female_contestants)
-            skipped = total - (male_count + female_count)
+            skipped = len(skipped_participants)
 
             result_msg = f"Split complete:\n• Male: {male_count}\n• Female: {female_count}"
             if skipped > 0:
                 result_msg += f"\n• Skipped (unknown gender): {skipped}"
                 if skipped_participants:
                     result_msg += "\n\nSkipped participants:"
-                    for sp in skipped_participants[:5]:  # Show max 5
-                        result_msg += f"\n  - ID {sp['id']}: {sp['name']} (gender: '{sp['gender']}')"
+                    for sp in skipped_participants[:5]:
+                        result_msg += f"\n  - {sp['name']} (gender: '{sp['gender']}')"
                     if len(skipped_participants) > 5:
                         result_msg += f"\n  ... and {len(skipped_participants) - 5} more"
 
             messagebox.showinfo("Split Results", result_msg)
 
             if male_count == 0 and female_count == 0:
-                self.set_status("No contestants to save.", COLORS['accent_red'])
+                self.set_status("No valid contestants to save.", COLORS['accent_red'])
                 return
 
             # Ask user where to save the files
@@ -1048,14 +1151,17 @@ class BracketViewerApp(tk.Tk):
             if male_count > 0:
                 success_msg += f"• contestants_male.json ({male_count} entries)\n"
             if female_count > 0:
-                success_msg += f"• contestants_female.json ({female_count} entries)"
+                success_msg += f"• contestants_female.json ({female_count} entries)\n"
+            success_msg += f"\nFiles are ready for external weighing process.\n"
+            success_msg += f"After weighing, reimport JSON files to generate brackets."
 
             messagebox.showinfo("Success", success_msg)
-            self.set_status("Split complete!", COLORS['accent_green'])
+            self.set_status("Split complete! Files ready for weighing.", COLORS['accent_green'])
 
         except Exception as e:
             self.set_status(f"Error: {e}", COLORS['accent_red'])
-            messagebox.showerror("Error", f"Failed to split contestants:\n{str(e)}")
+            self.logger.exception(f"Failed to split participants: {e}")
+            messagebox.showerror("Error", f"Failed to split participants:\n{str(e)}")
 
     def save_brackets_to_cache(self, source_file):
         """Save generated brackets to JSON cache file."""
@@ -1294,7 +1400,7 @@ class BracketViewerApp(tk.Tk):
             self.logger.debug(f"Successfully rendered bracket with {len(rounds)} rounds at {int(self.zoom_level*100)}% zoom")
 
         except Exception as e:
-            self.logger.error(f"Exception rendering bracket: {e}", exc_info=True)
+            self.logger.error(f"Exception rendering bracket: {e}")
             traceback.print_exc()
             # Show error on canvas
             self.bracket_canvas.create_text(400, 300,
@@ -1354,7 +1460,7 @@ class BracketViewerApp(tk.Tk):
             self.logger.debug(f"Successfully rendered {pool_type} (method: {assigned_method}) with {num_participants} participants, {num_matches} total matches at {int(self.zoom_level*100)}% zoom")
 
         except Exception as e:
-            self.logger.error(f"Exception rendering pool: {e}", exc_info=True)
+            self.logger.error(f"Exception rendering pool: {e}")
             traceback.print_exc()
             # Show error on canvas
             self.bracket_canvas.create_text(400, 300,

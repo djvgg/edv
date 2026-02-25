@@ -139,7 +139,7 @@ def export_all_brackets(participants, event_year=None):
     # Group participants
     for p in participants:
         raw_gender = p.get('Gender', p.get('gender', 'Unknown'))
-        age = p.get('Age', p.get('age'))
+        birth_year = p.get('Age', p.get('age'))  # Age field contains birth year (int)
         weight = p.get('Weight', p.get('weight'))
         name = p.get('Name', p.get('name'))
 
@@ -148,26 +148,49 @@ def export_all_brackets(participants, event_year=None):
         if not gender_norm:
             gender_norm = 'Unknown'
 
-        # Determine age group and weight class
-        age_group = get_age_group(age, event_year)
+        # Track if participant is missing critical data
+        missing_flags = []
+
+        # Determine age group from birth year
+        # Age field contains birth year (int), so look up directly in config
+        age_group = None
+        if birth_year is not None:
+            try:
+                # Try direct birth year lookup in config first
+                age_group = bracket_config.get_age_group(birth_year)
+            except Exception as e:
+                logger.warning(f"Could not determine age group for birth_year {birth_year}: {e}")
+        
+        # Soft fallback: if age is missing or older than config, default to '18+'
+        if age_group is None:
+            if birth_year is not None:
+                logger.warning(f"Missing/unknown birth year {birth_year!r} for {name!r}, defaulting to '18+'")
+            else:
+                logger.warning(f"Missing age for {name!r}, defaulting to '18+'")
+            age_group = '18+'
+            missing_flags.append('UnknownAge')
+        
         try:
             weight_class = get_weight_class(weight, gender_norm, age_group)
         except Exception as e:
             logger.warning(f"Weight class lookup failed for {name!r}: {e}")
             weight_class = None
 
-        # If either dimension is missing, log a warning and put into an Unassigned bracket
-        # Note: U9 and U11 participants have age_group but weight_class='no-class' which is valid
-        if age_group is None or (weight_class is None) or (str(weight_class).lower() == 'unknown'):
-            unassigned_count += 1
-            logger.warning(f"Participant {name!r} could not be assigned to a bracket (age_group={age_group}, weight_class={weight_class}).")
-            bracket_key = f"Unassigned | {gender_norm} | {age_group or 'UnknownAge'} | {weight_class or 'UnknownWeight'}"
-            brackets[bracket_key]['fighters'].append(p)
-            continue
+        # If weight class is missing, still allow assignment (soft fail)
+        # Only completely unassign if both age_group and weight are missing
+        if weight_class is None or str(weight_class).lower() == 'unknown':
+            logger.warning(f"Missing weight class for {name!r} (age_group={age_group}), assigning as unknown")
+            weight_class = 'unknown'
+            missing_flags.append('UnknownWeight')
 
-        # Normal bracket key
+        # Add flags to participant name if critical data missing
+        p_copy = dict(p)  # Copy to avoid modifying original
+        if missing_flags:
+            p_copy['Name'] = f"{name} ({', '.join(missing_flags)})"
+        
+        # Create bracket key even with 'unknown' weight class (soft fail)
         bracket_key = f"{gender_norm} | {age_group} | {weight_class}"
-        brackets[bracket_key]['fighters'].append(p)
+        brackets[bracket_key]['fighters'].append(p_copy)
     
     # Generate brackets and set pool sizes
     for key in brackets:
