@@ -1206,52 +1206,45 @@ class BracketViewerApp(tk.Tk):
                 self.viz_title_var.set('Bracket Visualization (KO)')
 
             # Otherwise render bracket (11+ participants)
-            # Check if we have cached bracket structure
-            if bracket_key not in self.bracket_structure_cache:
-                self.logger.debug(f"Generating bracket structure for: {bracket_key}")
+            self.logger.debug(f"Generating bracket structure for: {bracket_key}")
 
-                # Normalize participants and generate bracket rounds
-                normalized_participants = []
-                for p in participants:
-                    if isinstance(p, dict):
-                        normalized_participants.append({
-                            'Name': p.get('Name', p.get('name', '')),
-                            'Verein': p.get('Verein', p.get('verein', p.get('club', '')))
-                        })
+            # Normalize participants and generate bracket rounds
+            normalized_participants = []
+            for p in participants:
+                if isinstance(p, dict):
+                    normalized_participants.append({
+                        'Name': p.get('Name', p.get('name', '')),
+                        'Verein': p.get('Verein', p.get('verein', p.get('club', '')))
+                    })
 
-                if not normalized_participants:
-                    self.logger.debug("No normalized participants")
-                    self.bracket_canvas.create_text(400, 300,
-                        text="Error: Could not process participants",
-                        font=FONTS['heading_md'], fill='red')
-                    return
+            if not normalized_participants:
+                self.logger.debug("No normalized participants")
+                self.bracket_canvas.create_text(400, 300,
+                    text="Error: Could not process participants",
+                    font=FONTS['heading_md'], fill='red')
+                return
 
-                self.logger.debug(f"Normalized {len(normalized_participants)} participants")
+            self.logger.debug(f"Normalized {len(normalized_participants)} participants")
 
-                # Generate bracket visualization
-                bracket = make_bracket(normalized_participants)
-                self.logger.debug(f"Generated bracket with {len(bracket)} first round matches")
+            # Generate bracket visualization
+            bracket = make_bracket(normalized_participants)
+            self.logger.debug(f"Generated bracket with {len(bracket)} first round matches")
 
-                # Build rounds for single-elimination tree
-                rounds = []
-                current = [(p1, p2) for p1, p2 in bracket]
+            # Build rounds for single-elimination tree
+            rounds = []
+            current = [(p1, p2) for p1, p2 in bracket]
+            rounds.append(current)
+
+            while len(current) > 1:
+                next_round = []
+                for i in range(0, len(current), 2):
+                    p1 = f"Winner {i+1}"
+                    p2 = f"Winner {i+2}" if i+1 < len(current) else 'BYE'
+                    next_round.append((p1, p2))
+                current = next_round
                 rounds.append(current)
 
-                while len(current) > 1:
-                    next_round = []
-                    for i in range(0, len(current), 2):
-                        p1 = f"Winner {i+1}"
-                        p2 = f"Winner {i+2}" if i+1 < len(current) else 'BYE'
-                        next_round.append((p1, p2))
-                    current = next_round
-                    rounds.append(current)
-
-                # Cache the bracket structure
-                self.bracket_structure_cache[bracket_key] = rounds
-                self.logger.debug(f"Cached bracket structure with {len(rounds)} rounds")
-            else:
-                rounds = self.bracket_structure_cache[bracket_key]
-                self.logger.debug(f"Using cached bracket structure for: {bracket_key} ({len(rounds)} rounds)")
+            self.logger.debug(f"Generated bracket structure with {len(rounds)} rounds")
 
             # Calculate box dimensions using utility function
             box_width, box_height, x_gap, y_gap = calculate_box_size(rounds, self.zoom_level)
