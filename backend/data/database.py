@@ -14,6 +14,8 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
+DB_AVAILABLE = True  # set to False at startup if DB is unreachable
+
 
 def init_db():
     """Create all tables if they do not exist. Called once at app startup."""

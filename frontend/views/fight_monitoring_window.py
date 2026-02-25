@@ -50,6 +50,17 @@ class FightMonitoringScreen(tk.Frame):
         self.zoom_level = 1.0
         # {(round, match): (x1, y1, x2, y2, p1, p2)}
         self._match_boxes = {}
+        # {bracket_key: {(pool_idx, row, fight_num): "score"}}
+        self.pool_cell_values = {}
+        # clickable cells from last pool render: {(pool_idx, row, fight_num): (x1,y1,x2,y2)}
+        self._pool_cells = {}
+        self._active_cell_entry = None
+        # {bracket_key: {'p0_1st': name, 'p0_2nd': name, 'p1_1st': name, 'p1_2nd': name}}
+        self.ko_bracket_data = {}
+        # {bracket_key: {(round, match): winner_name}}  — for the pool KO bracket
+        self.ko_match_results = {}
+        # KO box positions from last pool render: {(round, match): (x1,y1,x2,y2,p1,p2)}
+        self._ko_match_boxes = {}
 
         self._setup_ttk_styles()
         self._build_ui()
@@ -220,6 +231,14 @@ class FightMonitoringScreen(tk.Frame):
         xsc.pack(side=tk.BOTTOM, fill=tk.X)
         self._canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
+        # "Finish Pool" action bar — shown only for double-pool brackets
+        self._pool_action_bar = create_dark_frame(self._fight_frame)
+        self._finish_pool_btn = tk.Button(
+            self._pool_action_bar, text='✓ Finish Pool  →  Fill KO Bracket',
+            command=self._finish_pool)
+        apply_button_style(self._finish_pool_btn, 'primary')
+        self._finish_pool_btn.pack(side=tk.RIGHT, padx=8, pady=6)
+
     # ----------------------------------------------------------------- views
 
     def show_matten_view(self):
@@ -247,10 +266,14 @@ class FightMonitoringScreen(tk.Frame):
         is_pool = method in ('pools', 'double')
 
         if is_pool:
-            self._view_hint.configure(
-                text='Pool view (read-only) – interactive pool monitoring coming soon.')
-            self._zoom_bar.pack_forget()
+            self._view_hint.configure(text='Click a score cell to edit it.')
+            self._zoom_bar.pack(side=tk.RIGHT, in_=self.winfo_children()[0])
+            if method == 'double':
+                self._pool_action_bar.pack(fill=tk.X)
+            else:
+                self._pool_action_bar.pack_forget()
         else:
+            self._pool_action_bar.pack_forget()
             self._view_hint.configure(
                 text='Click top half of a match box → Fighter 1 wins  │  '
                      'Bottom half → Fighter 2 wins  │  Click winner again → undo')
@@ -338,8 +361,14 @@ class FightMonitoringScreen(tk.Frame):
         if bracket_key != self.current_bracket_key:
             return  # stale after() call
 
+        if self._active_cell_entry is not None:
+            self._active_cell_entry.destroy()
+            self._active_cell_entry = None
+
         self._canvas.delete('all')
         self._match_boxes = {}
+        self._pool_cells = {}
+        self._ko_match_boxes = {}
 
         method = self.bracket_generation_methods.get(bracket_key)
 
@@ -366,10 +395,16 @@ class FightMonitoringScreen(tk.Frame):
         ]
 
         z = self.zoom_level
-        total_w, total_h = draw_pools_on_canvas(
+        cell_values = self.pool_cell_values.get(bracket_key, {})
+        ko_data = self.ko_bracket_data.get(bracket_key)
+        ko_results = self.ko_match_results.get(bracket_key, {})
+        total_w, total_h, cell_positions, ko_boxes = draw_pools_on_canvas(
             self._canvas, normalized, z, COLORS, FONTS,
-            int(50 * z), int(60 * z)
+            int(50 * z), int(60 * z),
+            cell_values=cell_values, ko_data=ko_data, ko_match_results=ko_results,
         )
+        self._pool_cells = cell_positions
+        self._ko_match_boxes = ko_boxes
         self._canvas.configure(scrollregion=(0, 0, total_w, total_h))
 
     # ---- KO bracket (interactive) ----------------------------------------
@@ -541,11 +576,44 @@ class FightMonitoringScreen(tk.Frame):
     # ------------------------------------------------------------ clicking
 
     def _on_canvas_click(self, event):
+        # Commit any open cell entry before processing the click
+        if self._active_cell_entry is not None:
+            self._active_cell_entry._commit()
+
         if not self.current_bracket_key:
             return
         method = self.bracket_generation_methods.get(self.current_bracket_key)
         if method in ('pools', 'double'):
-            return  # pool clicks not yet handled
+            cx = self._canvas.canvasx(event.x)
+            cy = self._canvas.canvasy(event.y)
+
+            # KO bracket boxes (clickable like regular KO)
+            for (r, m), (x1, y1, x2, y2, p1, p2) in self._ko_match_boxes.items():
+                if not (x1 <= cx <= x2 and y1 <= cy <= y2):
+                    continue
+                if not p1 or not p2 or 'TBD' in (p1, p2):
+                    return
+                clicked = p1 if cy <= (y1 + y2) / 2 else p2
+                results = self.ko_match_results.setdefault(self.current_bracket_key, {})
+                current = results.get((r, m))
+                if current == clicked:
+                    del results[(r, m)]
+                    # clear downstream final if a semi changed
+                    if r == 0:
+                        results.pop((1, 0), None)
+                else:
+                    if current is not None and r == 0:
+                        results.pop((1, 0), None)
+                    results[(r, m)] = clicked
+                self._render(self.current_bracket_key)
+                return
+
+            # Pool score cells
+            for cell_key, (x1, y1, x2, y2) in self._pool_cells.items():
+                if x1 <= cx <= x2 and y1 <= cy <= y2:
+                    self._start_cell_edit(cell_key, x1, y1, x2, y2)
+                    return
+            return
 
         cx = self._canvas.canvasx(event.x)
         cy = self._canvas.canvasy(event.y)
@@ -570,6 +638,89 @@ class FightMonitoringScreen(tk.Frame):
 
             self._render(self.current_bracket_key)
             break
+
+    def _finish_pool(self):
+        """Read Platz 1 & 2 from each pool and populate the KO bracket slots."""
+        from frontend.utils import split_into_pools, determine_pool_structure
+
+        bkey = self.current_bracket_key
+        if not bkey:
+            return
+
+        bracket_data = self.brackets.get(bkey, {})
+        participants = bracket_data.get('fighters', [])
+        normalized = [
+            {'Name': p.get('Name', p.get('name', '')),
+             'Verein': p.get('Verein', p.get('verein', p.get('club', '')))}
+            for p in participants if isinstance(p, dict)
+        ]
+
+        num_pools = determine_pool_structure(len(normalized))
+        pools = split_into_pools(normalized, num_pools)
+        cv = self.pool_cell_values.get(bkey, {})
+
+        ko = {}
+        for pool_idx, pool in enumerate(pools):
+            for row, fighter in enumerate(pool):
+                platz = cv.get((pool_idx, row, 'platz'), '').strip()
+                if platz == '1':
+                    ko[f'p{pool_idx}_1st'] = fighter['Name']
+                elif platz == '2':
+                    ko[f'p{pool_idx}_2nd'] = fighter['Name']
+
+        self.ko_bracket_data[bkey] = ko
+        self._render(bkey)
+
+    def _start_cell_edit(self, cell_key, x1, y1, x2, y2):
+        """Overlay an Entry widget on a pool score cell for inline editing."""
+        # Commit any existing entry first
+        if self._active_cell_entry is not None:
+            self._active_cell_entry.destroy()
+            self._active_cell_entry = None
+
+        bkey = self.current_bracket_key
+        current_val = self.pool_cell_values.get(bkey, {}).get(cell_key, '')
+
+        var = tk.StringVar(value=current_val)
+        entry = tk.Entry(
+            self._canvas, textvariable=var,
+            bg='white', fg='black',
+            font=('Consolas', max(7, int(9 * self.zoom_level))),
+            justify='center', relief='flat', bd=0,
+            highlightthickness=0,
+        )
+        self._canvas.create_window(
+            (x1 + x2) / 2, (y1 + y2) / 2,
+            window=entry,
+            width=int(x2 - x1) - 4,
+            height=int(y2 - y1) - 4,
+            anchor='c',
+        )
+        entry.focus_set()
+        entry.select_range(0, tk.END)
+        self._active_cell_entry = entry
+
+        def commit(event=None):  # also stored as entry._commit for external calls
+            if self._active_cell_entry is not entry:
+                return  # already superseded
+            self._active_cell_entry = None
+            val = var.get().strip()
+            vals = self.pool_cell_values.setdefault(bkey, {})
+            if val:
+                vals[cell_key] = val
+            elif cell_key in vals:
+                del vals[cell_key]
+            entry.destroy()
+            self._render(bkey)
+
+        entry._commit = commit
+        entry.bind('<Return>', commit)
+        entry.bind('<Tab>', commit)
+        entry.bind('<FocusOut>', commit)
+        entry.bind('<Escape>', lambda e: (
+            setattr(self, '_active_cell_entry', None),
+            entry.destroy(),
+        ))
 
     def _clear_downstream(self, round_idx, match_idx):
         results = self.match_results.get(self.current_bracket_key, {})

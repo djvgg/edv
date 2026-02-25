@@ -26,6 +26,7 @@ from backend.services.bracket_service import (  # noqa: E402
 from backend.data.repositories.participant_repository import (  # noqa: E402
     fetch_participants_from_db,
 )
+import backend.data.database as _db_module  # noqa: E402
 from backend.data.database import SessionLocal  # noqa: E402
 from backend.services.tournament_service import TournamentService  # noqa: E402
 
@@ -116,6 +117,8 @@ class BracketViewerApp(tk.Tk):
         Thread-safe: each call owns its own session.
         Errors are logged but never crash the app — DB writes are best-effort.
         """
+        if not _db_module.DB_AVAILABLE:
+            return
         db = SessionLocal()
         try:
             fn(TournamentService(db))
