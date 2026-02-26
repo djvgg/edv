@@ -175,7 +175,7 @@ def normalize_participants(raw_participants):
         raw_participants: List of dicts from XLSX
     
     Returns:
-        List of normalized dicts with Name, Gender, Weight, Age, Club, Association
+        List of normalized dicts with Name, Gender, Weight, Age, Club, Association, Paid
     
     Raises:
         ValueError: If no valid participants found
@@ -211,6 +211,10 @@ def normalize_participants(raw_participants):
         # Extract age
         age = row.get('Age')
         
+        # Extract and validate paid status
+        paid_str = str(row.get('Paid', row.get('Bezahlt', ''))).strip().lower()
+        paid = paid_str in ['true', 'ja', 'yes', '1', 'y']
+        
         # Build normalized record
         normalized_row = {
             'Name': name,
@@ -219,6 +223,7 @@ def normalize_participants(raw_participants):
             'Age': age,
             'Club': str(row.get('Club', '')).strip(),
             'Association': str(row.get('Association', '')).strip(),
+            'Paid': paid,
         }
         
         normalized.append(normalized_row)

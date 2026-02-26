@@ -229,6 +229,43 @@ class BracketViewerApp(tk.Tk):
         
         self.loading_window.update_idletasks()
 
+    def filter_unpaid_participants(self, all_participants):
+        """Filter out unpaid participants and show a popup if any are found.
+        
+        Args:
+            all_participants: List of participant dicts with 'Paid' field
+        
+        Returns:
+            Tuple of (paid_participants, unpaid_list) where unpaid_list is empty if all paid
+        """
+        paid_participants = []
+        unpaid_participants = []
+        
+        for p in all_participants:
+            # Check if paid field exists and is truthy
+            is_paid = p.get('Paid', False)
+            
+            if is_paid:
+                paid_participants.append(p)
+            else:
+                unpaid_participants.append(p)
+        
+        # Show popup if there are unpaid participants
+        if unpaid_participants:
+            unpaid_names = ['{} {}'.format(
+                p.get('Firstname', p.get('Vorname', '')),
+                p.get('Lastname', p.get('Nachname', ''))
+            ).strip() or p.get('Name', 'Unknown') for p in unpaid_participants]
+            
+            unpaid_text = "\n".join(f"• {name}" for name in unpaid_names)
+            
+            message = f"The following {len(unpaid_participants)} participant(s) have not paid and will NOT be sorted into brackets:\n\n{unpaid_text}"
+            
+            messagebox.showwarning("Unpaid Participants", message)
+            self.logger.info(f"Filtered out {len(unpaid_participants)} unpaid participant(s): {', '.join(unpaid_names)}")
+        
+        return paid_participants, unpaid_participants
+
     def update_progress(self, value):
         """Update the progress bar."""
         if hasattr(self, 'progress_var') and hasattr(self, 'loading_window'):
@@ -685,8 +722,11 @@ class BracketViewerApp(tk.Tk):
             participants = normalize_participants(raw_participants)
             self.update_progress(40)
 
+            # Filter out unpaid participants
+            participants, _ = self.filter_unpaid_participants(participants)
+
             if not participants:
-                self.set_status("Error: No valid participants found.", COLORS['accent_red'])
+                self.set_status("Error: No valid paid participants found.", COLORS['accent_red'])
                 self.hide_loading_progress()
                 return
 
@@ -732,9 +772,18 @@ class BracketViewerApp(tk.Tk):
             self.update_progress(30)
 
             if not participants:
-                self.set_status("Error: No valid participants found in database.", COLORS['accent_red'])
+                self.set_status("Error: No participants found in database.", COLORS['accent_red'])
                 self.hide_loading_progress()
-                self.after(500, lambda: messagebox.showwarning("No Data", "No valid and paid participants found in database."))
+                self.after(500, lambda: messagebox.showwarning("No Data", "No participants found in database."))
+                return
+
+            # Filter out unpaid participants
+            participants, _ = self.filter_unpaid_participants(participants)
+
+            if not participants:
+                self.set_status("Error: No valid paid participants found in database.", COLORS['accent_red'])
+                self.hide_loading_progress()
+                self.after(500, lambda: messagebox.showwarning("No Data", "No paid participants found in database."))
                 return
 
             total_fighters = len(participants)
@@ -904,9 +953,18 @@ class BracketViewerApp(tk.Tk):
                 self.set_status(error_msg, COLORS['accent_red'])
                 return
 
+            # Filter out unpaid participants
+            all_participants, _ = self.filter_unpaid_participants(all_participants)
+
+            if not all_participants:
+                error_msg = "No paid participants found in JSON files."
+                self.logger.error(error_msg)
+                self.set_status(error_msg, COLORS['accent_red'])
+                return
+
             total_fighters = len(all_participants)
-            self.logger.info(f"Total participants loaded: {total_fighters}")
-            self.set_info_text(f"✓ {total_fighters} participants loaded from JSON files")
+            self.logger.info(f"Total paid participants loaded: {total_fighters}")
+            self.set_info_text(f"✓ {total_fighters} paid participants loaded from JSON files")
 
             self.set_status("Generating brackets...", COLORS['text_secondary'])
             self.logger.info("Starting bracket generation...")
