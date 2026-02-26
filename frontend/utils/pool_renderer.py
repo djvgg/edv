@@ -458,14 +458,14 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, box_width, box_
                     width=line_width
                 )
 
-        # Draw summary cells (Punkte, Ubw., Platz) — editable
+        # Draw summary cells (Punkte, Ubw., Platz) — editable (white fill)
         summary_keys = ['punkte', 'ubw', 'platz']
         for i, skey in enumerate(summary_keys):
             x = start_x + num_width + name_width + kampfnummer_width + (num_fights * cell_size) + (i * cell_size)
             canvas.create_rectangle(
                 x, y, x + cell_size, y + box_height,
                 outline=colors['accent_green'],
-                fill=colors['bg_panel'],
+                fill=colors['white'],
                 width=line_width
             )
             sval = (cell_values or {}).get((row, skey), '')
@@ -473,7 +473,7 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, box_width, box_
                 canvas.create_text(
                     x + cell_size // 2, y + box_height // 2,
                     text=sval, anchor='c',
-                    fill=colors['white'], font=scaled_font
+                    fill=colors['black'], font=scaled_font
                 )
             cell_positions[(row, skey)] = (x, y, x + cell_size, y + box_height)
 
@@ -498,13 +498,13 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, box_width, box_
         font=cell_font
     )
 
-    # Kampfzeit cells under each fight column — editable
+    # Kampfzeit cells under each fight column — editable (white fill)
     for fight_num in range(num_fights):
         x = start_x + num_width + name_width + kampfnummer_width + (fight_num * cell_size)
         canvas.create_rectangle(
             x, bottom_y, x + cell_size, bottom_y + box_height,
             outline=colors['accent_green'],
-            fill=colors['bg_panel'],
+            fill=colors['white'],
             width=line_width
         )
         kval = (cell_values or {}).get(('kampfzeit', fight_num), '')
@@ -512,7 +512,7 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, box_width, box_
             canvas.create_text(
                 x + cell_size // 2, bottom_y + box_height // 2,
                 text=kval, anchor='c',
-                fill=colors['white'], font=scaled_font
+                fill=colors['black'], font=scaled_font
             )
         cell_positions[('kampfzeit', fight_num)] = (x, bottom_y, x + cell_size, bottom_y + box_height)
 

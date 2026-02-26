@@ -680,14 +680,32 @@ class FightMonitoringScreen(tk.Frame):
         bkey = self.current_bracket_key
         current_val = self.pool_cell_values.get(bkey, {}).get(cell_key, '')
 
+        # Detect cell type and set input constraints
+        is_score_cell = len(cell_key) == 4 and cell_key[-1] in ('L', 'R')
+        is_kampfzeit  = cell_key[1] == 'kampfzeit'
+
+        if is_score_cell:
+            max_chars, allow_spaces = 2, False
+        elif is_kampfzeit:
+            max_chars, allow_spaces = 5, False
+        else:  # summary: punkte, ubw, platz
+            max_chars, allow_spaces = 2, False
+
         var = tk.StringVar(value=current_val)
-        entry = tk.Entry(
-            self._canvas, textvariable=var,
+        entry_kwargs = dict(
             bg='white', fg='black',
             font=('Consolas', max(7, int(9 * self.zoom_level))),
             justify='center', relief='flat', bd=0,
             highlightthickness=0,
         )
+        vcmd = (self.register(
+            lambda text, m=max_chars, s=allow_spaces:
+                len(text) <= m and (s or ' ' not in text)
+        ), '%P')
+        entry_kwargs['validate'] = 'key'
+        entry_kwargs['validatecommand'] = vcmd
+
+        entry = tk.Entry(self._canvas, textvariable=var, **entry_kwargs)
         self._canvas.create_window(
             (x1 + x2) / 2, (y1 + y2) / 2,
             window=entry,
@@ -709,6 +727,8 @@ class FightMonitoringScreen(tk.Frame):
                 vals[cell_key] = val
             elif cell_key in vals:
                 del vals[cell_key]
+            if is_score_cell:
+                self._mirror_score(cell_key, val, vals)
             entry.destroy()
             self._render(bkey)
 
@@ -720,6 +740,52 @@ class FightMonitoringScreen(tk.Frame):
             setattr(self, '_active_cell_entry', None),
             entry.destroy(),
         ))
+
+    def _mirror_score(self, cell_key, val, vals):
+        """Mirror a score entry to the opponent's corresponding cell.
+
+        For fight cell (pool_idx, row, fight_num, side):
+          - entering on 'L' (my score) → writes same value to opponent's 'R'
+          - entering on 'R' (opponent score) → writes same value to opponent's 'L'
+        """
+        from frontend.utils.pool_renderer import _generate_fight_schedule
+        from frontend.utils import split_into_pools, determine_pool_structure
+
+        pool_idx, row, fight_num, side = cell_key
+
+        bracket_data = self.brackets.get(self.current_bracket_key, {})
+        participants = bracket_data.get('fighters', [])
+        normalized = [
+            {'Name': p.get('Name', p.get('name', '')),
+             'Verein': p.get('Verein', p.get('verein', p.get('club', '')))}
+            for p in participants if isinstance(p, dict)
+        ]
+
+        num_pools = determine_pool_structure(len(normalized))
+        pools = split_into_pools(normalized, num_pools)
+        if pool_idx >= len(pools):
+            return
+
+        fight_schedule = _generate_fight_schedule(len(pools[pool_idx]))
+        if fight_num >= len(fight_schedule):
+            return
+
+        # Find the other fighter's row in this fight
+        other_row = None
+        for match in fight_schedule[fight_num]:
+            if row in match:
+                other_row = match[0] if match[1] == row else match[1]
+                break
+        if other_row is None:
+            return
+
+        # my L → opponent R, my R → opponent L
+        mirror_side = 'R' if side == 'L' else 'L'
+        mirror_key = (pool_idx, other_row, fight_num, mirror_side)
+        if val:
+            vals[mirror_key] = val
+        elif mirror_key in vals:
+            del vals[mirror_key]
 
     def _clear_downstream(self, round_idx, match_idx):
         results = self.match_results.get(self.current_bracket_key, {})
