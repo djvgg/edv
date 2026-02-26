@@ -14,7 +14,6 @@ import tkinter as tk
 from tkinter import ttk
 import sys
 import os
-import re
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
