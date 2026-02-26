@@ -657,7 +657,7 @@ class FightMonitoringScreen(tk.Frame):
         ]
 
         num_pools = determine_pool_structure(len(normalized))
-        pools = split_into_pools(normalized, num_pools)
+        pools = split_into_pools(normalized, num_pools=num_pools)
         cv = self.pool_cell_values.get(bkey, {})
 
         ko = {}
@@ -764,7 +764,7 @@ class FightMonitoringScreen(tk.Frame):
         ]
 
         num_pools = determine_pool_structure(len(normalized))
-        pools = split_into_pools(normalized, num_pools)
+        pools = split_into_pools(normalized, num_pools=num_pools)
         if pool_idx >= len(pools):
             return
 

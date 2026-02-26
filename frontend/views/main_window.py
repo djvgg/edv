@@ -1558,7 +1558,7 @@ class BracketViewerApp(tk.Tk):
             start_x = int(50 * self.zoom_level)
             start_y = int(80 * self.zoom_level)
 
-            total_width, total_height = draw_pools_on_canvas(
+            total_width, total_height, _cell_positions, _ko_boxes = draw_pools_on_canvas(
                 self.bracket_canvas,
                 normalized_participants,
                 self.zoom_level,
