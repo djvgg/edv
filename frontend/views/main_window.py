@@ -746,9 +746,9 @@ class BracketViewerApp(tk.Tk):
         # Track totals for each table
         table_totals = {}
 
-        # Add assigned brackets to panels
+        # Add assigned brackets to panels — skip empty brackets
         for bracket_key, table_num in self.bracket_table_assignment.items():
-            if table_num:
+            if table_num and len(self.brackets[bracket_key].get('fighters', [])) > 0:
                 panel = self.table_panels[table_num]
 
                 # Create row frame for label + unassign button
@@ -1322,8 +1322,10 @@ class BracketViewerApp(tk.Tk):
         # Store mapping of display text to bracket_key for safe lookup
         self.bracket_listbox_map = {}
         
-        # Get unassigned bracket keys
-        unassigned_keys = [k for k in sorted(self.brackets.keys()) if not self.bracket_table_assignment.get(k)]
+        # Get unassigned bracket keys — skip empty brackets (fighters moved to another group)
+        unassigned_keys = [k for k in sorted(self.brackets.keys())
+                           if not self.bracket_table_assignment.get(k)
+                           and len(self.brackets[k].get('fighters', [])) > 0]
         
         # Use shared search utility
         filtered_keys, matched_count, search_terms = filter_items(unassigned_keys, search_term)
