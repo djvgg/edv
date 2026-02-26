@@ -1458,11 +1458,6 @@ class BracketViewerApp(tk.Tk):
                 text=f"Error rendering pool:\n{str(e)}",
                 font=FONTS['body_md'], fill='red')
 
-    def on_closing(self):
-        """Handle window closing."""
-        self.destroy()
-
-
 def main():
     app = BracketViewerApp()
     app.mainloop()

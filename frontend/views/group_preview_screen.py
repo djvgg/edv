@@ -11,9 +11,9 @@ Shows bracket groups (weight categories) with participant details:
 """
 
 import tkinter as tk
+from tkinter import ttk
 import sys
 import os
-import re
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
@@ -21,6 +21,7 @@ from utils.logging import get_logger
 from backend.data.repositories.config_repository import ConfigRepository
 from ..styles import (
     COLORS, FONTS,
+    SCROLLBAR_STYLE, SCROLLBAR_ACTIVE_STYLE,
     apply_button_style,
     apply_entry_style,
     apply_label_style,
@@ -78,7 +79,43 @@ class GroupPreviewScreen(tk.Frame):
         self.on_continue = None
         self.on_back = None
 
+        self._setup_scrollbar_style()
         self.init_ui()
+
+    def _setup_scrollbar_style(self):
+        """Configure ttk scrollbar style to match the dark theme."""
+        style = ttk.Style()
+        style.theme_use('default')
+
+        # Vertical scrollbar
+        style.configure('Dark.Vertical.TScrollbar',
+            background=SCROLLBAR_STYLE['background'],
+            troughcolor=SCROLLBAR_STYLE['troughcolor'],
+            bordercolor=SCROLLBAR_STYLE['bordercolor'],
+            arrowcolor=SCROLLBAR_STYLE['arrowcolor'],
+            lightcolor=SCROLLBAR_STYLE['lightcolor'],
+            darkcolor=SCROLLBAR_STYLE['darkcolor'],
+            width=10,
+        )
+        style.map('Dark.Vertical.TScrollbar',
+            background=[('active', SCROLLBAR_ACTIVE_STYLE['background'])],
+            arrowcolor=[('active', SCROLLBAR_ACTIVE_STYLE['arrowcolor'])],
+        )
+
+        # Horizontal scrollbar
+        style.configure('Dark.Horizontal.TScrollbar',
+            background=SCROLLBAR_STYLE['background'],
+            troughcolor=SCROLLBAR_STYLE['troughcolor'],
+            bordercolor=SCROLLBAR_STYLE['bordercolor'],
+            arrowcolor=SCROLLBAR_STYLE['arrowcolor'],
+            lightcolor=SCROLLBAR_STYLE['lightcolor'],
+            darkcolor=SCROLLBAR_STYLE['darkcolor'],
+            width=10,
+        )
+        style.map('Dark.Horizontal.TScrollbar',
+            background=[('active', SCROLLBAR_ACTIVE_STYLE['background'])],
+            arrowcolor=[('active', SCROLLBAR_ACTIVE_STYLE['arrowcolor'])],
+        )
 
     def load_data(self, brackets):
         """Load bracket data."""
@@ -299,17 +336,17 @@ class GroupPreviewScreen(tk.Frame):
         # Update title
         self.preview_title_var.set(f"{bracket_key} - {count} participants")
 
-        # Create scrollable text widget
+        # Create scrollable text widget with auto-hiding styled scrollbars
         text_frame = create_dark_frame(self.participant_display_frame)
         text_frame.pack(fill=tk.BOTH, expand=True)
 
-        scrollbar = tk.Scrollbar(text_frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        # Use grid layout for text + scrollbars
+        text_frame.grid_rowconfigure(0, weight=1)
+        text_frame.grid_columnconfigure(0, weight=1)
 
         text_widget = tk.Text(
             text_frame,
             wrap=tk.NONE,
-            yscrollcommand=scrollbar.set,
             bg=COLORS['bg_panel'],
             fg=COLORS['text_primary'],
             font=FONTS['list_mono'],  # Monospace font for proper alignment
@@ -317,33 +354,59 @@ class GroupPreviewScreen(tk.Frame):
             pady=10,
             cursor='arrow',  # Keep normal arrow cursor instead of text cursor
         )
-        text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.config(command=text_widget.yview)
+        text_widget.grid(row=0, column=0, sticky='nsew')
+
+        # Styled vertical scrollbar (dark theme)
+        v_scrollbar = ttk.Scrollbar(
+            text_frame, orient=tk.VERTICAL,
+            command=text_widget.yview,
+            style='Dark.Vertical.TScrollbar',
+        )
+
+        # Styled horizontal scrollbar (dark theme)
+        h_scrollbar = ttk.Scrollbar(
+            text_frame, orient=tk.HORIZONTAL,
+            command=text_widget.xview,
+            style='Dark.Horizontal.TScrollbar',
+        )
+
+        text_widget.configure(
+            yscrollcommand=lambda first, last: self._auto_scroll(v_scrollbar, first, last, 'vertical'),
+            xscrollcommand=lambda first, last: self._auto_scroll(h_scrollbar, first, last, 'horizontal'),
+        )
+
+        # Shift + Mousewheel for horizontal scrolling
+        text_widget.bind('<Shift-MouseWheel>', lambda e: text_widget.xview_scroll(int(-1 * (e.delta / 120)), 'units'))
 
         # Bind double-click to edit row
         text_widget.bind('<Double-Button-1>', lambda e: self._on_row_double_click(text_widget, bracket_key, count))
 
         # Column widths (in characters)
-        COL_NUM = 6
-        COL_NAME = 30
-        COL_WEIGHT = 15
-        COL_CLUB = 30
-        COL_AGE = 10
+        COL_FIRST = 15
+        COL_LAST = 15
+        COL_BIRTH = 12
+        COL_CLUB = 25
+        COL_ASSOC = 15
+        COL_WEIGHT = 12
+        COL_GENDER = 10
         
         # Calculate total width for separator line
-        SEPARATOR_LENGTH = COL_NUM + COL_NAME + COL_WEIGHT + COL_CLUB + COL_AGE + 4
+        SEPARATOR_LENGTH = COL_FIRST + COL_LAST + COL_BIRTH + COL_CLUB + COL_ASSOC + COL_WEIGHT + COL_GENDER + 4
 
         # Header
-        header = f"{'#':<{COL_NUM}}{'Name':<{COL_NAME}}{'Weight (kg)':<{COL_WEIGHT}}{'Club/Verein':<{COL_CLUB}}{'Age':<{COL_AGE}}\n"
+        header = f"{'Firstname':<{COL_FIRST}}{'Lastname':<{COL_LAST}}{'Birthyear':<{COL_BIRTH}}{'Club':<{COL_CLUB}}{'Association':<{COL_ASSOC}}{'Weight':<{COL_WEIGHT}}{'Gender':<{COL_GENDER}}\n"
         text_widget.insert(tk.END, header, 'header')
         text_widget.insert(tk.END, "=" * SEPARATOR_LENGTH + "\n")
         
         # Participant rows
         for idx, fighter in enumerate(fighters, 1): #begin with 1 instead of 0
-            name = fighter.get('Name', fighter.get('name', 'N/A'))
-            weight = fighter.get('Weight', fighter.get('weight', 'N/A'))
-            club = fighter.get('Verein', fighter.get('verein', fighter.get('club', 'N/A')))
-            age = fighter.get('Age', fighter.get('age', 'N/A'))
+            first = str(fighter.get('Firstname', fighter.get('name', 'N/A')))
+            last = str(fighter.get('Lastname', ''))
+            birth = str(fighter.get('Birthyear', fighter.get('BirthYear', fighter.get('age', 'N/A'))))
+            club = str(fighter.get('Club', fighter.get('Verein', fighter.get('club', 'N/A'))))
+            assoc = str(fighter.get('Association', ''))
+            gender = str(fighter.get('Gender', ''))
+            weight = fighter.get('Weight', 'N/A')
 
             # Format weight
             if isinstance(weight, (int, float)):
@@ -351,7 +414,7 @@ class GroupPreviewScreen(tk.Frame):
             else:
                 weight_str = str(weight)
 
-            row = f"{idx:<{COL_NUM}}{str(name):<{COL_NAME}}{weight_str:<{COL_WEIGHT}}{str(club):<{COL_CLUB}}{str(age):<{COL_AGE}}\n"
+            row = f"{first:<{COL_FIRST}}{last:<{COL_LAST}}{birth:<{COL_BIRTH}}{club:<{COL_CLUB}}{assoc:<{COL_ASSOC}}{weight_str:<{COL_WEIGHT}}{gender:<{COL_GENDER}}\n"
             text_widget.insert(tk.END, row, f'row_{idx}')
 
         # Style header
@@ -370,6 +433,19 @@ class GroupPreviewScreen(tk.Frame):
         if self.DEBUG:
             self.logger.debug(f"DEBUG: Text widget created with {count} rows")
         self.logger.debug(f"Displayed {count} participants for {bracket_key}")
+
+    def _auto_scroll(self, scrollbar, first, last, orientation):
+        """Show/hide scrollbar based on whether content overflows the visible area."""
+        if float(first) <= 0.0 and float(last) >= 1.0:
+            # Content fits — hide scrollbar
+            scrollbar.grid_remove()
+        else:
+            # Content overflows — show scrollbar
+            if orientation == 'vertical':
+                scrollbar.grid(row=0, column=1, sticky='ns')
+            else:
+                scrollbar.grid(row=1, column=0, sticky='ew')
+        scrollbar.set(first, last)
 
     def _on_row_click(self, text_widget, row_num, total_rows):
         """Handle row selection click."""
@@ -413,47 +489,56 @@ class GroupPreviewScreen(tk.Frame):
             return parts[0], parts[1], parts[2]
         return None, None, None
 
+    # Fixed age class hierarchy for upgrades
+    AGE_CLASS_ORDER = ['U9', 'U11', 'U13', 'U15', 'U18', '18+']
+
     def _get_available_age_classes(self, gender, current_age_group):
-        """Get all available age classes for gender that are higher than current_age_group."""
-        available_classes = set()
+        """Get the next higher age class based on the fixed hierarchy."""
+        try:
+            current_idx = self.AGE_CLASS_ORDER.index(current_age_group)
+        except ValueError:
+            return []
         
-        for bracket_key in self.brackets.keys():
-            parts = [p.strip() for p in bracket_key.split('|')]
-            if len(parts) >= 3:
-                bck_gender = parts[0]
-                bck_age = parts[1]
-                
-                if bck_gender == gender:
-                    available_classes.add(bck_age)
-                    
-        def get_age_key(age_str):
-            m = re.search(r'\d+', age_str)
-            num = int(m.group()) if m else 999
-            is_plus = 1 if '+' in age_str else 0
-            return (num, is_plus)
-            
-        current_key = get_age_key(current_age_group)
-        
-        higher_classes = [ac for ac in available_classes if get_age_key(ac) > current_key]
-        higher_classes.sort(key=get_age_key)
-        
+        # Return all higher age classes
+        higher_classes = self.AGE_CLASS_ORDER[current_idx + 1:]
         return higher_classes
 
     def _get_available_weight_classes(self, gender, age_group):
-        """Get all available weight classes for gender and age_group - ONLY ones that exist in brackets."""
-        # Collect only the weight classes that actually exist in the brackets
+        """Get all available weight classes for gender and age_group from config."""
         available_classes = []
         
-        for bracket_key in self.brackets.keys():
-            parts = [p.strip() for p in bracket_key.split('|')]
-            if len(parts) >= 3:
-                bck_gender = parts[0]
-                bck_age = parts[1]
-                bck_weight = parts[2]
+        # Try config first (has ALL possible weight classes)
+        if self.config_repo:
+            try:
+                # Normalize gender for config lookup
+                gender_norm = str(gender).lower().strip()
+                if gender_norm in ('m', 'male'):
+                    gender_norm = 'm'
+                elif gender_norm in ('w', 'f', 'female'):
+                    gender_norm = 'w'
                 
-                if bck_gender == gender and bck_age == age_group:
-                    if bck_weight not in available_classes:
-                        available_classes.append(bck_weight)
+                df = self.config_repo.weight_classes
+                filtered = df[
+                    (df['Gender'] == gender_norm) & 
+                    (df['AgeGroup'] == age_group)
+                ]
+                available_classes = filtered['Label'].tolist()
+            except Exception as e:
+                self.logger.warning(f"Config lookup failed, falling back to brackets: {e}")
+                available_classes = []
+        
+        # Fallback: look at existing brackets
+        if not available_classes:
+            for bracket_key in self.brackets.keys():
+                parts = [p.strip() for p in bracket_key.split('|')]
+                if len(parts) >= 3:
+                    bck_gender = parts[0]
+                    bck_age = parts[1]
+                    bck_weight = parts[2]
+                    
+                    if bck_gender == gender and bck_age == age_group:
+                        if bck_weight not in available_classes:
+                            available_classes.append(bck_weight)
         
         if self.DEBUG:
             self.logger.debug(f"DEBUG: Available weight classes for {gender} {age_group}: {available_classes}")
@@ -462,13 +547,11 @@ class GroupPreviewScreen(tk.Frame):
         def sort_key(x):
             if x == 'no-class':
                 return (0, 0)
-            # Extract number
             num_str = x.replace('kg', '').replace('-', '').replace('+', '')
             try:
                 num = float(num_str)
             except ValueError:
                 return (999, 0)
-            # Return tuple: (number, 0 if starts with "-" else 1)
             is_plus = 1 if x.startswith('+') else 0
             return (num, is_plus)
         
@@ -492,10 +575,14 @@ class GroupPreviewScreen(tk.Frame):
             if current_weight_class is None:
                 current_weight_class = ""
             
-            name = fighter.get('Name', fighter.get('name', ''))
+            first_name = fighter.get('Firstname', fighter.get('name', ''))
+            last_name = fighter.get('Lastname', '')
             weight = fighter.get('Weight', fighter.get('weight', ''))
-            club = fighter.get('Verein', fighter.get('verein', fighter.get('club', '')))
-            age = fighter.get('Age', fighter.get('age', ''))
+            club = fighter.get('Club', fighter.get('Verein', fighter.get('verein', fighter.get('club', ''))))
+            assoc = fighter.get('Association', '')
+            birth_year = fighter.get('Birthyear', fighter.get('BirthYear', fighter.get('birthyear', fighter.get('age', ''))))
+            is_valid = fighter.get('Valid', False)
+            is_paid = fighter.get('Paid', False)
             
             if isinstance(weight, (int, float)):
                 weight_str = f"{weight:.1f}"
@@ -528,7 +615,7 @@ class GroupPreviewScreen(tk.Frame):
             
             tk.Frame(header_frame, bg=COLORS['accent_blue'], width=5).pack(side=tk.LEFT, fill=tk.Y)
             
-            title_label = tk.Label(header_frame, text=f"Participant: {name}", bg=COLORS['bg_darker'], fg=COLORS['text_primary'], font=FONTS['preview_title'])
+            title_label = tk.Label(header_frame, text=f"Participant: {first_name} {last_name}".strip(), bg=COLORS['bg_darker'], fg=COLORS['text_primary'], font=FONTS['preview_title'])
             title_label.pack(side=tk.LEFT, padx=20, pady=20)
             
             # Main container with better padding
@@ -568,9 +655,19 @@ class GroupPreviewScreen(tk.Frame):
                 
                 return entry
             
-            # Name field
-            name_entry = create_field(container, "Full Name")
-            name_entry.insert(0, name)
+            # Name fields in a row
+            name_row = tk.Frame(container, bg=COLORS['bg_dark'])
+            name_row.pack(fill=tk.X)
+            
+            first_col = tk.Frame(name_row, bg=COLORS['bg_dark'])
+            first_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+            first_entry = create_field(first_col, "First Name")
+            first_entry.insert(0, first_name)
+            
+            last_col = tk.Frame(name_row, bg=COLORS['bg_dark'])
+            last_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
+            last_entry = create_field(last_col, "Last Name")
+            last_entry.insert(0, last_name)
             
             # Weight and Age in a row
             row_frame = tk.Frame(container, bg=COLORS['bg_dark'])
@@ -583,20 +680,31 @@ class GroupPreviewScreen(tk.Frame):
             
             age_col = tk.Frame(row_frame, bg=COLORS['bg_dark'])
             age_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
-            age_entry = create_field(age_col, "Age")
-            age_entry.insert(0, str(age))
+            birth_year_entry = create_field(age_col, "Birth Year")
+            birth_year_entry.insert(0, str(birth_year))
             
-            # Club field
-            club_entry = create_field(container, "Club / Verein")
+            # Club and Association fields in a row
+            club_row = tk.Frame(container, bg=COLORS['bg_dark'])
+            club_row.pack(fill=tk.X)
+            
+            club_col = tk.Frame(club_row, bg=COLORS['bg_dark'])
+            club_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+            club_entry = create_field(club_col, "Club")
             club_entry.insert(0, club)
             
+            assoc_col = tk.Frame(club_row, bg=COLORS['bg_dark'])
+            assoc_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
+            assoc_entry = create_field(assoc_col, "Association")
+            assoc_entry.insert(0, assoc)
+            
             # Weight Class / Age Class section
-            is_fk = str(bracket_key).startswith("FK |")
+            is_fm = str(bracket_key).startswith("FM |")
+            is_young = age_group in ('U9', 'U11') or str(bracket_key).strip() in ('U9', 'U11')
             is_adult = age_group == "18+"
             label_text = "WEIGHT CLASS ASSIGNMENT" if is_adult else "AGE CLASS UPGRADE"
             
             wc_frame = tk.Frame(container, bg=COLORS['bg_dark'])
-            if not is_fk:
+            if not is_fm and not is_young:
                 wc_frame.pack(fill=tk.X, pady=(0, 14))
                 
                 wc_label = tk.Label(wc_frame, text=label_text, bg=COLORS['bg_dark'], fg=COLORS['accent_blue'], font=FONTS['preview_label'])
@@ -620,7 +728,7 @@ class GroupPreviewScreen(tk.Frame):
             options_to_show = []
             selected_var = None
             
-            if not is_fk:
+            if not is_fm and not is_young:
                 if is_adult:
                     # Only the next heavier weight class
                     heavier_classes = [wc for wc in available_weight_classes if get_weight_key(wc) > current_weight_key]
@@ -635,7 +743,7 @@ class GroupPreviewScreen(tk.Frame):
                         options_to_show = [age_group, next_class]
                     selected_var = age_class_var
                 
-            if not is_fk:
+            if not is_fm and not is_young:
                 if options_to_show:
                     # CUSTOM DROPDOWN REPLACEMENT (Using a Frame-based layout to prevent draw collisions)
                     dropdown_border = tk.Frame(wc_frame, bg=COLORS['border'], padx=1, pady=1)
@@ -802,6 +910,30 @@ class GroupPreviewScreen(tk.Frame):
                     status_label = tk.Label(status_frame, text=status_text, bg=COLORS['bg_input'], fg=COLORS['text_muted'], font=FONTS['preview_text'], anchor=tk.W, padx=10, pady=10)
                     status_label.pack(fill=tk.X)
             
+            # Valid and Paid checkboxes
+            vp_row = tk.Frame(container, bg=COLORS['bg_dark'])
+            vp_row.pack(fill=tk.X, pady=(0, 14))
+
+            valid_var = tk.BooleanVar(value=is_valid)
+            valid_cb = tk.Checkbutton(
+                vp_row, text="Valid", variable=valid_var,
+                bg=COLORS['bg_dark'], fg=COLORS['text_primary'],
+                selectcolor=COLORS['bg_input'], activebackground=COLORS['bg_dark'],
+                activeforeground=COLORS['text_primary'],
+                font=FONTS['preview_text'], cursor='hand2',
+            )
+            valid_cb.pack(side=tk.LEFT, padx=(0, 20))
+
+            paid_var = tk.BooleanVar(value=is_paid)
+            paid_cb = tk.Checkbutton(
+                vp_row, text="Paid", variable=paid_var,
+                bg=COLORS['bg_dark'], fg=COLORS['text_primary'],
+                selectcolor=COLORS['bg_input'], activebackground=COLORS['bg_dark'],
+                activeforeground=COLORS['text_primary'],
+                font=FONTS['preview_text'], cursor='hand2',
+            )
+            paid_cb.pack(side=tk.LEFT)
+
             # Separator
             tk.Frame(container, bg=COLORS['border'], height=1).pack(fill=tk.X, pady=25)
             
@@ -811,27 +943,46 @@ class GroupPreviewScreen(tk.Frame):
             
             def save():
                 try:
-                    fighter['Name'] = name_entry.get()
+                    fighter['Firstname'] = first_entry.get()
+                    fighter['Lastname'] = last_entry.get()
                     fighter['Weight'] = float(weight_entry.get())
-                    fighter['Verein'] = club_entry.get()
-                    fighter['Age'] = int(age_entry.get())
+                    fighter['Club'] = club_entry.get()
+                    fighter['Association'] = assoc_entry.get()
+                    fighter['Birthyear'] = int(birth_year_entry.get())
+                    fighter['Valid'] = valid_var.get()
+                    fighter['Paid'] = paid_var.get()
                     
                     # Track which bracket to display after save
                     display_bracket_key = bracket_key
                     
-                    if not is_fk:
+                    if not is_fm and not is_young:
+                        new_weight = float(weight_entry.get())
+                        effective_age = age_group
+                        effective_wc = current_weight_class
+                        
+                        # Check if age class was upgraded via dropdown
+                        if not is_adult:
+                            new_ac = age_class_var.get()
+                            if new_ac != age_group:
+                                effective_age = new_ac
+                        
+                        # Check if weight class was manually changed via dropdown (adults)
                         if is_adult:
                             new_wc = weight_class_var.get()
                             if new_wc != current_weight_class:
-                                display_bracket_key = self._move_participant_to_bracket(bracket_key, fighter_idx, gender, age_group, new_wc)
-                        else:
-                            new_ac = age_class_var.get()
-                            if new_ac != age_group:
-                                new_weight = float(weight_entry.get())
-                                new_wc = 'unknown'
-                                if self.config_repo:
-                                    new_wc = self.config_repo.get_weight_class(new_weight, gender, new_ac)
-                                display_bracket_key = self._move_participant_to_bracket(bracket_key, fighter_idx, gender, new_ac, new_wc)
+                                effective_wc = new_wc
+                        
+                        # Auto-detect weight class from new weight (overrides manual if weight changed)
+                        if self.config_repo and new_weight != weight:
+                            detected_wc = self.config_repo.get_weight_class(new_weight, gender, effective_age)
+                            if detected_wc and detected_wc != 'unknown':
+                                effective_wc = detected_wc
+                        
+                        # Move if anything changed
+                        if effective_age != age_group or effective_wc != current_weight_class:
+                            display_bracket_key = self._move_participant_to_bracket(
+                                bracket_key, fighter_idx, gender, effective_age, effective_wc
+                            )
                     
                     self._display_participants(display_bracket_key)
                     edit_window.destroy()
@@ -864,7 +1015,8 @@ class GroupPreviewScreen(tk.Frame):
         
         # Remove from old bracket
         old_fighters.pop(fighter_idx)
-        self.logger.info(f"Removed {fighter['Name']} from {old_bracket_key}")
+        f_name = f"{fighter.get('Firstname', '')} {fighter.get('Lastname', '')}".strip() or fighter.get('Name', 'Unknown')
+        self.logger.info(f"Removed {f_name} from {old_bracket_key}")
         
         # Add to new bracket (create if needed)
         if new_bracket_key not in self.brackets:
@@ -874,7 +1026,8 @@ class GroupPreviewScreen(tk.Frame):
             }
         
         self.brackets[new_bracket_key]['fighters'].append(fighter)
-        self.logger.info(f"Added {fighter['Name']} to {new_bracket_key}")
+        f_name = f"{fighter.get('Firstname', '')} {fighter.get('Lastname', '')}".strip() or fighter.get('Name', 'Unknown')
+        self.logger.info(f"Added {f_name} to {new_bracket_key}")
         
         # Refresh group list
         self._populate_group_list()
@@ -889,23 +1042,23 @@ class GroupPreviewScreen(tk.Frame):
     def _on_friendly_match(self):
         """Open a window to pair two participants into a friendly match."""
         try:
-            fk_window = tk.Toplevel(self.main_frame.winfo_toplevel())
+            fm_window = tk.Toplevel(self.main_frame.winfo_toplevel())
         except AttributeError:
-            fk_window = tk.Toplevel()  # Fallback
+            fm_window = tk.Toplevel()  # Fallback
             
-        fk_window.title("Friendly Match")
-        fk_window.geometry("600x450")
-        fk_window.configure(bg=COLORS['bg_dark'])
-        fk_window.transient(self.main_frame.winfo_toplevel() if hasattr(self, 'main_frame') else None)
-        fk_window.grab_set()
+        fm_window.title("Friendly Match")
+        fm_window.geometry("600x450")
+        fm_window.configure(bg=COLORS['bg_dark'])
+        fm_window.transient(self.main_frame.winfo_toplevel() if hasattr(self, 'main_frame') else None)
+        fm_window.grab_set()
 
-        title_label = tk.Label(fk_window, text="Create Friendly Match", bg=COLORS['bg_dark'], fg=COLORS['text_primary'], font=FONTS['preview_title'])
+        title_label = tk.Label(fm_window, text="Create Friendly Match", bg=COLORS['bg_dark'], fg=COLORS['text_primary'], font=FONTS['preview_title'])
         title_label.pack(pady=15)
 
-        info_label = tk.Label(fk_window, text="Select exactly 2 fighters from groups with 1-2 participants:", bg=COLORS['bg_dark'], fg=COLORS['text_secondary'], font=FONTS['preview_info'])
+        info_label = tk.Label(fm_window, text="Select exactly 2 fighters from groups with 1-2 participants:", bg=COLORS['bg_dark'], fg=COLORS['text_secondary'], font=FONTS['preview_info'])
         info_label.pack(pady=(0, 10))
 
-        list_frame = tk.Frame(fk_window, bg=COLORS['bg_dark'])
+        list_frame = tk.Frame(fm_window, bg=COLORS['bg_dark'])
         list_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=5)
 
         scrollbar = tk.Scrollbar(list_frame)
@@ -930,20 +1083,24 @@ class GroupPreviewScreen(tk.Frame):
         # Collect eligible fighters
         eligible_fighters = [] # list of (bracket_key, fighter_dict)
         for b_key in sorted(self.brackets.keys()):
-            # Don't show already created FK brackets here just in case, or show them if they only have 1 (which shouldn't happen)
+            # Don't show already created fm brackets here just in case, or show them if they only have 1 (which shouldn't happen)
             fighters = self.brackets[b_key].get('fighters', [])
-            if len(fighters) in [1, 2] and not b_key.startswith("FK |"):
+            if len(fighters) in [1, 2] and not b_key.startswith("FM |"):
                 for f in fighters:
                     eligible_fighters.append((b_key, f))
-                    lb.insert(tk.END, f"{b_key}:   {f['Name']} ({f['Weight']}kg, {f['Age']}yrs, {f['Verein']})")
+                    f_name = f"{f.get('Firstname', '')} {f.get('Lastname', '')}".strip() or f.get('Name', 'Unknown')
+                    f_weight = f.get('Weight', 'N/A')
+                    f_birth = f.get('Birthyear', f.get('age', 'N/A'))
+                    f_club = f.get('Club', f.get('Verein', 'N/A'))
+                    lb.insert(tk.END, f"{b_key}:   {f_name} ({f_weight}kg, {f_birth}yrs, {f_club})")
 
-        btn_frame = tk.Frame(fk_window, bg=COLORS['bg_dark'])
+        btn_frame = tk.Frame(fm_window, bg=COLORS['bg_dark'])
         btn_frame.pack(fill=tk.X, padx=20, pady=15)
 
         def pair_fighters():
             selections = lb.curselection()
             if len(selections) != 2:
-                tk.messagebox.showwarning("Warning", "Please select exactly 2 fighters.", parent=fk_window)
+                tk.messagebox.showwarning("Warning", "Please select exactly 2 fighters.", parent=fm_window)
                 return
             
             idx1, idx2 = selections
@@ -951,7 +1108,9 @@ class GroupPreviewScreen(tk.Frame):
             b_key2, f2 = eligible_fighters[idx2]
 
             # Create new bracket key (Friendly Match)
-            new_bracket_key = f"FK | {f1['Name']} vs {f2['Name']}"
+            name1 = f"{f1.get('Firstname', '')} {f1.get('Lastname', '')}".strip() or f1.get('Name', 'Unknown')
+            name2 = f"{f2.get('Firstname', '')} {f2.get('Lastname', '')}".strip() or f2.get('Name', 'Unknown')
+            new_bracket_key = f"FM | {name1} vs {name2}"
             
             if new_bracket_key not in self.brackets:
                 self.brackets[new_bracket_key] = {'fighters': [], 'bracket': []}
@@ -964,14 +1123,14 @@ class GroupPreviewScreen(tk.Frame):
                 except ValueError:
                     pass
 
-            tk.messagebox.showinfo("Success", f"Friendly match created:\n{f1['Name']} vs {f2['Name']}", parent=fk_window)
+            tk.messagebox.showinfo("Success", f"Friendly match created:\n{f1['Name']} vs {f2['Name']}", parent=fm_window)
             self._populate_group_list()
-            fk_window.destroy()
+            fm_window.destroy()
 
         pair_btn = tk.Button(btn_frame, text="Create Match", command=pair_fighters, bg=COLORS['accent_green'], fg=COLORS['text_primary'], font=('Arial', 11, 'bold'), bd=0, padx=15, pady=8, cursor='hand2')
         pair_btn.pack(side=tk.RIGHT)
 
-        cancel_btn = tk.Button(btn_frame, text="Cancel", command=fk_window.destroy, bg=COLORS['bg_panel'], fg=COLORS['text_secondary'], font=('Arial', 11, 'bold'), bd=0, padx=15, pady=8, cursor='hand2')
+        cancel_btn = tk.Button(btn_frame, text="Cancel", command=fm_window.destroy, bg=COLORS['bg_panel'], fg=COLORS['text_secondary'], font=('Arial', 11, 'bold'), bd=0, padx=15, pady=8, cursor='hand2')
         cancel_btn.pack(side=tk.RIGHT, padx=10)
 
     def _on_back(self):
