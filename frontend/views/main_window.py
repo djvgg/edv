@@ -1099,6 +1099,7 @@ class BracketViewerApp(tk.Tk):
                     'ID': idx,
                     'Firstname': firstname,
                     'Lastname': lastname,
+                    'Name': f"{firstname} {lastname}".strip(),  # Combined name
                     'Birthyear': birthyear,
                     'Club': club,
                     'Association': association,
