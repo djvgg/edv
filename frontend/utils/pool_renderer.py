@@ -710,7 +710,7 @@ def draw_double_pool_ko_bracket(canvas, start_x, start_y, zoom_level, colors, fo
     return total_w, total_h, ko_match_boxes
 
 
-def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_x=50, start_y=80, cell_values=None, ko_data=None, ko_match_results=None, pool_size=None):
+def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_x=50, start_y=80, cell_values=None, ko_data=None, ko_match_results=None, pool_size=None, generation_method=None):
     """Draw pool visualization on canvas based on number of participants.
 
     Args:
@@ -726,6 +726,8 @@ def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_
         pool_size: Configured pool size (max participants per pool).
                   If provided, uses this to calculate number of pools.
                   If None, uses default heuristic.
+        generation_method: 'pools', 'double', or None.
+                          If 'double', forces 2 pools regardless of participant count.
 
     Returns:
         Tuple of (total_width, total_height) for canvas sizing
@@ -734,7 +736,13 @@ def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_
     logger = get_logger('pool_renderer')
     
     num_participants = len(participants)
-    num_pools = determine_pool_structure(num_participants, pool_size)
+    
+    # If generation_method is 'double', always use 2 pools (respects explicit user choice)
+    if generation_method == 'double':
+        num_pools = 2
+        logger.info(f"Pool rendering: {num_participants} participants with generation_method='double' → 2 pools (forced)")
+    else:
+        num_pools = determine_pool_structure(num_participants, pool_size)
     
     if pool_size:
         logger.info(f"Pool rendering: {num_participants} participants with pool_size={pool_size} → {num_pools} pools")

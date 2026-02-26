@@ -398,11 +398,12 @@ class FightMonitoringScreen(tk.Frame):
         ko_data = self.ko_bracket_data.get(bracket_key)
         ko_results = self.ko_match_results.get(bracket_key, {})
         pool_size = bracket_data.get('pool_size')
+        method = self.bracket_generation_methods.get(bracket_key)
         total_w, total_h, cell_positions, ko_boxes = draw_pools_on_canvas(
             self._canvas, normalized, z, COLORS, FONTS,
             int(50 * z), int(60 * z),
             cell_values=cell_values, ko_data=ko_data, ko_match_results=ko_results,
-            pool_size=pool_size
+            pool_size=pool_size, generation_method=method
         )
         self._pool_cells = cell_positions
         self._ko_match_boxes = ko_boxes

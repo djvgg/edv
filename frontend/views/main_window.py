@@ -1395,7 +1395,7 @@ class BracketViewerApp(tk.Tk):
                     self.viz_title_var.set(title)
                 # Get pool_size from bracket data
                 pool_size = self.brackets.get(bracket_key, {}).get('pool_size')
-                self._render_pool(bracket_key, participants, pool_size)
+                self._render_pool(bracket_key, participants, pool_size, generation_method=method)
                 return
 
             # Default to KO bracket rendering (includes 'ko', 'special', and unassigned)
@@ -1527,7 +1527,7 @@ class BracketViewerApp(tk.Tk):
                 text=f"Error rendering bracket:\n{str(e)}",
                 font=FONTS['body_md'], fill='red')
 
-    def _render_pool(self, bracket_key, participants, pool_size=None):
+    def _render_pool(self, bracket_key, participants, pool_size=None, generation_method=None):
         """Render pool/round-robin visualization on canvas.
 
         Args:
@@ -1536,6 +1536,8 @@ class BracketViewerApp(tk.Tk):
             pool_size: Configured pool size (max participants per pool).
                       If provided, uses this to calculate number of pools.
                       If None, uses default heuristic.
+            generation_method: The generation method ('pools' or 'double').
+                              If 'double', forces 2 pools regardless of participant count.
         """
         try:
             # Normalize participants for pool rendering
@@ -1566,7 +1568,8 @@ class BracketViewerApp(tk.Tk):
                 FONTS,
                 start_x,
                 start_y,
-                pool_size=pool_size
+                pool_size=pool_size,
+                generation_method=generation_method
             )
 
             # Update scroll region
@@ -1578,8 +1581,13 @@ class BracketViewerApp(tk.Tk):
             # Calculate number of matches in round-robin
             num_matches = (num_participants * (num_participants - 1)) // 2
             
-            # Determine pool type for display
-            pool_type = "Single Pool" if num_participants <= 5 else "Double Pool"
+            # Determine pool type for display based on generation method
+            if generation_method == 'double':
+                pool_type = "Double Pool"
+            elif pool_size and num_participants > pool_size:
+                pool_type = "Multiple Pools"
+            else:
+                pool_type = "Single Pool"
             
             self.logger.debug(f"Successfully rendered {pool_type} (method: {assigned_method}) with {num_participants} participants, {num_matches} total matches at {int(self.zoom_level*100)}% zoom")
 
