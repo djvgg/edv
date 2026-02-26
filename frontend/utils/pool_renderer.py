@@ -755,7 +755,7 @@ def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_
 
     canvas.create_text(
         start_x,
-        start_y - 40,
+        start_y,
         text=title,
         anchor='w',
         fill=colors['white'],
@@ -797,8 +797,8 @@ def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_
         all_fight_numbers[0] = pool_assigned[0]
         all_fight_numbers[1] = pool_assigned[1]
 
-    # Draw each pool
-    current_y = start_y
+    # Draw each pool — start below the title
+    current_y = start_y + int(45 * zoom_level)
     max_width = 0
     all_cell_positions = {}  # {(pool_idx, row, fight_num): (x1, y1, x2, y2)}
 

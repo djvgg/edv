@@ -139,6 +139,11 @@ class GenerationMethodScreen(tk.Frame):
                     "method": method,
                 }
 
+                # Skip empty brackets (0 fighters) — they were merged away
+                fighter_count = len(bracket_tuple) if isinstance(bracket_tuple, list) else 0
+                if fighter_count == 0:
+                    continue
+
                 if method is None:
                     self.unassigned.append(key)
                 else:
