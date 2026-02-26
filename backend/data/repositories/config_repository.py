@@ -62,6 +62,25 @@ class ConfigRepository:
                 return col
         return None
 
+    def get_all_eligible_age_groups(self, birth_year):
+        """Get all age groups eligible for a birth year (handles double starts).
+        
+        Args:
+            birth_year: The birth year to look up
+        
+        Returns:
+            List of eligible age groups (e.g., ['U13', 'U15'] for double start), or empty list if none found
+        """
+        row = self.age_eligibility[self.age_eligibility['BirthYear'] == birth_year]
+        if row.empty:
+            return []
+        
+        eligible_groups = []
+        for col in self.age_eligibility.columns[1:]:
+            if row.iloc[0][col] == 'X':
+                eligible_groups.append(col)
+        return eligible_groups
+
     def get_weight_class(self, weight, gender, age_group=None):
         """
         Get weight class for a participant.

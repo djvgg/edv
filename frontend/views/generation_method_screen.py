@@ -33,6 +33,13 @@ from ..search_utils import filter_items
 DEBUG = True
 # ==============================
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+# ===== DEBUG CONFIGURATION =====
+# Set to True to print debug logs to console; False to only log to file
+DEBUG = True
+# ==============================
+
 logger = get_logger('generation_method_screen', debug_verbose=DEBUG)
 
 
@@ -437,8 +444,8 @@ class GenerationMethodScreen(tk.Frame):
                 # Count fighters in bracket
                 fighter_count = self._count_fighters(bracket_tuple)
 
-                # Recommend method
-                method = self._recommend_method(fighter_count)
+                # Recommend method (pass bracket_key for age group checking)
+                method = self._recommend_method(fighter_count, bracket_key)
 
                 # Assign
                 self._assign_bracket(bracket_key, method)
@@ -528,8 +535,18 @@ class GenerationMethodScreen(tk.Frame):
             return len(bracket_tuple)
         return 0
 
-    def _recommend_method(self, fighter_count):
-        """Recommend a generation method based on fighter count using config thresholds."""
+    def _recommend_method(self, fighter_count, bracket_key=None):
+        """Recommend a generation method based on fighter count using config thresholds.
+        
+        Note: U9 and U11 age groups always use 'pools' method since they have configurable 
+        pool sizes instead of fixed weight classes.
+        """
+        # Force U9 and U11 to pools method (they use configurable pool sizes)
+        if bracket_key and ('U9' in bracket_key or 'U11' in bracket_key):
+            if self.DEBUG:
+                self.logger.debug(f"DEBUG: {bracket_key} is U9/U11 → force pools")
+            return self.METHOD_POOLS
+        
         # If no thresholds loaded, use fallback
         if not self.method_labels:
             if fighter_count < 3:

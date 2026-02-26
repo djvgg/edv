@@ -62,6 +62,18 @@ FONTS = {
 
     'mono_md': ('Consolas', 10),
     'mono_sm': ('Consolas', 9),
+    
+    # Custom fonts for Group Preview Screen and Editor
+    'preview_title': ('Arial', 14, 'bold'),
+    'preview_label': ('Arial', 9, 'bold'),
+    'preview_text': ('Arial', 11),
+    'preview_small': ('Arial', 9),
+    'preview_info': ('Arial', 10),
+    
+    # Custom lists
+    'list_mono': ('Courier', 10),
+    'list_mono_bold': ('Courier', 10, 'bold'),
+    'list_ui': ('Segoe UI', 11),
 }
 
 # ============================================================================
@@ -88,19 +100,19 @@ BUTTON_STYLES = {
         'relief': 'flat',
         'padx': 15,
         'pady': 6,
-        'activebackground': '#3db83d',
+        'activebackground': COLORS['accent_green'],
         'activeforeground': COLORS['text_primary'],
         'cursor': 'hand2',
         'borderwidth': 0,
     },
     'secondary': {
-        'bg': '#333333',
+        'bg': COLORS['border'],
         'fg': COLORS['text_primary'],
         'font': FONTS['body_md'],
         'relief': 'flat',
         'padx': 15,
         'pady': 6,
-        'activebackground': '#555555',
+        'activebackground': COLORS['border_light'],
         'activeforeground': COLORS['text_primary'],
         'cursor': 'hand2',
         'borderwidth': 0,
@@ -128,7 +140,7 @@ FRAME_STYLES = {
     'dark': {
         'bg': COLORS['bg_dark'],
     },
-    'panel': {
+    'panel': {  # UNUSED - create_panel_frame not called
         'bg': COLORS['bg_panel'],
         'relief': 'flat',
         'borderwidth': 1,
@@ -205,10 +217,28 @@ ENTRY_STYLE = {
 }
 
 # ============================================================================
+# SCROLLBAR STYLES (ttk.Scrollbar)
+# ============================================================================
+
+SCROLLBAR_STYLE = {
+    'background': COLORS['bg_panel'],      # Scrollbar thumb
+    'troughcolor': COLORS['bg_dark'],      # Scrollbar track/trough
+    'bordercolor': COLORS['bg_dark'],      # Border
+    'arrowcolor': COLORS['text_secondary'], # Arrow buttons
+    'lightcolor': COLORS['bg_panel'],      # Light edge
+    'darkcolor': COLORS['bg_panel'],       # Dark edge
+}
+
+SCROLLBAR_ACTIVE_STYLE = {
+    'background': COLORS['bg_input'],      # Thumb on hover
+    'arrowcolor': COLORS['text_primary'],  # Arrow on hover
+}
+
+# ============================================================================
 # CANVAS STYLES
 # ============================================================================
 
-CANVAS_STYLE = {
+CANVAS_STYLE = {  # UNUSED - apply_canvas_style not called
     'bg': COLORS['white'],
     'highlightthickness': 0,
     'borderwidth': 1,
@@ -275,7 +305,7 @@ def apply_entry_style(entry):
     entry.config(**ENTRY_STYLE)
 
 
-def apply_canvas_style(canvas):
+def apply_canvas_style(canvas):  # UNUSED - not imported or called
     """
     Apply styling to a Canvas.
 
@@ -301,7 +331,7 @@ def create_dark_frame(parent, **kwargs):
     return tk.Frame(parent, **defaults)
 
 
-def create_panel_frame(parent, **kwargs):
+def create_panel_frame(parent, **kwargs):  # UNUSED - not imported or called
     """
     Create a panel frame with darker background.
 

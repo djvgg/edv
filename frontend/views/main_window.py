@@ -8,11 +8,9 @@ import os
 import sys
 import threading
 import traceback
-from datetime import datetime
 
 import tkinter as tk
 from tkinter import messagebox, filedialog, ttk
-import pandas as pd
 
 # Setup sys.path for backend imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -33,6 +31,8 @@ from backend.services.tournament_service import TournamentService  # noqa: E402
 from ..styles import (  # noqa: E402
     COLORS,
     FONTS,
+    SCROLLBAR_STYLE,
+    SCROLLBAR_ACTIVE_STYLE,
     apply_button_style,
     apply_entry_style,
     apply_label_style,
@@ -72,13 +72,10 @@ class BracketViewerApp(tk.Tk):
         
         self.title('Tournament Bracket Manager')
         self.geometry('520x440')  
-        self.configure(bg="#1e1e1e")
+        self.configure(bg=COLORS['bg_dark'])
 
         # Configure dark theme for ttk widgets (scrollbars)
         self.setup_ttk_styles()
-
-        # Setup window close handler to cleanup cache
-        self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         # Initialize backend config
         config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'bracket_config.xlsx')
@@ -89,7 +86,6 @@ class BracketViewerApp(tk.Tk):
 
         # Data
         self.brackets = {}  # {bracket_key: Bracket data}
-        self.bracket_cache_file = None
         self.bracket_generation_methods = {}  # {bracket_key: method_name}
         self.viewer_shown = False
         self.zoom_level = 1.0  # Zoom level for bracket visualization
@@ -103,10 +99,6 @@ class BracketViewerApp(tk.Tk):
         self.group_listbox_map = {}
         self.preview_search_var = None
         self.preview_count_var = None
-
-        # Rendering cache - stores pre-computed bracket structures
-        self.bracket_structure_cache = {}  # {bracket_key: rounds}
-        self.bracket_render_cache = {}  # {(bracket_key, zoom_level): rendered canvas items}
 
         # Start with file loading UI
         self.show_file_loader()
@@ -136,31 +128,19 @@ class BracketViewerApp(tk.Tk):
         style.theme_use('clam')  # Use clam theme as base (most customizable)
 
         # Vertical scrollbar
-        style.configure('Vertical.TScrollbar',
-                       background=COLORS['bg_panel'],
-                       troughcolor=COLORS['bg_dark'],
-                       bordercolor=COLORS['bg_dark'],
-                       arrowcolor=COLORS['text_secondary'],
-                       lightcolor=COLORS['bg_panel'],
-                       darkcolor=COLORS['bg_panel'])
+        style.configure('Vertical.TScrollbar', **SCROLLBAR_STYLE)
 
         # Horizontal scrollbar
-        style.configure('Horizontal.TScrollbar',
-                       background=COLORS['bg_panel'],
-                       troughcolor=COLORS['bg_dark'],
-                       bordercolor=COLORS['bg_dark'],
-                       arrowcolor=COLORS['text_secondary'],
-                       lightcolor=COLORS['bg_panel'],
-                       darkcolor=COLORS['bg_panel'])
+        style.configure('Horizontal.TScrollbar', **SCROLLBAR_STYLE)
 
         # Active (hover) state
         style.map('Vertical.TScrollbar',
-                 background=[('active', COLORS['bg_input'])],
-                 arrowcolor=[('active', COLORS['text_primary'])])
+                 background=[('active', SCROLLBAR_ACTIVE_STYLE['background'])],
+                 arrowcolor=[('active', SCROLLBAR_ACTIVE_STYLE['arrowcolor'])])
 
         style.map('Horizontal.TScrollbar',
-                 background=[('active', COLORS['bg_input'])],
-                 arrowcolor=[('active', COLORS['text_primary'])])
+                 background=[('active', SCROLLBAR_ACTIVE_STYLE['background'])],
+                 arrowcolor=[('active', SCROLLBAR_ACTIVE_STYLE['arrowcolor'])])
 
     def show_file_loader(self):
         """Show file loading screen."""
@@ -273,6 +253,43 @@ class BracketViewerApp(tk.Tk):
         self.progress_label.pack(pady=(0, 10))
         
         self.loading_window.update_idletasks()
+
+    def filter_unpaid_participants(self, all_participants):
+        """Filter out unpaid participants and show a popup if any are found.
+        
+        Args:
+            all_participants: List of participant dicts with 'Paid' field
+        
+        Returns:
+            Tuple of (paid_participants, unpaid_list) where unpaid_list is empty if all paid
+        """
+        paid_participants = []
+        unpaid_participants = []
+        
+        for p in all_participants:
+            # Check if paid field exists and is truthy
+            is_paid = p.get('Paid', False)
+            
+            if is_paid:
+                paid_participants.append(p)
+            else:
+                unpaid_participants.append(p)
+        
+        # Show popup if there are unpaid participants
+        if unpaid_participants:
+            unpaid_names = ['{} {}'.format(
+                p.get('Firstname', p.get('Vorname', '')),
+                p.get('Lastname', p.get('Nachname', ''))
+            ).strip() or p.get('Name', 'Unknown') for p in unpaid_participants]
+            
+            unpaid_text = "\n".join(f"• {name}" for name in unpaid_names)
+            
+            message = f"The following {len(unpaid_participants)} participant(s) have not paid and will NOT be sorted into brackets:\n\n{unpaid_text}"
+            
+            messagebox.showwarning("Unpaid Participants", message)
+            self.logger.info(f"Filtered out {len(unpaid_participants)} unpaid participant(s): {', '.join(unpaid_names)}")
+        
+        return paid_participants, unpaid_participants
 
     def update_progress(self, value):
         """Update the progress bar."""
@@ -574,6 +591,59 @@ class BracketViewerApp(tk.Tk):
         zoom_percent = int(self.zoom_level * 100)
         self.zoom_label.config(text=f'{zoom_percent}%')
 
+    def calculate_number_of_fights(self, bracket_key):
+        """Calculate the number of fights for a bracket based on its type and structure.
+        
+        For U9/U11 pools: splits into small pools based on pool_size config, calculates per-pool fights.
+        For other pools/KO: calculates based on method.
+        
+        Args:
+            bracket_key: The bracket identifier
+        
+        Returns:
+            Number of fights (matches)
+        """
+        bracket_data = self.brackets.get(bracket_key, {})
+        fighters = bracket_data.get('fighters', [])
+        num_fighters = len(fighters)
+        
+        if num_fighters == 0:
+            return 0
+        
+        # Determine bracket type from generation method assignment
+        assigned_method = self.bracket_generation_methods.get(bracket_key)
+        is_u9_u11 = bracket_key in ('U9', 'U11')
+        default_method = 'pools' if is_u9_u11 else 'ko'
+        method = assigned_method or default_method
+        
+        # Calculate fights based on type
+        if method in ('pools', 'double'):
+            # Pool/round-robin: n * (n-1) / 2 fights per pool
+            pool_size = bracket_data.get('pool_size')
+            
+            if is_u9_u11 and pool_size:
+                # U9/U11 with configured pool_size: split into multiple small pools
+                # Calculate number of pools based on pool_size
+                num_pools = (num_fighters + pool_size - 1) // pool_size
+                # Each pool has up to pool_size fighters
+                total_fights = 0
+                for pool_idx in range(num_pools):
+                    start_idx = pool_idx * pool_size
+                    end_idx = min(start_idx + pool_size, num_fighters)
+                    pool_fighters = end_idx - start_idx
+                    if pool_fighters > 0:
+                        fights_in_pool = pool_fighters * (pool_fighters - 1) // 2
+                        total_fights += fights_in_pool
+                num_fights = total_fights
+            else:
+                # Single large pool or other method
+                num_fights = num_fighters * (num_fighters - 1) // 2
+        else:
+            # KO/single elimination: n - 1 fights
+            num_fights = num_fighters - 1
+        
+        return num_fights
+
     def assign_to_table(self, table_num):
         """Assign selected bracket to a table."""
         selection = self.bracket_listbox.curselection()
@@ -676,6 +746,9 @@ class BracketViewerApp(tk.Tk):
                 # Get fighter count
                 fighter_count = len(self.brackets[bracket_key].get('fighters', []))
                 
+                # Get fight count
+                fight_count = self.calculate_number_of_fights(bracket_key)
+                
                 # Track total for this table
                 if table_num not in table_totals:
                     table_totals[table_num] = 0
@@ -683,7 +756,7 @@ class BracketViewerApp(tk.Tk):
                 
                 # Truncate long names
                 display_text = bracket_key[:25] + '...' if len(bracket_key) > 25 else bracket_key
-                display_text = f"{display_text} ({fighter_count})"
+                display_text = f"{display_text} ({fighter_count}F, {fight_count}M)"
                 label = tk.Label(row_frame, text=display_text, wraplength=110,
                                justify='left', anchor='w', cursor='hand2',
                                bg=COLORS['bg_panel'], fg=COLORS['text_primary'],
@@ -777,8 +850,11 @@ class BracketViewerApp(tk.Tk):
             self.update_progress(40)
             self._with_db(lambda svc, p=participants: svc.save_participants(p))
 
+            # Filter out unpaid participants
+            participants, _ = self.filter_unpaid_participants(participants)
+
             if not participants:
-                self.set_status("Error: No valid participants found.", COLORS['accent_red'])
+                self.set_status("Error: No valid paid participants found.", COLORS['accent_red'])
                 self.hide_loading_progress()
                 return
 
@@ -792,19 +868,7 @@ class BracketViewerApp(tk.Tk):
             self.brackets = export_all_brackets(participants)
             self.update_progress(80)
 
-            # Full in-memory reset — fresh start on every XLSX load
-            self.bracket_structure_cache.clear()
-            self.bracket_render_cache.clear()
-            self.match_results.clear()
-            self.bracket_generation_methods.clear()
-            if hasattr(self, 'bracket_table_assignment'):
-                del self.bracket_table_assignment  # re-initialised when bracket viewer opens
-
-            # Save to JSON cache
-            self.save_brackets_to_cache(filepath)
-            self.update_progress(95)
-
-            self.set_status(f"Success! Generated {len(self.brackets)} brackets (cached for fast viewing).", COLORS['accent_green'])
+            self.set_status(f"Success! Generated {len(self.brackets)} brackets.", COLORS['accent_green'])
             self.update_progress(100)
 
             # Hide progress and show group preview window
@@ -812,7 +876,7 @@ class BracketViewerApp(tk.Tk):
             self.after(500, self.show_group_preview_window)
 
         except Exception as e:
-            self.logger.error(f"Error during load and generate: {e}", exc_info=True)
+            self.logger.error(f"Error during load and generate: {e}")
             self.set_status(f"Error: {e}", COLORS['accent_red'])
             self.hide_loading_progress()
 
@@ -836,9 +900,18 @@ class BracketViewerApp(tk.Tk):
             self.update_progress(30)
 
             if not participants:
-                self.set_status("Error: No valid participants found in database.", COLORS['accent_red'])
+                self.set_status("Error: No participants found in database.", COLORS['accent_red'])
                 self.hide_loading_progress()
-                self.after(500, lambda: messagebox.showwarning("No Data", "No valid and paid participants found in database."))
+                self.after(500, lambda: messagebox.showwarning("No Data", "No participants found in database."))
+                return
+
+            # Filter out unpaid participants
+            participants, _ = self.filter_unpaid_participants(participants)
+
+            if not participants:
+                self.set_status("Error: No valid paid participants found in database.", COLORS['accent_red'])
+                self.hide_loading_progress()
+                self.after(500, lambda: messagebox.showwarning("No Data", "No paid participants found in database."))
                 return
 
             total_fighters = len(participants)
@@ -851,15 +924,7 @@ class BracketViewerApp(tk.Tk):
             self.brackets = export_all_brackets(participants)
             self.update_progress(80)
 
-            # Clear rendering caches for new brackets
-            self.bracket_structure_cache.clear()
-            self.bracket_render_cache.clear()
-
-            # Save to JSON cache
-            self.save_brackets_to_cache("database")
-            self.update_progress(95)
-
-            self.set_status(f"Success! Generated {len(self.brackets)} brackets from database (cached for fast viewing).", COLORS['accent_green'])
+            self.set_status(f"Success! Generated {len(self.brackets)} brackets from database.", COLORS['accent_green'])
             self.update_progress(100)
 
             # Hide progress and show group preview window
@@ -867,13 +932,31 @@ class BracketViewerApp(tk.Tk):
             self.after(500, self.show_group_preview_window)
 
         except Exception as e:
-            self.logger.error(f"Database error during load: {e}", exc_info=True)
+            self.logger.error(f"Database error during load: {e}")
             self.set_status(f"Database Error: {e}", COLORS['accent_red'])
             self.hide_loading_progress()
             self.after(500, lambda err=e: messagebox.showerror("Database Error", f"Failed to load from database:\n{str(err)}"))
 
     def load_json_and_generate(self):
-        """Load 2 JSON files (male/female), merge them, and generate brackets."""
+        """Load 2 JSON files (male/female), merge them, and generate brackets.
+        
+        Expected JSON structure:
+        [
+          {
+            "ID": 1,
+            "Firstname": "Leon",
+            "Lastname": "Müller",
+            "Birthyear": 2018,
+            "Club": "JC Sakura Berlin",
+            "Association": "JV Berlin",
+            "Weight": 28.5,
+            "Valid": true,
+            "Gender": "male",
+            "Paid": true
+          },
+          ...
+        ]
+        """
         # Select 2 JSON files
         filepaths = filedialog.askopenfilenames(
             title="Select 2 JSON Files (Male & Female)",
@@ -890,200 +973,287 @@ class BracketViewerApp(tk.Tk):
 
         try:
             self.set_status("Reading JSON files...", COLORS['text_secondary'])
+            self.logger.info(f"Loading {len(filepaths)} JSON files")
 
             all_participants = []
+            
+            # Define expected fields
+            required_core_fields = ['Firstname', 'Lastname', 'Birthyear', 'Weight', 'Gender']
 
             # Load both JSON files
-            for filepath in filepaths:
+            for file_idx, filepath in enumerate(filepaths, 1):
+                filename = os.path.basename(filepath)
+                self.logger.info(f"[File {file_idx}] Loading: {filename}")
+                
                 with open(filepath, 'r', encoding='utf-8') as f:
                     data = json.load(f)
 
                 # Validate that data is a list
                 if not isinstance(data, list):
-                    messagebox.showerror("Invalid JSON Format",
-                                       f"File must contain a JSON array.\nFile: {os.path.basename(filepath)}")
+                    error_msg = f"File must contain a JSON array.\nFile: {filename}\nGot: {type(data).__name__}"
+                    self.logger.error(error_msg)
+                    messagebox.showerror("Invalid JSON Format", error_msg)
                     return
 
-                # Validate each participant has required fields
-                for i, participant in enumerate(data):
+                self.logger.debug(f"[File {file_idx}] Found {len(data)} entries")
+                
+                valid_count = 0
+
+                # Validate each participant
+                for idx, participant in enumerate(data, 1):
                     if not isinstance(participant, dict):
-                        messagebox.showerror("Invalid Participant",
-                                           f"Participant {i+1} is not a valid object.\nFile: {os.path.basename(filepath)}")
+                        error_msg = f"Participant {idx} is not a valid object (got {type(participant).__name__}).\nFile: {filename}"
+                        self.logger.error(error_msg)
+                        messagebox.showerror("Invalid Participant", error_msg)
                         return
 
-                    # Check for required fields
-                    required_fields = ['Name', 'Gender', 'Age', 'Weight']
-                    missing_fields = [field for field in required_fields if field not in participant]
+                    # Check for required core fields
+                    missing_fields = [field for field in required_core_fields if field not in participant]
 
                     if missing_fields:
-                        messagebox.showerror("Missing Fields",
-                                           f"Participant {i+1} is missing fields: {', '.join(missing_fields)}\nFile: {os.path.basename(filepath)}")
+                        error_msg = f"Participant {idx} is missing required fields: {', '.join(missing_fields)}\nFile: {filename}"
+                        self.logger.error(error_msg)
+                        messagebox.showerror("Missing Required Fields", error_msg)
                         return
 
-                # Add all participants from this file
-                all_participants.extend(data)
-                print(f"[INFO] Loaded {len(data)} participants from: {os.path.basename(filepath)}")
+                    # Validate field types and values
+                    validation_errors = []
+                    
+                    # Check Firstname/Lastname are strings
+                    if not isinstance(participant.get('Firstname'), str) or not participant.get('Firstname', '').strip():
+                        validation_errors.append("Firstname must be non-empty string")
+                    if not isinstance(participant.get('Lastname'), str) or not participant.get('Lastname', '').strip():
+                        validation_errors.append("Lastname must be non-empty string")
+                    
+                    # Check Birthyear is integer or null
+                    birthyear = participant.get('Birthyear')
+                    if birthyear is not None and not isinstance(birthyear, int):
+                        try:
+                            participant['Birthyear'] = int(birthyear)
+                        except (ValueError, TypeError):
+                            validation_errors.append(f"Birthyear must be integer, got: {birthyear}")
+                    
+                    # Check Weight is number
+                    weight = participant.get('Weight')
+                    if weight is not None:
+                        try:
+                            participant['Weight'] = float(weight)
+                        except (ValueError, TypeError):
+                            validation_errors.append(f"Weight must be number, got: {weight}")
+                    
+                    # Check Gender is male/female
+                    gender = str(participant.get('Gender', '')).strip().lower()
+                    if gender not in ['male', 'female']:
+                        validation_errors.append(f"Gender must be 'male' or 'female', got: {gender}")
+                    
+                    if validation_errors:
+                        error_msg = f"Participant {idx} validation failed:\n" + "\n".join(f"  • {err}" for err in validation_errors) + f"\nFile: {filename}"
+                        self.logger.error(error_msg)
+                        messagebox.showerror("Validation Error", error_msg)
+                        return
+
+                    # Construct Name field from Firstname + Lastname if not present
+                    if 'Name' not in participant:
+                        participant['Name'] = f"{participant['Firstname']} {participant['Lastname']}".strip()
+                    
+                    # Ensure Age field exists (use Birthyear)
+                    if 'Age' not in participant:
+                        participant['Age'] = participant.get('Birthyear')
+
+                    self.logger.debug(f"[File {file_idx}] Participant {idx}: {participant['Name']} (Age: {participant.get('Birthyear')}, Weight: {participant.get('Weight', 0.0)}kg, Gender: {gender})")
+                    
+                    valid_count += 1
+                    all_participants.append(participant)
+
+                self.logger.info(f"[File {file_idx}] Successfully validated {valid_count} participants")
 
             if not all_participants:
-                self.set_status("Error: No valid participants found.", COLORS['accent_red'])
+                error_msg = "No valid participants found in JSON files."
+                self.logger.error(error_msg)
+                self.set_status(error_msg, COLORS['accent_red'])
+                return
+
+            # Filter out unpaid participants
+            all_participants, _ = self.filter_unpaid_participants(all_participants)
+
+            if not all_participants:
+                error_msg = "No paid participants found in JSON files."
+                self.logger.error(error_msg)
+                self.set_status(error_msg, COLORS['accent_red'])
                 return
 
             total_fighters = len(all_participants)
-            self.set_info_text(f"✓ {total_fighters} participants loaded from JSON files")
-            self._with_db(lambda svc, p=all_participants: svc.save_participants(p))
+            self.logger.info(f"Total paid participants loaded: {total_fighters}")
+            self.set_info_text(f"✓ {total_fighters} paid participants loaded from JSON files")
 
             self.set_status("Generating brackets...", COLORS['text_secondary'])
+            self.logger.info("Starting bracket generation...")
 
             # Generate brackets using backend service
             self.brackets = export_all_brackets(all_participants)
 
-            # Full in-memory reset — fresh start on every JSON load
-            self.bracket_structure_cache.clear()
-            self.bracket_render_cache.clear()
-            self.match_results.clear()
-            self.bracket_generation_methods.clear()
-            if hasattr(self, 'bracket_table_assignment'):
-                del self.bracket_table_assignment
-
-            # Save to JSON cache
-            self.save_brackets_to_cache("json_files")
-
-            self.set_status(f"Success! Generated {len(self.brackets)} brackets from JSON files (cached for fast viewing).", COLORS['accent_green'])
+            self.logger.info(f"Successfully generated {len(self.brackets)} brackets")
+            self.set_status(f"Success! Generated {len(self.brackets)} brackets from JSON files.", COLORS['accent_green'])
 
             # Wait a moment then show group preview window
             self.after(800, self.show_group_preview_window)
 
         except json.JSONDecodeError as e:
-            self.set_status(f"JSON Parse Error: {e}", COLORS['accent_red'])
+            error_msg = f"JSON Parse Error: {e}"
+            self.logger.error(error_msg)
+            self.set_status(error_msg, COLORS['accent_red'])
             messagebox.showerror("JSON Error", f"Failed to parse JSON file:\n{str(e)}")
+        except FileNotFoundError as e:
+            error_msg = f"File not found: {e}"
+            self.logger.error(error_msg)
+            self.set_status(error_msg, COLORS['accent_red'])
+            messagebox.showerror("File Error", f"Could not find file:\n{str(e)}")
         except Exception as e:
-            self.set_status(f"Error: {e}", COLORS['accent_red'])
+            error_msg = f"Unexpected error: {e}"
+            self.logger.exception(error_msg)
+            self.set_status(error_msg, COLORS['accent_red'])
             messagebox.showerror("Error", f"Failed to load JSON files:\n{str(e)}")
 
     def split_gender_to_json(self):
-        """Split contestants by gender (M/W) and save to separate JSON files."""
+        """Split contestants by gender (M/W) and save to separate JSON files with English field names.
+        
+        Reads tournament registration XLSX, extracts all available data, and outputs
+        separate JSON files for male and female participants with all fields populated
+        that are available at registration time (Weight will be filled during weighing).
+        """
+        # Import here to avoid circular dependency
+        from frontend.utils.participant_loader import load_participants_from_xlsx
+        
         # Select input XLSX file
         input_file = filedialog.askopenfilename(
-            title="Select Participant XLSX File to Split",
+            title="Select Tournament Registration XLSX File",
             filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")]
         )
         if not input_file:
             return
 
         try:
-            self.set_status("Reading XLSX file...", COLORS['text_secondary'])
+            self.set_status("Reading tournament XLSX file...", COLORS['text_secondary'])
 
-            # Read participants from XLSX with new column structure
-            # Columns: A=id, B=verein, C=verband, D=name, E=vorname, F=kyu/dan,
-            #          G=jahrgang, H=geschlecht, I=altersklasse, J=gewicht u9+u11,
-            #          K=gewichtsklasse ab u13, L=telefonnummer, M=email
-            df = pd.read_excel(input_file)
+            # Load participants using the tournament format parser
+            raw_participants = load_participants_from_xlsx(input_file)
 
-            participants = []
-            for index, row in df.iterrows():
-                # Read from new column structure
-                participant_id = row.iloc[0] if len(row) > 0 else index + 1  # Column A: id
-                verein = str(row.iloc[1]).strip() if len(row) > 1 and pd.notna(row.iloc[1]) else ""  # Column B: verein
-                # verband = row.iloc[2]  # Column C: verband (not used in output)
-                nachname = str(row.iloc[3]).strip() if len(row) > 3 and pd.notna(row.iloc[3]) else ""  # Column D: name (nachname)
-                vorname = str(row.iloc[4]).strip() if len(row) > 4 and pd.notna(row.iloc[4]) else ""  # Column E: vorname
-                # kyu_dan = row.iloc[5]  # Column F: kyu/dan grad (not used)
-                jahrgang = row.iloc[6] if len(row) > 6 and pd.notna(row.iloc[6]) else None  # Column G: jahrgang
-                geschlecht = str(row.iloc[7]).strip() if len(row) > 7 and pd.notna(row.iloc[7]) else ""  # Column H: geschlecht
-                # altersklasse = row.iloc[8]  # Column I: altersklasse (not used)
-                # gewicht_u9_u11 = row.iloc[9]  # Column J: gewicht u9 + u11 (ignored)
-                # gewichtsklasse_ab_u13 = row.iloc[10]  # Column K: gewichtsklasse ab u13 (ignored)
-                # telefonnummer = row.iloc[11]  # Column L: telefonnummer (not used)
-                # email = row.iloc[12]  # Column M: email (not used)
-
-                # Skip header rows (ID is "#" or similar header indicators)
-                participant_id_str = str(participant_id).strip()
-                if participant_id_str in ['#', 'ID', 'id', 'Nr', 'Nr.', 'Number']:
-                    continue
-
-                # Skip rows where all fields except ID (column A) are empty
-                if not verein and not nachname and not vorname and jahrgang is None and not geschlecht:
-                    continue
-
-                # Construct full Name as Vorname + Nachname
-                full_name = f"{vorname} {nachname}".strip()
-
-                # Convert jahrgang to int if possible
-                try:
-                    jahrgang = int(jahrgang) if jahrgang is not None else None
-                except (ValueError, TypeError):
-                    jahrgang = None
-
-                # Convert geschlecht: m → maennlich, w → weiblich
-                geschlecht_lower = geschlecht.lower()
-                if geschlecht_lower == 'm':
-                    geschlecht_normalized = 'maennlich'
-                elif geschlecht_lower == 'w':
-                    geschlecht_normalized = 'weiblich'
-                else:
-                    geschlecht_normalized = geschlecht_lower
-
-                participants.append({
-                    'ID': participant_id,
-                    'Vorname': vorname,
-                    'Nachname': nachname,
-                    'Name': full_name,
-                    'Geburtsjahr': jahrgang,
-                    'Verein': verein,
-                    'Gewicht (kg)': 0.0,
-                    'Gueltigkeit': False,
-                    'Geschlecht': geschlecht_normalized,
-                    'Bezahlt': False,
-                    'Geburtsdatum': ""
-                })
-
-            if not participants:
+            if not raw_participants:
                 self.set_status("Error: No participants found.", COLORS['accent_red'])
                 messagebox.showerror("Error", "No participants found in the file.")
                 return
+            
+            # Debug: Check what fields are in raw_participants
+            if raw_participants:
+                first_p = raw_participants[0]
+                self.logger.debug(f"First participant fields: {list(first_p.keys())}")
+                self.logger.debug(f"First participant: {first_p}")
 
-            self.set_status("Splitting by gender...", COLORS['text_secondary'])
+            self.set_status("Splitting by gender and converting to English format...", COLORS['text_secondary'])
 
-            # Split by gender - should already be normalized to "maennlich" or "weiblich"
+            # Split by gender and convert to English field names
             male_contestants = []
             female_contestants = []
             skipped_participants = []
 
-            for p in participants:
-                gender = str(p.get('Geschlecht', '')).strip().lower()
-                if gender in ['maennlich', 'm', 'male', 'männlich']:
-                    male_contestants.append(p)
-                elif gender in ['weiblich', 'w', 'f', 'female']:
-                    female_contestants.append(p)
+            for idx, p in enumerate(raw_participants, 1):
+                # Extract gender (should be 'm' or 'w' from parser)
+                gender = str(p.get('Gender', '')).strip().lower()
+                
+                # Try alternative gender field names
+                if not gender:
+                    for gender_field in ['Geschlecht', 'gender']:
+                        if gender_field in p and p[gender_field]:
+                            gender = str(p[gender_field]).strip().lower()
+                            break
+                
+                # Normalize gender to 'male' or 'female'
+                if gender in ['m', 'male', 'männlich', 'maennlich']:
+                    gender_normalized = 'male'
+                elif gender in ['w', 'female', 'weiblich', 'f']:
+                    gender_normalized = 'female'
                 else:
-                    # Track skipped participant with gender info
+                    # Skip participants with missing gender (cannot split without it)
+                    participant_name = p.get('Name', f"ID {idx}")
                     skipped_participants.append({
-                        'name': p.get('Name', 'Unknown'),
-                        'gender': p.get('Geschlecht', ''),
-                        'id': p.get('ID', '')
+                        'name': participant_name,
+                        'gender': gender if gender else '(empty)',
+                        'id': idx
                     })
-                    self.logger.warning(f"Unknown gender '{gender}' (original: '{p.get('Geschlecht', '')}') for participant ID {p.get('ID')}: {p.get('Name')}")
+                    self.logger.warning(f"Skipping participant with missing/invalid gender '{gender}': {participant_name}")
+                    continue
+
+                # Convert to English field names (CamelCase for code)
+                # Split full name into Firstname and Lastname
+                full_name = p.get('Name', '')
+                name_parts = full_name.split(' ', 1)
+                firstname = name_parts[0] if len(name_parts) > 0 else ''
+                lastname = name_parts[1] if len(name_parts) > 1 else ''
+
+                # Extract birthyear (try multiple field names)
+                birthyear = None
+                for year_field in ['BirthYear', 'Jahrgang', 'Age']:
+                    if year_field in p and p[year_field]:
+                        try:
+                            birthyear = int(p[year_field])
+                            break
+                        except (ValueError, TypeError):
+                            pass
+
+                # Extract club (Verein in German)
+                club = p.get('Verein', p.get('Club', ''))
+
+                # Extract association (Verband in German)
+                association = p.get('Verband', p.get('Association', ''))
+
+                # Extract weight (initially 0.0, will be filled during weighing)
+                # Don't use pre-translated weight from XLSX, start fresh
+                weight = 0.0
+
+                # Extract paid status (Bezahlt in German)
+                paid_str = str(p.get('Bezahlt', p.get('Paid', ''))).strip().lower()
+                paid = paid_str in ['true', 'ja', 'yes', '1', 'y']
+
+                # Create contestant record with English field names
+                contestant = {
+                    'ID': idx,
+                    'Firstname': firstname,
+                    'Lastname': lastname,
+                    'Name': f"{firstname} {lastname}".strip(),  # Combined name
+                    'Birthyear': birthyear,
+                    'Club': club,
+                    'Association': association,
+                    'Weight': weight,
+                    'Valid': False,  # Will be set during weighing validation
+                    'Gender': gender_normalized,
+                    'Paid': paid
+                }
+
+                # Add to appropriate list
+                if gender_normalized == 'male':
+                    male_contestants.append(contestant)
+                else:
+                    female_contestants.append(contestant)
 
             # Show split results
-            total = len(participants)
             male_count = len(male_contestants)
             female_count = len(female_contestants)
-            skipped = total - (male_count + female_count)
+            skipped = len(skipped_participants)
 
             result_msg = f"Split complete:\n• Male: {male_count}\n• Female: {female_count}"
             if skipped > 0:
                 result_msg += f"\n• Skipped (unknown gender): {skipped}"
                 if skipped_participants:
                     result_msg += "\n\nSkipped participants:"
-                    for sp in skipped_participants[:5]:  # Show max 5
-                        result_msg += f"\n  - ID {sp['id']}: {sp['name']} (gender: '{sp['gender']}')"
+                    for sp in skipped_participants[:5]:
+                        result_msg += f"\n  - {sp['name']} (gender: '{sp['gender']}')"
                     if len(skipped_participants) > 5:
                         result_msg += f"\n  ... and {len(skipped_participants) - 5} more"
 
             messagebox.showinfo("Split Results", result_msg)
 
             if male_count == 0 and female_count == 0:
-                self.set_status("No contestants to save.", COLORS['accent_red'])
+                self.set_status("No valid contestants to save.", COLORS['accent_red'])
                 return
 
             # Ask user where to save the files
@@ -1114,39 +1284,21 @@ class BracketViewerApp(tk.Tk):
             if male_count > 0:
                 success_msg += f"• contestants_male.json ({male_count} entries)\n"
             if female_count > 0:
-                success_msg += f"• contestants_female.json ({female_count} entries)"
+                success_msg += f"• contestants_female.json ({female_count} entries)\n"
+            success_msg += "\nFiles are ready for external weighing process.\n"
+            success_msg += "After weighing, reimport JSON files to generate brackets."
 
             messagebox.showinfo("Success", success_msg)
-            self.set_status("Split complete!", COLORS['accent_green'])
+            self.set_status("Split complete! Files ready for weighing.", COLORS['accent_green'])
 
         except Exception as e:
             self.set_status(f"Error: {e}", COLORS['accent_red'])
-            messagebox.showerror("Error", f"Failed to split contestants:\n{str(e)}")
+            self.logger.exception(f"Failed to split participants: {e}")
+            messagebox.showerror("Error", f"Failed to split participants:\n{str(e)}")
 
-    def save_brackets_to_cache(self, source_file):
-        """Save generated brackets to JSON cache file."""
-        cache_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'cache')
-        os.makedirs(cache_dir, exist_ok=True)
-
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.bracket_cache_file = os.path.join(cache_dir, f'brackets_{timestamp}.json')
-
-        cache_data = {
-            'source_file': source_file,
-            'generated_at': datetime.now().isoformat(),
-            'brackets': {}
-        }
-
-        for key, bracket_data in self.brackets.items():
-            cache_data['brackets'][key] = {
-                'fighters': bracket_data.get('fighters', []),
-                'bracket': bracket_data.get('bracket', [])
-            }
-
-        with open(self.bracket_cache_file, 'w', encoding='utf-8') as f:
-            json.dump(cache_data, f, indent=2, ensure_ascii=False)
-
-        self.logger.info(f"Saved brackets to cache: {self.bracket_cache_file}")
+    def on_closing(self):
+        """Handle window closing."""
+        self.destroy()
 
     def update_bracket_list(self, *args):
         """Update the bracket list based on search filter - only show unassigned (supports multi-term AND search)."""
@@ -1173,7 +1325,8 @@ class BracketViewerApp(tk.Tk):
         # Display filtered brackets
         for bracket_key in filtered_keys:
             fighter_count = len(self.brackets[bracket_key].get('fighters', []))
-            display_text = f"{bracket_key} ({fighter_count})"
+            fight_count = self.calculate_number_of_fights(bracket_key)
+            display_text = f"{bracket_key} ({fighter_count}F, {fight_count}M)"
             self.bracket_listbox.insert(tk.END, display_text)
             # Store the mapping
             self.bracket_listbox_map[display_text] = bracket_key
@@ -1213,22 +1366,24 @@ class BracketViewerApp(tk.Tk):
             num_participants = len(participants)
             self.logger.debug(f"Found {num_participants} participants")
 
-            # Check user's assigned method from generation screen
+            # Get user's generation method assignment from generation screen
             assigned_method = self.bracket_generation_methods.get(bracket_key)
-            self.logger.debug(f"Bracket {bracket_key} assigned method: {assigned_method}")
+            
+            # Determine default method based on bracket type
+            is_u9_u11 = bracket_key in ('U9', 'U11')
+            default_method = 'pools' if is_u9_u11 else 'ko'
+            
+            method = assigned_method or default_method
+            self.logger.debug(f"Bracket {bracket_key} method: {method} (assigned: {assigned_method}, default: {default_method})")
 
-            # Determine rendering method: pools or KO (default)
-            if assigned_method == 'pools':
-                self.logger.debug("Using assigned 'pools' method")
+            # Render based on assigned or default method
+            if method in ('pools', 'double'):
+                title = f"Pool Visualization ({bracket_key})"
                 if hasattr(self, 'viz_title_var'):
-                    self.viz_title_var.set('Pool Visualization (Single Pool)')
-                self._render_pool(bracket_key, participants)
-                return
-            elif assigned_method == 'double':
-                self.logger.debug("Using assigned 'double' method")
-                if hasattr(self, 'viz_title_var'):
-                    self.viz_title_var.set('Pool Visualization (Double Pool)')
-                self._render_pool(bracket_key, participants)
+                    self.viz_title_var.set(title)
+                # Get pool_size from bracket data
+                pool_size = self.brackets.get(bracket_key, {}).get('pool_size')
+                self._render_pool(bracket_key, participants, pool_size)
                 return
 
             # Default to KO bracket rendering (includes 'ko', 'special', and unassigned)
@@ -1237,52 +1392,45 @@ class BracketViewerApp(tk.Tk):
                 self.viz_title_var.set('Bracket Visualization (KO)')
 
             # Otherwise render bracket (11+ participants)
-            # Check if we have cached bracket structure
-            if bracket_key not in self.bracket_structure_cache:
-                self.logger.debug(f"Generating bracket structure for: {bracket_key}")
+            self.logger.debug(f"Generating bracket structure for: {bracket_key}")
 
-                # Normalize participants and generate bracket rounds
-                normalized_participants = []
-                for p in participants:
-                    if isinstance(p, dict):
-                        normalized_participants.append({
-                            'Name': p.get('Name', p.get('name', '')),
-                            'Verein': p.get('Verein', p.get('verein', p.get('club', '')))
-                        })
+            # Normalize participants and generate bracket rounds
+            normalized_participants = []
+            for p in participants:
+                if isinstance(p, dict):
+                    normalized_participants.append({
+                        'Name': p.get('Name', p.get('name', '')),
+                        'Verein': p.get('Verein', p.get('verein', p.get('club', '')))
+                    })
 
-                if not normalized_participants:
-                    self.logger.debug("No normalized participants")
-                    self.bracket_canvas.create_text(400, 300,
-                        text="Error: Could not process participants",
-                        font=FONTS['heading_md'], fill='red')
-                    return
+            if not normalized_participants:
+                self.logger.debug("No normalized participants")
+                self.bracket_canvas.create_text(400, 300,
+                    text="Error: Could not process participants",
+                    font=FONTS['heading_md'], fill='red')
+                return
 
-                self.logger.debug(f"Normalized {len(normalized_participants)} participants")
+            self.logger.debug(f"Normalized {len(normalized_participants)} participants")
 
-                # Generate bracket visualization
-                bracket = make_bracket(normalized_participants)
-                self.logger.debug(f"Generated bracket with {len(bracket)} first round matches")
+            # Generate bracket visualization
+            bracket = make_bracket(normalized_participants)
+            self.logger.debug(f"Generated bracket with {len(bracket)} first round matches")
 
-                # Build rounds for single-elimination tree
-                rounds = []
-                current = [(p1, p2) for p1, p2 in bracket]
+            # Build rounds for single-elimination tree
+            rounds = []
+            current = [(p1, p2) for p1, p2 in bracket]
+            rounds.append(current)
+
+            while len(current) > 1:
+                next_round = []
+                for i in range(0, len(current), 2):
+                    p1 = f"Winner {i+1}"
+                    p2 = f"Winner {i+2}" if i+1 < len(current) else 'BYE'
+                    next_round.append((p1, p2))
+                current = next_round
                 rounds.append(current)
 
-                while len(current) > 1:
-                    next_round = []
-                    for i in range(0, len(current), 2):
-                        p1 = f"Winner {i+1}"
-                        p2 = f"Winner {i+2}" if i+1 < len(current) else 'Freilos'
-                        next_round.append((p1, p2))
-                    current = next_round
-                    rounds.append(current)
-
-                # Cache the bracket structure
-                self.bracket_structure_cache[bracket_key] = rounds
-                self.logger.debug(f"Cached bracket structure with {len(rounds)} rounds")
-            else:
-                rounds = self.bracket_structure_cache[bracket_key]
-                self.logger.debug(f"Using cached bracket structure for: {bracket_key} ({len(rounds)} rounds)")
+            self.logger.debug(f"Generated bracket structure with {len(rounds)} rounds")
 
             # Calculate box dimensions using utility function
             box_width, box_height, x_gap, y_gap = calculate_box_size(rounds, self.zoom_level)
@@ -1360,19 +1508,22 @@ class BracketViewerApp(tk.Tk):
             self.logger.debug(f"Successfully rendered bracket with {len(rounds)} rounds at {int(self.zoom_level*100)}% zoom")
 
         except Exception as e:
-            self.logger.error(f"Exception rendering bracket: {e}", exc_info=True)
+            self.logger.error(f"Exception rendering bracket: {e}")
             traceback.print_exc()
             # Show error on canvas
             self.bracket_canvas.create_text(400, 300,
                 text=f"Error rendering bracket:\n{str(e)}",
                 font=FONTS['body_md'], fill='red')
 
-    def _render_pool(self, bracket_key, participants):
+    def _render_pool(self, bracket_key, participants, pool_size=None):
         """Render pool/round-robin visualization on canvas.
 
         Args:
             bracket_key: The bracket identifier
             participants: List of participant dicts
+            pool_size: Configured pool size (max participants per pool).
+                      If provided, uses this to calculate number of pools.
+                      If None, uses default heuristic.
         """
         try:
             # Normalize participants for pool rendering
@@ -1402,7 +1553,8 @@ class BracketViewerApp(tk.Tk):
                 COLORS,
                 FONTS,
                 start_x,
-                start_y
+                start_y,
+                pool_size=pool_size
             )
 
             # Update scroll region
@@ -1420,26 +1572,12 @@ class BracketViewerApp(tk.Tk):
             self.logger.debug(f"Successfully rendered {pool_type} (method: {assigned_method}) with {num_participants} participants, {num_matches} total matches at {int(self.zoom_level*100)}% zoom")
 
         except Exception as e:
-            self.logger.error(f"Exception rendering pool: {e}", exc_info=True)
+            self.logger.error(f"Exception rendering pool: {e}")
             traceback.print_exc()
             # Show error on canvas
             self.bracket_canvas.create_text(400, 300,
                 text=f"Error rendering pool:\n{str(e)}",
                 font=FONTS['body_md'], fill='red')
-
-    def on_closing(self):
-        """Handle window close event - cleanup cache file."""
-        try:
-            # Delete the bracket cache file if it exists
-            if self.bracket_cache_file and os.path.exists(self.bracket_cache_file):
-                os.remove(self.bracket_cache_file)
-                self.logger.info(f"Deleted cache file: {self.bracket_cache_file}")
-        except Exception as e:
-            self.logger.warning(f"Could not delete cache file: {e}")
-        finally:
-            # Close the application
-            self.destroy()
-
 
 def main():
     app = BracketViewerApp()
