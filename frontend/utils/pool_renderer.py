@@ -146,7 +146,7 @@ def calculate_pool_box_size(pool_participants, zoom_level):
     base_width = max(150, int(max_text_len * 10))
     box_width = int(base_width * zoom_level)
     box_height = int(40 * zoom_level)
-    cell_size = int(60 * zoom_level)  # Size of match cells
+    cell_size = int(80 * zoom_level)  # Size of match cells (wide enough for "03:00")
     padding = int(20 * zoom_level)
 
     return box_width, box_height, cell_size, padding
@@ -199,7 +199,7 @@ def calculate_pool_positions(pools, box_width, box_height, cell_size, padding, s
 
 def draw_pool_table(canvas, pool_participants, start_x, start_y, box_width, box_height,
                     cell_size, padding, zoom_level, colors, fonts, pool_label="Pool 1",
-                    fight_numbers=None):
+                    fight_numbers=None, cell_values=None):
     """Draw a single pool table on canvas.
 
     Args:
@@ -343,6 +343,7 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, box_width, box_
         )
 
     # Draw rows (each fighter)
+    cell_positions = {}  # {(row, fight_num): (x1, y1, x2, y2)}
     for row in range(pool_size):
         y = start_y + ((row + 1) * box_height)
 
@@ -452,6 +453,24 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, box_width, box_
                     fill=colors['black'],
                     width=line_width
                 )
+                # Each white cell is two independent sub-cells (left | right)
+                mid_x = x + cell_size // 2
+                val_l = (cell_values or {}).get((row, fight_num, 'L'), '')
+                val_r = (cell_values or {}).get((row, fight_num, 'R'), '')
+                if val_l:
+                    canvas.create_text(
+                        x + cell_size // 4, y + box_height // 2,
+                        text=val_l, anchor='c',
+                        fill=colors['black'], font=scaled_font
+                    )
+                if val_r:
+                    canvas.create_text(
+                        mid_x + cell_size // 4, y + box_height // 2,
+                        text=val_r, anchor='c',
+                        fill=colors['black'], font=scaled_font
+                    )
+                cell_positions[(row, fight_num, 'L')] = (x,     y, mid_x,          y + box_height)
+                cell_positions[(row, fight_num, 'R')] = (mid_x, y, x + cell_size,  y + box_height)
             else:
                 # Draw empty/blank cell (fighter doesn't participate in this fight)
                 canvas.create_rectangle(
@@ -461,15 +480,24 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, box_width, box_
                     width=line_width
                 )
 
-        # Draw blank summary cells (Punkte, Ubw., Platz) for this row — stop before Kampfzeit
-        for i in range(3):
+        # Draw summary cells (Punkte, Ubw., Platz) — editable (white fill)
+        summary_keys = ['punkte', 'ubw', 'platz']
+        for i, skey in enumerate(summary_keys):
             x = start_x + num_width + name_width + kampfnummer_width + (num_fights * cell_size) + (i * cell_size)
             canvas.create_rectangle(
                 x, y, x + cell_size, y + box_height,
                 outline=colors['accent_green'],
-                fill=colors['bg_panel'],
+                fill=colors['white'],
                 width=line_width
             )
+            sval = (cell_values or {}).get((row, skey), '')
+            if sval:
+                canvas.create_text(
+                    x + cell_size // 2, y + box_height // 2,
+                    text=sval, anchor='c',
+                    fill=colors['black'], font=scaled_font
+                )
+            cell_positions[(row, skey)] = (x, y, x + cell_size, y + box_height)
 
     # Draw Kampfzeit bottom row
     bottom_y = start_y + ((pool_size + 1) * box_height)
@@ -492,15 +520,23 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, box_width, box_
         font=cell_font
     )
 
-    # Blank cells under each fight column
+    # Kampfzeit cells under each fight column — editable (white fill)
     for fight_num in range(num_fights):
         x = start_x + num_width + name_width + kampfnummer_width + (fight_num * cell_size)
         canvas.create_rectangle(
             x, bottom_y, x + cell_size, bottom_y + box_height,
             outline=colors['accent_green'],
-            fill=colors['bg_panel'],
+            fill=colors['white'],
             width=line_width
         )
+        kval = (cell_values or {}).get(('kampfzeit', fight_num), '')
+        if kval:
+            canvas.create_text(
+                x + cell_size // 2, bottom_y + box_height // 2,
+                text=kval, anchor='c',
+                fill=colors['black'], font=scaled_font
+            )
+        cell_positions[('kampfzeit', fight_num)] = (x, bottom_y, x + cell_size, bottom_y + box_height)
 
     # Draw legend at bottom
     legend_y = start_y + ((pool_size + 2) * box_height) + padding
@@ -514,8 +550,167 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, box_width, box_
         font=cell_font
     )
 
+    return cell_positions
 
-def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_x=50, start_y=80, pool_size=None):
+
+def _draw_ko_match_box(canvas, x, y, bw, bh, p1, p2, lw, font, colors, winner=None):
+    """Draw a single KO match box with winner/loser colouring."""
+    my = y + bh // 2
+    def real(n):
+        return n and n not in ('', 'TBD')
+    p1w = winner is not None and winner == p1 and real(p1)
+    p2w = winner is not None and winner == p2 and real(p2)
+
+    canvas.create_rectangle(x, y, x + bw, y + bh,
+                             fill=colors['bg_panel'],
+                             outline=colors['border_light'], width=lw)
+
+    # Winner/loser half backgrounds
+    if p1w:
+        canvas.create_rectangle(x+lw, y+lw, x+bw-lw, my, fill='#1a3d1a', outline='')
+    elif winner is not None and real(p1):
+        canvas.create_rectangle(x+lw, y+lw, x+bw-lw, my, fill='#3d1a1a', outline='')
+    if p2w:
+        canvas.create_rectangle(x+lw, my, x+bw-lw, y+bh-lw, fill='#1a3d1a', outline='')
+    elif winner is not None and real(p2):
+        canvas.create_rectangle(x+lw, my, x+bw-lw, y+bh-lw, fill='#3d1a1a', outline='')
+
+    canvas.create_line(x, my, x + bw, my,
+                       fill=colors['border_light'], width=1, dash=(4, 3))
+
+    pad = max(6, lw * 4)
+
+    def _col(name, won):
+        if not real(name):
+            return colors['text_muted']
+        if won:
+            return colors['accent_green']
+        if winner is not None:
+            return colors['accent_red']
+        return colors['text_secondary']
+
+    canvas.create_text(x + pad, y + bh // 4, text=p1, anchor='w',
+                       fill=_col(p1, p1w), font=font)
+    canvas.create_text(x + pad, y + 3 * bh // 4, text=p2, anchor='w',
+                       fill=_col(p2, p2w), font=font)
+
+    # Checkmarks
+    if p1w:
+        canvas.create_text(x + bw - 8, y + bh // 4, text='✓', anchor='c',
+                           fill=colors['accent_green'], font=font)
+    if p2w:
+        canvas.create_text(x + bw - 8, y + 3 * bh // 4, text='✓', anchor='c',
+                           fill=colors['accent_green'], font=font)
+
+    # Pick hint for undecided real matches
+    if winner is None and real(p1) and real(p2):
+        small = (font[0], max(6, font[1] - 1))
+        canvas.create_text(x + bw - 6, my, text='← pick', anchor='e',
+                           fill=colors['text_muted'], font=small)
+
+
+def draw_double_pool_ko_bracket(canvas, start_x, start_y, zoom_level, colors, fonts, ko_data=None, ko_match_results=None):
+    """Draw the 4-player KO bracket for a double pool:
+      Semi 1: 1st Pool A  vs  2nd Pool B
+      Semi 2: 1st Pool B  vs  2nd Pool A
+      Final:  winner Semi 1 vs winner Semi 2
+
+    Returns (width, height) of the drawn area.
+    """
+    bw = int(160 * zoom_level)   # match box width
+    bh = int(56 * zoom_level)    # match box height
+    gx = int(60 * zoom_level)    # horizontal gap (semis → final)
+    gy = int(50 * zoom_level)    # vertical gap between the two semi boxes
+    lw = max(1, int(2 * zoom_level))
+
+    body_font  = ('Consolas', max(6, int(9 * zoom_level)))
+    label_font = ('Arial',    max(7, int(10 * zoom_level)), 'bold')
+    small_font = ('Arial',    max(6, int(8 * zoom_level)))
+
+    # ── Semi positions ───────────────────────────────────────────────────
+    s1x, s1y = start_x, start_y
+    s2x, s2y = start_x, start_y + bh + gy
+
+    # ── Final position: vertically centred between the two semi boxes ────
+    mid_y = (s1y + bh // 2 + s2y + bh // 2) // 2
+    fy = mid_y - bh // 2
+    fx = start_x + bw + gx
+
+    # ── Title (above semi-final label with clear gap) ────────────────────
+    canvas.create_text(start_x + bw // 2,
+                       s1y - int(42 * zoom_level),
+                       text='KO Round', anchor='c',
+                       fill=colors['white'], font=label_font)
+
+    # ── Round labels ─────────────────────────────────────────────────────
+    canvas.create_text(start_x + bw // 2, s1y - int(18 * zoom_level),
+                       text='Semi-final', anchor='c',
+                       fill=colors['text_secondary'], font=small_font)
+    canvas.create_text(fx + bw // 2, fy - int(18 * zoom_level),
+                       text='Final', anchor='c',
+                       fill=colors['text_secondary'], font=small_font)
+
+    # ── Derive players and winners ───────────────────────────────────────
+    ko      = ko_data or {}
+    results = ko_match_results or {}
+
+    s1p1 = ko.get('p0_1st', '')
+    s1p2 = ko.get('p1_2nd', '')
+    s2p1 = ko.get('p1_1st', '')
+    s2p2 = ko.get('p0_2nd', '')
+
+    s1_winner = results.get((0, 0))
+    s2_winner = results.get((0, 1))
+
+    # Final slots filled by semi winners (TBD while undecided but slots have names)
+    fp1 = s1_winner or ('TBD' if (s1p1 or s1p2) else '')
+    fp2 = s2_winner or ('TBD' if (s2p1 or s2p2) else '')
+    f_winner = results.get((1, 0))
+
+    # ── Match boxes ──────────────────────────────────────────────────────
+    _draw_ko_match_box(canvas, s1x, s1y, bw, bh,
+                       s1p1, s1p2, lw, body_font, colors, winner=s1_winner)
+    _draw_ko_match_box(canvas, s2x, s2y, bw, bh,
+                       s2p1, s2p2, lw, body_font, colors, winner=s2_winner)
+    _draw_ko_match_box(canvas, fx, fy, bw, bh,
+                       fp1, fp2, lw, body_font, colors, winner=f_winner)
+
+    # ── Box positions for click detection ────────────────────────────────
+    ko_match_boxes = {
+        (0, 0): (s1x, s1y, s1x + bw, s1y + bh, s1p1, s1p2),
+        (0, 1): (s2x, s2y, s2x + bw, s2y + bh, s2p1, s2p2),
+        (1, 0): (fx,  fy,  fx  + bw, fy  + bh, fp1,  fp2),
+    }
+
+    # ── Connectors ───────────────────────────────────────────────────────
+    xmid = start_x + bw + gx // 2   # vertical spine x
+
+    # Semi 1 → final (connects to top quarter of final box)
+    s1_cy = s1y + bh // 2
+    t1y   = fy + bh // 4
+    canvas.create_line(s1x + bw, s1_cy, xmid, s1_cy,
+                       fill=colors['border_light'], width=lw)
+    canvas.create_line(xmid, s1_cy, xmid, t1y,
+                       fill=colors['border_light'], width=lw)
+    canvas.create_line(xmid, t1y, fx, t1y,
+                       fill=colors['border_light'], width=lw)
+
+    # Semi 2 → final (connects to bottom quarter of final box)
+    s2_cy = s2y + bh // 2
+    t2y   = fy + 3 * bh // 4
+    canvas.create_line(s2x + bw, s2_cy, xmid, s2_cy,
+                       fill=colors['border_light'], width=lw)
+    canvas.create_line(xmid, s2_cy, xmid, t2y,
+                       fill=colors['border_light'], width=lw)
+    canvas.create_line(xmid, t2y, fx, t2y,
+                       fill=colors['border_light'], width=lw)
+
+    total_w = fx + bw - start_x + int(20 * zoom_level)
+    total_h = s2y + bh  - start_y + int(20 * zoom_level)
+    return total_w, total_h, ko_match_boxes
+
+
+def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_x=50, start_y=80, cell_values=None, ko_data=None, ko_match_results=None):
     """Draw pool visualization on canvas based on number of participants.
 
     Args:
@@ -602,6 +797,7 @@ def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_
     # Draw each pool
     current_y = start_y
     max_width = 0
+    all_cell_positions = {}  # {(pool_idx, row, fight_num): (x1, y1, x2, y2)}
 
     for pool_idx, pool in enumerate(pools):
         pool_label = f"Pool {chr(65 + pool_idx)}" if num_pools > 1 else "Pool"
@@ -609,12 +805,17 @@ def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_
         # Get fight numbers for this pool
         fight_numbers = all_fight_numbers.get(pool_idx, None)
 
-        draw_pool_table(
+        # Extract cell values for this pool (strip the leading pool_idx from each key)
+        pool_cv = {k[1:]: v for k, v in (cell_values or {}).items() if k[0] == pool_idx}
+
+        cell_pos = draw_pool_table(
             canvas, pool, start_x, current_y,
             box_width, box_height, cell_size, padding,
             zoom_level, colors, fonts, pool_label,
-            fight_numbers
+            fight_numbers, cell_values=pool_cv
         )
+        for sub_key, bbox in cell_pos.items():
+            all_cell_positions[(pool_idx,) + sub_key] = bbox
 
         # Calculate dimensions (num_width + name_width + kampfnummer_width + match columns)
         pool_size = len(pool)
@@ -632,4 +833,15 @@ def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_
     total_width = start_x + max_width + 50
     total_height = current_y + 50
 
-    return total_width, total_height
+    # For double pool: draw KO bracket to the right of both pool tables
+    ko_match_boxes = {}
+    if num_pools == 2:
+        ko_x = start_x + max_width + int(padding * 3)
+        ko_y = start_y + int(40 * zoom_level)
+        ko_w, ko_h, ko_match_boxes = draw_double_pool_ko_bracket(
+            canvas, ko_x, ko_y, zoom_level, colors, fonts,
+            ko_data=ko_data, ko_match_results=ko_match_results)
+        total_width  = max(total_width,  ko_x + ko_w + 50)
+        total_height = max(total_height, ko_y + ko_h + 50)
+
+    return total_width, total_height, all_cell_positions, ko_match_boxes

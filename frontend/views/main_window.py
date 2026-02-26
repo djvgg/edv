@@ -24,6 +24,9 @@ from backend.services.bracket_service import (  # noqa: E402
 from backend.data.repositories.participant_repository import (  # noqa: E402
     fetch_participants_from_db,
 )
+import backend.data.database as _db_module  # noqa: E402
+from backend.data.database import SessionLocal  # noqa: E402
+from backend.services.tournament_service import TournamentService  # noqa: E402
 
 from ..styles import (  # noqa: E402
     COLORS,
@@ -50,6 +53,7 @@ from ..utils import (  # noqa: E402
 from .generation_method_screen import GenerationMethodScreen  # noqa: E402
 from .file_loader_screen import FileLoaderScreen  # noqa: E402
 from .group_preview_screen import GroupPreviewScreen  # noqa: E402
+from .fight_monitoring_window import FightMonitoringScreen  # noqa: E402
 from ..search_utils import filter_items  # noqa: E402
 
 # ===== DEBUG CONFIGURATION =====
@@ -87,6 +91,10 @@ class BracketViewerApp(tk.Tk):
         self.zoom_level = 1.0  # Zoom level for bracket visualization
         self.current_bracket_key = None  # Track currently displayed bracket
 
+        # Fight monitoring state – persists across window open/close
+        # {bracket_key: {(round_idx, match_idx): winner_name}}
+        self.match_results = {}
+
         # Preview window state
         self.group_listbox_map = {}
         self.preview_search_var = None
@@ -94,6 +102,23 @@ class BracketViewerApp(tk.Tk):
 
         # Start with file loading UI
         self.show_file_loader()
+
+    def _with_db(self, fn):
+        """
+        Create a fresh SQLAlchemy session, run fn(TournamentService(db)), then close.
+        Thread-safe: each call owns its own session.
+        Errors are logged but never crash the app — DB writes are best-effort.
+        """
+        if not _db_module.DB_AVAILABLE:
+            return
+        db = SessionLocal()
+        try:
+            fn(TournamentService(db))
+        except Exception as e:
+            db.rollback()
+            self.logger.error(f"DB operation failed: {e}", exc_info=True)
+        finally:
+            db.close()
 
     def setup_ttk_styles(self):
         """Configure ttk styles for dark theme scrollbars."""
@@ -285,8 +310,9 @@ class BracketViewerApp(tk.Tk):
         self.configure(bg=COLORS['bg_dark'])
         self.viewer_shown = True
 
-        # Initialize table assignments
-        self.bracket_table_assignment = {k: None for k in self.brackets.keys()}
+        # Initialize table assignments only on first visit – preserve on return from monitoring
+        if not hasattr(self, 'bracket_table_assignment'):
+            self.bracket_table_assignment = {k: None for k in self.brackets.keys()}
 
         # Clear existing widgets
         for widget in self.winfo_children():
@@ -445,6 +471,11 @@ class BracketViewerApp(tk.Tk):
                                     command=self.show_generation_method_screen)
         apply_button_style(back_to_gen_btn, 'secondary')
         back_to_gen_btn.pack(side=tk.LEFT, padx=5)
+
+        monitor_btn = tk.Button(tables_nav_frame, text='Fight Monitoring',
+                                command=self.show_fight_monitoring_screen)
+        apply_button_style(monitor_btn, 'primary')
+        monitor_btn.pack(side=tk.RIGHT, padx=5)
         
         self.table_panels = {}
         for i, (row, col) in enumerate([(1, 0), (1, 1), (2, 0), (2, 1)]):
@@ -486,9 +517,41 @@ class BracketViewerApp(tk.Tk):
         
         # Store the assignments for use in bracket viewer
         self.bracket_generation_methods = final_assignments
-        
+        self._with_db(lambda svc, b=self.brackets, m=final_assignments:
+                      svc.save_groups_and_brackets(b, m))
+
         # Proceed to bracket viewer
         self.show_bracket_viewer()
+
+    def show_fight_monitoring_screen(self):
+        """Switch to the Fight Monitoring screen (in-app, no separate window)."""
+        # Create fight rows in DB for every assigned bracket (idempotent — skips if already created)
+        def _create_fights(svc):
+            for bracket_key, table_num in self.bracket_table_assignment.items():
+                if table_num and bracket_key in self.brackets:
+                    fight_pairs = self.brackets[bracket_key].get('bracket', [])
+                    try:
+                        svc.open_bracket_for_monitoring(bracket_key, fight_pairs)
+                    except ValueError:
+                        pass  # bracket not yet saved to DB (e.g. loaded from DB path)
+        self._with_db(_create_fights)
+
+        # Clear existing widgets
+        for widget in self.winfo_children():
+            widget.destroy()
+
+        self.geometry('1200x750')
+
+        screen = FightMonitoringScreen(
+            parent=self,
+            brackets=self.brackets,
+            bracket_table_assignment=self.bracket_table_assignment,
+            bracket_generation_methods=self.bracket_generation_methods,
+            match_results=self.match_results,
+        )
+        screen.pack(fill=tk.BOTH, expand=True)
+        screen.on_back = self.show_bracket_viewer
+        screen.show_matten_view()
 
     def show_tables(self):
         """Show table assignment view."""
@@ -600,6 +663,7 @@ class BracketViewerApp(tk.Tk):
 
         # Assign the bracket
         self.bracket_table_assignment[bracket_key] = table_num
+        self._with_db(lambda svc, k=bracket_key, t=table_num: svc.assign_mat(k, t))
         self.update_bracket_list()
         self.update_table_panels()
         self.logger.info(f"Assigned '{bracket_key}' to Matte {table_num}")
@@ -649,6 +713,13 @@ class BracketViewerApp(tk.Tk):
                     table = table % 4 + 1
                     break
                 table = table % 4 + 1
+
+        # Persist all auto-assignments to DB in one pass
+        assignments = {k: v for k, v in self.bracket_table_assignment.items() if v}
+        def _save_auto_assignments(svc):
+            for bkey, tnum in assignments.items():
+                svc.assign_mat(bkey, tnum)
+        self._with_db(_save_auto_assignments)
 
         self.update_bracket_list()
         self.update_table_panels()
@@ -777,6 +848,7 @@ class BracketViewerApp(tk.Tk):
             
             participants = normalize_participants(raw_participants)
             self.update_progress(40)
+            self._with_db(lambda svc, p=participants: svc.save_participants(p))
 
             # Filter out unpaid participants
             participants, _ = self.filter_unpaid_participants(participants)
@@ -864,14 +936,6 @@ class BracketViewerApp(tk.Tk):
             self.set_status(f"Database Error: {e}", COLORS['accent_red'])
             self.hide_loading_progress()
             self.after(500, lambda err=e: messagebox.showerror("Database Error", f"Failed to load from database:\n{str(err)}"))
-
-            # Generate brackets using backend service
-            self.brackets = export_all_brackets(participants)
-
-            self.set_status(f"Success! Generated {len(self.brackets)} brackets from database.", COLORS['accent_green'])
-
-            # Wait a moment then show bracket viewer
-            self.after(800, self.show_bracket_viewer)
 
     def load_json_and_generate(self):
         """Load 2 JSON files (male/female), merge them, and generate brackets.

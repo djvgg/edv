@@ -1,0 +1,99 @@
+# SPDX-FileCopyrightText: 2026 TOP Team Combat Control
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+from sqlalchemy import (
+    Column, Integer, String, Boolean, Numeric, Date,
+    ForeignKey, UniqueConstraint
+)
+from sqlalchemy.orm import relationship
+from .database import Base
+
+
+class Participant(Base):
+    __tablename__ = 'participants'
+
+    id          = Column(Integer, primary_key=True)
+    first_name  = Column(String(100), nullable=False)
+    last_name   = Column(String(100), nullable=False)
+    gender      = Column(String(1))        # 'm' or 'w'
+    birth_date  = Column(Date, nullable=True)
+    weight      = Column(Numeric(5, 2))
+    club        = Column(String(200))
+    association = Column(String(200))
+    valid       = Column(Boolean, default=False)
+    paid        = Column(Boolean, default=False)
+
+    group_participants = relationship('GroupParticipant', back_populates='participant')
+
+
+class Group(Base):
+    __tablename__ = 'groups'
+    __table_args__ = (
+        UniqueConstraint('gender', 'age_group', 'weight_class'),
+    )
+
+    id           = Column(Integer, primary_key=True)
+    gender       = Column(String(1),  nullable=False)
+    age_group    = Column(String(20), nullable=False)  # U9, U11, U13, U15, U18, 18+
+    weight_class = Column(String(20), nullable=False)  # -52kg, no-class, etc.
+
+    group_participants = relationship('GroupParticipant', back_populates='group')
+    bracket            = relationship('Bracket', back_populates='group', uselist=False)
+
+
+class GroupParticipant(Base):
+    __tablename__ = 'group_participants'
+
+    id             = Column(Integer, primary_key=True)
+    group_id       = Column(Integer, ForeignKey('groups.id'),       nullable=False)
+    participant_id = Column(Integer, ForeignKey('participants.id'), nullable=False)
+
+    group       = relationship('Group',       back_populates='group_participants')
+    participant = relationship('Participant', back_populates='group_participants')
+    fights_as_p1 = relationship('Fight', foreign_keys='Fight.participant1_id',
+                                back_populates='participant1')
+    fights_as_p2 = relationship('Fight', foreign_keys='Fight.participant2_id',
+                                back_populates='participant2')
+
+
+class Mat(Base):
+    __tablename__ = 'mats'
+
+    id         = Column(Integer, primary_key=True)
+    mat_number = Column(Integer, nullable=False)
+
+    brackets = relationship('Bracket', back_populates='mat')
+
+
+class Bracket(Base):
+    __tablename__ = 'brackets'
+
+    id           = Column(Integer, primary_key=True)
+    group_id     = Column(Integer, ForeignKey('groups.id'), nullable=False)
+    mat_id       = Column(Integer, ForeignKey('mats.id'),   nullable=True)
+    bracket_type = Column(String(20))                       # pools, double, ko, special
+    status       = Column(String(20), default='pending')    # pending, in_progress, completed
+
+    group  = relationship('Group',   back_populates='bracket')
+    mat    = relationship('Mat',     back_populates='brackets')
+    fights = relationship('Fight',   back_populates='bracket')
+
+
+class Fight(Base):
+    __tablename__ = 'fights'
+
+    id              = Column(Integer, primary_key=True)
+    bracket_id      = Column(Integer, ForeignKey('brackets.id'),          nullable=False)
+    participant1_id = Column(Integer, ForeignKey('group_participants.id'), nullable=False)
+    participant2_id = Column(Integer, ForeignKey('group_participants.id'), nullable=False)
+    fight_number    = Column(Integer)
+    score1          = Column(String(20))
+    score2          = Column(String(20))
+    duration        = Column(String(20))
+    status          = Column(String(20), default='pending')
+
+    bracket      = relationship('Bracket',          back_populates='fights')
+    participant1 = relationship('GroupParticipant', foreign_keys=[participant1_id],
+                                back_populates='fights_as_p1')
+    participant2 = relationship('GroupParticipant', foreign_keys=[participant2_id],
+                                back_populates='fights_as_p2')

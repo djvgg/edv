@@ -30,7 +30,7 @@ def build_bracket_rounds(bracket, normalized_participants):
         next_round = []
         for i in range(0, len(current), 2):
             p1 = f"Winner {i+1}"
-            p2 = f"Winner {i+2}" if i+1 < len(current) else 'BYE'
+            p2 = f"Winner {i+2}" if i+1 < len(current) else 'Freilos'
             next_round.append((p1, p2, '', ''))
         current = next_round
         rounds.append(current)
@@ -59,8 +59,8 @@ def calculate_box_size(rounds, zoom_level):
                 club1, club2 = '', ''
             
             # Calculate display text length (name + club)
-            text1_len = len(p1) + (len(club1) + 3 if club1 and club1 != 'BYE' else 0)
-            text2_len = len(p2) + (len(club2) + 3 if club2 and club2 != 'BYE' else 0)
+            text1_len = len(p1) + (len(club1) + 3 if club1 and club1 != 'Freilos' else 0)
+            text2_len = len(p2) + (len(club2) + 3 if club2 and club2 != 'Freilos' else 0)
             max_text_len = max(max_text_len, text1_len, text2_len)
     
     # Scale box width based on longest text (roughly 8 pixels per character)
@@ -109,8 +109,8 @@ def draw_bracket_on_canvas(canvas, rounds, positions, box_width, box_height,
                              fill=colors['text_secondary'], dash=(2, 2))
             
             # Format display with club info on single line
-            p1_display = f"{p1} [{club1}]" if club1 and club1 != 'BYE' else p1
-            p2_display = f"{p2} [{club2}]" if club2 and club2 != 'BYE' else p2
+            p1_display = f"{p1} [{club1}]" if club1 and club1 != 'Freilos' else p1
+            p2_display = f"{p2} [{club2}]" if club2 and club2 != 'Freilos' else p2
             
             # Draw fighter names
             canvas.create_text(x + box_width // 2, y + box_height // 4,

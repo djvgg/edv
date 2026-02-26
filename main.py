@@ -10,7 +10,14 @@ Refactored structure:
 - backend/data/repositories/config_repository.py: Configuration management
 """
 
+import backend.data.database as _db
+from backend.data.database import init_db
 from frontend.views.main_window import main
 
 if __name__ == '__main__':
+    try:
+        init_db()
+    except Exception as e:
+        print(f"[WARNING] DB unavailable, running without database: {e}")
+        _db.DB_AVAILABLE = False
     main()

@@ -1,85 +1,66 @@
 # SPDX-FileCopyrightText: 2026 TOP Team Combat Control
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""
-Repository for fetching participant data from PostgreSQL database.
-"""
-
-import psycopg2
-from datetime import date
 from typing import List, Dict
-from ..db_config import DB_CONFIG
+from datetime import date
+from ..models import Participant
 
 
-def calculate_age(birth_date: date) -> int:
-    """Calculate age from birth date."""
+def _calculate_age(birth_date: date) -> int:
     today = date.today()
     age = today.year - birth_date.year
-    if today.month < birth_date.month or (today.month == birth_date.month and today.day < birth_date.day):
+    if (today.month, today.day) < (birth_date.month, birth_date.day):
         age -= 1
     return age
 
 
 def fetch_participants_from_db() -> List[Dict]:
     """
-    Fetch all valid and paid participants from the database.
-
-    Returns:
-        List of participant dictionaries with keys: Name, Gender, Age, Weight, Verein
+    Module-level convenience function for loading participants.
+    Used by main_window.py to load participants from the database.
+    Returns dicts in the format the bracket generator expects.
     """
-    participants = []
-
+    from ..database import SessionLocal
+    db = SessionLocal()
     try:
-        # Connect to PostgreSQL
-        conn = psycopg2.connect(**DB_CONFIG)
-        cursor = conn.cursor()
-
-        # Query to fetch all members (ignoring valid/paid for now)
-        query = """
-            SELECT
-                first_name,
-                last_name,
-                birth_date,
-                club,
-                gender,
-                weight
-            FROM public.members
-            ORDER BY last_name, first_name
-        """
-
-        cursor.execute(query)
-        rows = cursor.fetchall()
-
-        for row in rows:
-            first_name, last_name, birth_date, club, gender, weight = row
-
-            # Build participant dict matching the format expected by bracket generator
-            participant = {
-                'Name': f"{first_name} {last_name}".strip(),
-                'Gender': gender.upper().strip() if gender else '',  # 'M' or 'W'
-                'Age': calculate_age(birth_date) if birth_date else None,
-                'Weight': float(weight) if weight else None,
-                'Verein': club if club else ''
-            }
-            participants.append(participant)
-
-        cursor.close()
-        conn.close()
-
-        print(f"[INFO] Loaded {len(participants)} participants from database")
-        return participants
-
-    except Exception as e:
-        print(f"[ERROR] Database error: {e}")
-        raise
+        return ParticipantRepository(db).get_all_as_dicts()
+    finally:
+        db.close()
 
 
-def test_connection() -> bool:
-    """Test database connection."""
-    try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"[ERROR] Connection test failed: {e}")
-        return False
+class ParticipantRepository:
+    def __init__(self, db):
+        self.db = db
+
+    def add_bulk(self, participants_data: List[Dict]) -> List[Participant]:
+        """Bulk insert participants from a list of dicts (XLSX/JSON/website format)."""
+        objects = [Participant(**data) for data in participants_data]
+        self.db.add_all(objects)
+        self.db.commit()
+        return objects
+
+    def get_all(self) -> List[Participant]:
+        return self.db.query(Participant).all()
+
+    def get_all_as_dicts(self) -> List[Dict]:
+        """Return participants in the dict format the bracket generator expects."""
+        rows = self.db.query(Participant).all()
+        result = []
+        for p in rows:
+            age = _calculate_age(p.birth_date) if p.birth_date else None
+            result.append({
+                'Name':    f"{p.first_name} {p.last_name}".strip(),
+                'Gender':  p.gender.upper() if p.gender else '',
+                'Age':     age,
+                'Weight':  float(p.weight) if p.weight else None,
+                'Verein':  p.club or '',
+            })
+        return result
+
+    def get_by_id(self, participant_id: int) -> Participant:
+        return self.db.query(Participant).filter(Participant.id == participant_id).first()
+
+    def clear_all(self) -> None:
+        """Wipe all participants — called at the start of a fresh tournament day."""
+        self.db.query(Participant).delete()
+        self.db.commit()
