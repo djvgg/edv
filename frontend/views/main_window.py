@@ -1022,6 +1022,12 @@ class BracketViewerApp(tk.Tk):
                 self.set_status("Error: No participants found.", COLORS['accent_red'])
                 messagebox.showerror("Error", "No participants found in the file.")
                 return
+            
+            # Debug: Check what fields are in raw_participants
+            if raw_participants:
+                first_p = raw_participants[0]
+                self.logger.debug(f"First participant fields: {list(first_p.keys())}")
+                self.logger.debug(f"First participant: {first_p}")
 
             self.set_status("Splitting by gender and converting to English format...", COLORS['text_secondary'])
 

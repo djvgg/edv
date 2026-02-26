@@ -115,7 +115,8 @@ def load_participants_from_xlsx(file_path):
             age = None
             for col in df.columns:
                 col_lower = col.lower()
-                if col_lower in ['jahrgang', 'birthyear', 'birth year', 'age', 'alter']:
+                # Match if column contains year/age keywords
+                if any(kw in col_lower for kw in ['jahrgang', 'birthyear', 'birth year', 'age', 'alter']):
                     if pd.notna(row[col]):
                         try:
                             age = int(float(row[col]))
@@ -127,7 +128,8 @@ def load_participants_from_xlsx(file_path):
             club = ''
             for col in df.columns:
                 col_lower = col.lower()
-                if col_lower in ['verein', 'club']:
+                # Match if column contains club/verein keywords
+                if 'verein' in col_lower or 'club' in col_lower:
                     if pd.notna(row[col]):
                         club = str(row[col]).strip()
                         if club:
@@ -137,11 +139,25 @@ def load_participants_from_xlsx(file_path):
             association = ''
             for col in df.columns:
                 col_lower = col.lower()
-                if col_lower in ['verband', 'association']:
+                # Match if column contains association/verband keywords
+                if 'verband' in col_lower or 'association' in col_lower:
                     if pd.notna(row[col]):
                         association = str(row[col]).strip()
                         if association:
                             break
+            
+            # Extract paid status (Bezahlt in German)
+            paid = False
+            paid_source_col = None
+            for col in df.columns:
+                col_lower = col.lower()
+                # Match if column contains 'bezahlt' or 'paid' (fuzzy match for columns with extra text)
+                if 'bezahlt' in col_lower or 'paid' in col_lower:
+                    if pd.notna(row[col]):
+                        paid_str = str(row[col]).strip().lower()
+                        paid = paid_str in ['true', 'ja', 'yes', '1', 'y']
+                        paid_source_col = col
+                        break
             
             # Build participant record
             participant = {
@@ -151,10 +167,11 @@ def load_participants_from_xlsx(file_path):
                 'Age': age,
                 'Club': club,
                 'Association': association,
+                'Paid': paid,
             }
             
             participants.append(participant)
-            logger.debug(f"Row {idx}: Loaded '{full_name}' (gender: {gender}, weight: {weight} from '{weight_source_col}', age: {age})")
+            logger.debug(f"Row {idx}: Loaded '{full_name}' (gender: {gender}, weight: {weight} from '{weight_source_col}', age: {age}, paid: {paid} from '{paid_source_col}')")
         
         logger.info(f"Successfully loaded {len(participants)} participants from XLSX")
         return participants
