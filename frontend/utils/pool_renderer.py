@@ -710,7 +710,7 @@ def draw_double_pool_ko_bracket(canvas, start_x, start_y, zoom_level, colors, fo
     return total_w, total_h, ko_match_boxes
 
 
-def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_x=50, start_y=80, cell_values=None, ko_data=None, ko_match_results=None):
+def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_x=50, start_y=80, cell_values=None, ko_data=None, ko_match_results=None, pool_size=None):
     """Draw pool visualization on canvas based on number of participants.
 
     Args:
@@ -720,6 +720,9 @@ def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_
         colors: Dict of color constants
         fonts: Dict of font constants
         start_x, start_y: Starting coordinates
+        cell_values: Optional cell selection values
+        ko_data: Optional knockout bracket data
+        ko_match_results: Optional knockout match results
         pool_size: Configured pool size (max participants per pool).
                   If provided, uses this to calculate number of pools.
                   If None, uses default heuristic.

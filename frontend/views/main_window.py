@@ -108,17 +108,29 @@ class BracketViewerApp(tk.Tk):
         Create a fresh SQLAlchemy session, run fn(TournamentService(db)), then close.
         Thread-safe: each call owns its own session.
         Errors are logged but never crash the app — DB writes are best-effort.
+        If the DB is unavailable, silently returns.
         """
         if not _db_module.DB_AVAILABLE:
             return
-        db = SessionLocal()
+        
+        db = None
         try:
+            db = SessionLocal()
             fn(TournamentService(db))
         except Exception as e:
-            db.rollback()
-            self.logger.error(f"DB operation failed: {e}", exc_info=True)
+            # Connection errors or other DB issues - mark DB as unavailable and log
+            error_msg = str(e).lower()
+            if 'connection refused' in error_msg or 'could not connect' in error_msg:
+                _db_module.DB_AVAILABLE = False
+                self.logger.warning(f"Database unavailable, disabling DB save: {e}")
+            else:
+                # Other errors still logged but don't disable DB
+                if db:
+                    db.rollback()
+                self.logger.error(f"DB operation failed: {e}\n{traceback.format_exc()}")
         finally:
-            db.close()
+            if db:
+                db.close()
 
     def setup_ttk_styles(self):
         """Configure ttk styles for dark theme scrollbars."""
