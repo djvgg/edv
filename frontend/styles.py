@@ -69,6 +69,7 @@ FONTS = {
     'preview_text': ('Arial', 11),
     'preview_small': ('Arial', 9),
     'preview_info': ('Arial', 10),
+    'preview_hint': ('Arial', 8),
     
     # Custom lists
     'list_mono': ('Courier', 10),

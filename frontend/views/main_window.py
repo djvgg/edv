@@ -997,7 +997,7 @@ class BracketViewerApp(tk.Tk):
                 filename = os.path.basename(filepath)
                 self.logger.info(f"[File {file_idx}] Loading: {filename}")
                 
-                with open(filepath, 'r', encoding='utf-8') as f:
+                with open(filepath, 'r', encoding='utf-8-sig') as f:
                     data = json.load(f)
 
                 # Validate that data is a list

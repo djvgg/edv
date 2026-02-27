@@ -10,6 +10,7 @@ Shows bracket groups (weight categories) with participant details:
 - Bottom: navigation buttons
 """
 
+import re
 import tkinter as tk
 from tkinter import ttk
 import sys
@@ -382,7 +383,7 @@ class GroupPreviewScreen(tk.Frame):
         text_widget.bind('<Double-Button-1>', lambda e: self._on_row_double_click(text_widget, bracket_key, count))
 
         # Column widths (in characters)
-        COL_FIRST = 15
+        COL_FIRSTNAME = 15
         COL_LAST = 15
         COL_BIRTH = 12
         COL_CLUB = 25
@@ -391,10 +392,10 @@ class GroupPreviewScreen(tk.Frame):
         COL_GENDER = 10
         
         # Calculate total width for separator line
-        SEPARATOR_LENGTH = COL_FIRST + COL_LAST + COL_BIRTH + COL_CLUB + COL_ASSOC + COL_WEIGHT + COL_GENDER + 4
+        SEPARATOR_LENGTH = COL_FIRSTNAME + COL_LAST + COL_BIRTH + COL_CLUB + COL_ASSOC + COL_WEIGHT + COL_GENDER + 4
 
         # Header
-        header = f"{'Firstname':<{COL_FIRST}}{'Lastname':<{COL_LAST}}{'Birthyear':<{COL_BIRTH}}{'Club':<{COL_CLUB}}{'Association':<{COL_ASSOC}}{'Weight':<{COL_WEIGHT}}{'Gender':<{COL_GENDER}}\n"
+        header = f"{'Firstname':<{COL_FIRSTNAME}}{'Lastname':<{COL_LAST}}{'Birthyear':<{COL_BIRTH}}{'Club':<{COL_CLUB}}{'Association':<{COL_ASSOC}}{'Weight':<{COL_WEIGHT}}{'Gender':<{COL_GENDER}}\n"
         text_widget.insert(tk.END, header, 'header')
         text_widget.insert(tk.END, "=" * SEPARATOR_LENGTH + "\n")
         
@@ -414,7 +415,7 @@ class GroupPreviewScreen(tk.Frame):
             else:
                 weight_str = str(weight)
 
-            row = f"{first:<{COL_FIRST}}{last:<{COL_LAST}}{birth:<{COL_BIRTH}}{club:<{COL_CLUB}}{assoc:<{COL_ASSOC}}{weight_str:<{COL_WEIGHT}}{gender:<{COL_GENDER}}\n"
+            row = f"{first:<{COL_FIRSTNAME}}{last:<{COL_LAST}}{birth:<{COL_BIRTH}}{club:<{COL_CLUB}}{assoc:<{COL_ASSOC}}{weight_str:<{COL_WEIGHT}}{gender:<{COL_GENDER}}\n"
             text_widget.insert(tk.END, row, f'row_{idx}')
 
         # Style header
@@ -621,10 +622,124 @@ class GroupPreviewScreen(tk.Frame):
             # Main container with better padding
             container = tk.Frame(edit_window, bg=COLORS['bg_dark'])
             container.pack(fill=tk.BOTH, expand=True, padx=30, pady=20)
+
+            # ── Click anywhere outside entries to deselect ──
+            def _focus_window(e):
+                """Shift focus to the window when clicking non-entry areas.
+                Skip interactive widgets (buttons, checkbuttons, dropdowns)."""
+                widget = e.widget
+                if isinstance(widget, (tk.Entry, tk.Button, tk.Checkbutton, tk.Listbox)):
+                    return
+                # Walk up widget hierarchy: skip if any ancestor has cursor='hand2'
+                w = widget
+                while w and w != edit_window:
+                    try:
+                        if w.cget('cursor') == 'hand2':
+                            return
+                    except (tk.TclError, AttributeError):
+                        pass
+                    try:
+                        w = w.master
+                    except AttributeError:
+                        break
+                edit_window.focus_set()
+            edit_window.bind('<Button-1>', _focus_window)
             
+            # ── Input validation ──────────────────────────────────────
+            NAME_PATTERN = re.compile(r'^[A-Za-zÄÖÜäöüß\- ]*$')
+
+            # Field limits
+            MAX_NAME_LENGTH = 30
+            MAX_WEIGHT_LENGTH = 6
+            MAX_BIRTHYEAR_LENGTH = 4
+            MAX_CLUB_LENGTH = 50
+            MAX_ASSOC_LENGTH = 30
+
+            # Hint texts
+            HINT_NAME = "Letters and hyphens only, max 30"
+            HINT_WEIGHT = "Digits only, 52.3 or 52,3"
+            HINT_BIRTHYEAR = "Exactly 4 digits"
+            HINT_CLUB = "Max 50 characters"
+            HINT_ASSOC = "Max 30 characters"
+
+            # Placeholder texts
+            PLACEHOLDER_FIRST_NAME = "Max-Peter"
+            PLACEHOLDER_LAST_NAME = "Müller"
+            PLACEHOLDER_WEIGHT = "52.3"
+            PLACEHOLDER_BIRTHYEAR = "2015"
+            PLACEHOLDER_CLUB = "TSV Bushido Köln"
+            PLACEHOLDER_ASSOC = "NWJV"
+
+            def _validate_name(action, value_if_allowed):
+                """Allow only letters, hyphens, spaces, and umlauts. Max 30 chars.
+                Hyphens may not be consecutive, leading, or trailing."""
+                if action == '0':  # deletion is always ok
+                    return True
+                if len(value_if_allowed) > MAX_NAME_LENGTH:
+                    return False
+                if not NAME_PATTERN.match(value_if_allowed):
+                    return False
+                # Reject consecutive hyphens (--) and leading hyphen
+                if '--' in value_if_allowed or value_if_allowed.startswith('-'):
+                    return False
+                return True
+
+            def _validate_weight(action, value_if_allowed):
+                """Allow digits and one decimal separator (. or ,). Max 6 chars, max 3 digits before sep, max 1 after."""
+                if action == '0':
+                    return True
+                if len(value_if_allowed) > MAX_WEIGHT_LENGTH:
+                    return False
+                # Normalize comma to dot for checking
+                normalized = value_if_allowed.replace(',', '.')
+                # Only digits and at most one dot
+                if normalized.count('.') > 1:
+                    return False
+                parts = normalized.split('.')
+                # Before decimal: max 3 digits
+                if len(parts[0]) > 3:
+                    return False
+                if not all(c.isdigit() for c in parts[0] if c != ''):
+                    return False
+                # After decimal (if present): max 1 digit
+                if len(parts) == 2:
+                    if len(parts[1]) > 1:
+                        return False
+                    if parts[1] and not parts[1].isdigit():
+                        return False
+                # Reject any non-digit, non-separator chars
+                for c in value_if_allowed:
+                    if c not in '0123456789.,':
+                        return False
+                return True
+
+            def _validate_birthyear(action, value_if_allowed):
+                """Allow only digits, max 4 characters."""
+                if action == '0':
+                    return True
+                if len(value_if_allowed) > MAX_BIRTHYEAR_LENGTH:
+                    return False
+                return value_if_allowed.isdigit()
+
+            def _validate_max_length(max_len):
+                """Return a validator that only enforces a max character length."""
+                def _validate(action, value_if_allowed):
+                    if action == '0':
+                        return True
+                    return len(value_if_allowed) <= max_len
+                return _validate
+
+            # Register validators with Tkinter
+            validation_command_name = (edit_window.register(_validate_name), '%d', '%P')
+            validation_command_weight = (edit_window.register(_validate_weight), '%d', '%P')
+            validation_command_birthyear = (edit_window.register(_validate_birthyear), '%d', '%P')
+            validation_command_club = (edit_window.register(_validate_max_length(MAX_CLUB_LENGTH)), '%d', '%P')
+            validation_command_assoc = (edit_window.register(_validate_max_length(MAX_ASSOC_LENGTH)), '%d', '%P')
+
             # Helper function to create form fields with subtle borders
-            def create_field(parent, label_text, entry_var=None, is_readonly=False):
-                """Create a nicely styled form field"""
+            def create_field(parent, label_text, entry_var=None, is_readonly=False,
+                             validation_command=None, hint_text=None, placeholder=None):
+                """Create a nicely styled form field with optional validation feedback."""
                 field_frame = tk.Frame(parent, bg=COLORS['bg_dark'])
                 field_frame.pack(fill=tk.X, pady=(0, 18))
                 
@@ -634,40 +749,115 @@ class GroupPreviewScreen(tk.Frame):
                 # Wrapper for border effect
                 border_frame = tk.Frame(field_frame, bg=COLORS['border'], padx=1, pady=1)
                 border_frame.pack(fill=tk.X)
+
+                # ── Red flash on invalid input ──
+                _flash_timer_id = [None]  # mutable container for after-id
+
+                def _on_invalid():
+                    """Flash the border red briefly when validation rejects input."""
+                    border_frame.config(bg=COLORS['accent_red'])
+                    if _flash_timer_id[0]:
+                        edit_window.after_cancel(_flash_timer_id[0])
+                    _flash_timer_id[0] = edit_window.after(
+                        350, lambda: border_frame.config(bg=COLORS['accent_blue'] if entry == edit_window.focus_get() else COLORS['border'])
+                    )
+
+                invalid_input_command = (edit_window.register(lambda: _on_invalid() or False),)
                 
-                entry = tk.Entry(border_frame, bg=COLORS['bg_input'], fg=COLORS['text_primary'], font=FONTS['preview_text'], bd=0, relief=tk.FLAT)
+                entry_kwargs = dict(
+                    bg=COLORS['bg_input'], fg=COLORS['text_primary'],
+                    font=FONTS['preview_text'], bd=0, relief=tk.FLAT
+                )
+                if validation_command:
+                    entry_kwargs['validate'] = 'key'
+                    entry_kwargs['validatecommand'] = validation_command
+                    entry_kwargs['invalidcommand'] = invalid_input_command
+
+                entry = tk.Entry(border_frame, **entry_kwargs)
                 entry.pack(fill=tk.X, ipady=10, ipadx=10)
                 
                 if is_readonly:
                     entry.config(state=tk.DISABLED, fg=COLORS['text_muted'])
                     border_frame.config(bg=COLORS['bg_panel'])
+
+                # ── Hint text below the field ──
+                if hint_text:
+                    hint_label = tk.Label(field_frame, text=hint_text, bg=COLORS['bg_dark'],
+                                          fg=COLORS['text_muted'], font=FONTS['preview_hint'])
+                    hint_label.pack(anchor=tk.W, pady=(3, 0))
+
+                # ── Placeholder text ──
+                _has_placeholder = [False]
+
+                def _show_placeholder():
+                    if entry == edit_window.focus_get():
+                        return
+                    if placeholder and not entry.get():
+                        entry.config(validate='none')
+                        entry.insert(0, placeholder)
+                        entry.config(fg=COLORS['text_muted'])
+                        _has_placeholder[0] = True
+                        if validation_command:
+                            entry.config(validate='key',
+                                         validatecommand=validation_command,
+                                         invalidcommand=invalid_input_command)
+
+                def _hide_placeholder():
+                    if _has_placeholder[0]:
+                        entry.config(validate='none')
+                        entry.delete(0, tk.END)
+                        entry.config(fg=COLORS['text_primary'])
+                        _has_placeholder[0] = False
+                        if validation_command:
+                            entry.config(validate='key',
+                                         validatecommand=validation_command,
+                                         invalidcommand=invalid_input_command)
                 
-                # Highlight on focus
+                # Highlight on focus + placeholder handling
                 def on_focus_in(e, b=border_frame):
                     if not is_readonly:
                         b.config(bg=COLORS['accent_blue'])
+                    _hide_placeholder()
+
                 def on_focus_out(e, b=border_frame):
                     if not is_readonly:
                         b.config(bg=COLORS['border'])
+                    _show_placeholder()
                 
                 entry.bind("<FocusIn>", on_focus_in)
                 entry.bind("<FocusOut>", on_focus_out)
+
+                # Store placeholder setter so we can call it after insert
+                entry._show_placeholder = _show_placeholder
+                entry._hide_placeholder = _hide_placeholder
+                entry._has_placeholder = _has_placeholder
                 
                 return entry
-            
+
+            def _insert_with_placeholder(entry, value):
+                """Insert a value into the entry; show placeholder if empty."""
+                if value:
+                    entry.insert(0, value)
+                else:
+                    entry._show_placeholder()
+
             # Name fields in a row
             name_row = tk.Frame(container, bg=COLORS['bg_dark'])
             name_row.pack(fill=tk.X)
             
             first_col = tk.Frame(name_row, bg=COLORS['bg_dark'])
             first_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-            first_entry = create_field(first_col, "First Name")
-            first_entry.insert(0, first_name)
+            first_entry = create_field(first_col, "First Name", validation_command=validation_command_name,
+                                        hint_text=HINT_NAME,
+                                        placeholder=PLACEHOLDER_FIRST_NAME)
+            _insert_with_placeholder(first_entry, first_name)
             
             last_col = tk.Frame(name_row, bg=COLORS['bg_dark'])
             last_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
-            last_entry = create_field(last_col, "Last Name")
-            last_entry.insert(0, last_name)
+            last_entry = create_field(last_col, "Last Name", validation_command=validation_command_name,
+                                       hint_text=HINT_NAME,
+                                       placeholder=PLACEHOLDER_LAST_NAME)
+            _insert_with_placeholder(last_entry, last_name)
             
             # Weight and Age in a row
             row_frame = tk.Frame(container, bg=COLORS['bg_dark'])
@@ -675,13 +865,17 @@ class GroupPreviewScreen(tk.Frame):
             
             weight_col = tk.Frame(row_frame, bg=COLORS['bg_dark'])
             weight_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-            weight_entry = create_field(weight_col, "Weight (kg)")
-            weight_entry.insert(0, weight_str)
+            weight_entry = create_field(weight_col, "Weight (kg)", validation_command=validation_command_weight,
+                                         hint_text=HINT_WEIGHT,
+                                         placeholder=PLACEHOLDER_WEIGHT)
+            _insert_with_placeholder(weight_entry, weight_str)
             
             age_col = tk.Frame(row_frame, bg=COLORS['bg_dark'])
             age_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
-            birth_year_entry = create_field(age_col, "Birth Year")
-            birth_year_entry.insert(0, str(birth_year))
+            birth_year_entry = create_field(age_col, "Birth Year", validation_command=validation_command_birthyear,
+                                             hint_text=HINT_BIRTHYEAR,
+                                             placeholder=PLACEHOLDER_BIRTHYEAR)
+            _insert_with_placeholder(birth_year_entry, str(birth_year))
             
             # Club and Association fields in a row
             club_row = tk.Frame(container, bg=COLORS['bg_dark'])
@@ -689,38 +883,42 @@ class GroupPreviewScreen(tk.Frame):
             
             club_col = tk.Frame(club_row, bg=COLORS['bg_dark'])
             club_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-            club_entry = create_field(club_col, "Club")
-            club_entry.insert(0, club)
+            club_entry = create_field(club_col, "Club", validation_command=validation_command_club,
+                                       hint_text=HINT_CLUB,
+                                       placeholder=PLACEHOLDER_CLUB)
+            _insert_with_placeholder(club_entry, club)
             
             assoc_col = tk.Frame(club_row, bg=COLORS['bg_dark'])
             assoc_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
-            assoc_entry = create_field(assoc_col, "Association")
-            assoc_entry.insert(0, assoc)
+            assoc_entry = create_field(assoc_col, "Association", validation_command=validation_command_assoc,
+                                        hint_text=HINT_ASSOC,
+                                        placeholder=PLACEHOLDER_ASSOC)
+            _insert_with_placeholder(assoc_entry, assoc)
             
             # Weight Class / Age Class section
-            is_fm = str(bracket_key).startswith("FM |")
-            is_young = age_group in ('U9', 'U11') or str(bracket_key).strip() in ('U9', 'U11')
-            is_adult = age_group == "18+"
-            label_text = "WEIGHT CLASS ASSIGNMENT" if is_adult else "AGE CLASS UPGRADE"
+            is_free_match = str(bracket_key).startswith("FM |")
+            is_young_category = age_group in ('U9', 'U11') or str(bracket_key).strip() in ('U9', 'U11')
+            is_adult_category = age_group == "18+"
+            label_text = "WEIGHT CLASS ASSIGNMENT" if is_adult_category else "AGE CLASS UPGRADE"
             
-            wc_frame = tk.Frame(container, bg=COLORS['bg_dark'])
-            if not is_fm and not is_young:
-                wc_frame.pack(fill=tk.X, pady=(0, 14))
+            weight_class_frame = tk.Frame(container, bg=COLORS['bg_dark'])
+            if not is_free_match and not is_young_category:
+                weight_class_frame.pack(fill=tk.X, pady=(0, 14))
                 
-                wc_label = tk.Label(wc_frame, text=label_text, bg=COLORS['bg_dark'], fg=COLORS['accent_blue'], font=FONTS['preview_label'])
-                wc_label.pack(anchor=tk.W, pady=(0, 6))
+                weight_class_label = tk.Label(weight_class_frame, text=label_text, bg=COLORS['bg_dark'], fg=COLORS['accent_blue'], font=FONTS['preview_label'])
+                weight_class_label.pack(anchor=tk.W, pady=(0, 6))
             
             weight_class_var = tk.StringVar(value=current_weight_class)
             age_class_var = tk.StringVar(value=age_group)
             
-            def get_weight_key(wc_str):
+            def get_weight_key(weight_class_str):
                 """Returns (numeric_value, is_plus) for sorting."""
-                num_str = wc_str.replace('kg', '').replace('-', '').replace('+', '')
+                num_str = weight_class_str.replace('kg', '').replace('-', '').replace('+', '')
                 try:
                     num = float(num_str)
                 except ValueError:
                     return (999, 0)
-                is_plus = 1 if wc_str.startswith('+') else 0
+                is_plus = 1 if weight_class_str.startswith('+') else 0
                 return (num, is_plus)
             
             current_weight_key = get_weight_key(current_weight_class)
@@ -728,13 +926,37 @@ class GroupPreviewScreen(tk.Frame):
             options_to_show = []
             selected_var = None
             
-            if not is_fm and not is_young:
-                if is_adult:
-                    # Only the next heavier weight class
-                    heavier_classes = [wc for wc in available_weight_classes if get_weight_key(wc) > current_weight_key]
-                    if heavier_classes:
-                        next_class = heavier_classes[0]
-                        options_to_show = [current_weight_class, next_class]
+            if not is_free_match and not is_young_category:
+                if is_adult_category:
+                    # Determine fighter's NATURAL weight class from actual weight
+                    natural_weight_class = None
+                    fighter_weight = fighter.get('Weight', 0)
+                    if self.config_repo and fighter_weight and fighter_weight > 0:
+                        natural_weight_class = self.config_repo.get_weight_class(fighter_weight, gender, age_group)
+                    
+                    if natural_weight_class and natural_weight_class != 'unknown':
+                        natural_key = get_weight_key(natural_weight_class)
+                        # Find the ONE class above the natural class (max allowed)
+                        heavier_than_natural = [wc for wc in available_weight_classes if get_weight_key(wc) > natural_key]
+                        if heavier_than_natural:
+                            max_allowed_class = heavier_than_natural[0]  # One class above natural
+                            max_allowed_key = get_weight_key(max_allowed_class)
+                            
+                            if current_weight_key >= max_allowed_key:
+                                # Already at or above max allowed → no upgrade possible
+                                options_to_show = [current_weight_class]
+                            else:
+                                # Can still go up to max_allowed_class
+                                options_to_show = [current_weight_class, max_allowed_class]
+                        else:
+                            # Already in highest class → no upgrade possible
+                            options_to_show = [current_weight_class]
+                    else:
+                        # No weight entered or config not available → fallback: show next class up
+                        heavier_classes = [wc for wc in available_weight_classes if get_weight_key(wc) > current_weight_key]
+                        if heavier_classes:
+                            next_class = heavier_classes[0]
+                            options_to_show = [current_weight_class, next_class]
                     selected_var = weight_class_var
                 else:
                     available_age_classes = self._get_available_age_classes(gender, age_group)
@@ -743,10 +965,10 @@ class GroupPreviewScreen(tk.Frame):
                         options_to_show = [age_group, next_class]
                     selected_var = age_class_var
                 
-            if not is_fm and not is_young:
+            if not is_free_match and not is_young_category:
                 if options_to_show:
                     # CUSTOM DROPDOWN REPLACEMENT (Using a Frame-based layout to prevent draw collisions)
-                    dropdown_border = tk.Frame(wc_frame, bg=COLORS['border'], padx=1, pady=1)
+                    dropdown_border = tk.Frame(weight_class_frame, bg=COLORS['border'], padx=1, pady=1)
                     dropdown_border.pack(fill=tk.X)
                     
                     # The clickable button container
@@ -943,45 +1165,90 @@ class GroupPreviewScreen(tk.Frame):
             
             def save():
                 try:
-                    fighter['Firstname'] = first_entry.get()
-                    fighter['Lastname'] = last_entry.get()
-                    fighter['Weight'] = float(weight_entry.get())
-                    fighter['Club'] = club_entry.get()
-                    fighter['Association'] = assoc_entry.get()
-                    fighter['Birthyear'] = int(birth_year_entry.get())
+                    # ── Minimum length / value validation ──
+                    errors = []
+
+                    # Clear any active placeholders before reading values
+                    for _e in (first_entry, last_entry, weight_entry, birth_year_entry, club_entry, assoc_entry):
+                        if hasattr(_e, '_has_placeholder') and _e._has_placeholder[0]:
+                            _e.delete(0, tk.END)
+                            _e._has_placeholder[0] = False
+
+                    first_name_val = first_entry.get().strip()
+                    last_name_val = last_entry.get().strip()
+                    weight_raw = weight_entry.get().strip().replace(',', '.')
+                    birth_year_raw = birth_year_entry.get().strip()
+                    club_val = club_entry.get().strip()
+                    assoc_val = assoc_entry.get().strip()
+
+                    if first_name_val and first_name_val.endswith('-'):
+                        errors.append("Firstname must not end with a hyphen.")
+                    if last_name_val and last_name_val.endswith('-'):
+                        errors.append("Lastname must not end with a hyphen.")
+                    if not weight_raw or float(weight_raw) <= 0:
+                        errors.append("Weight must be greater than 0.")
+                    if len(birth_year_raw) != 4 or not birth_year_raw.isdigit():
+                        errors.append("Birth Year must be exactly 4 digits.")
+                    if errors:
+                        tk.messagebox.showwarning("Validation Error", "\n".join(errors), parent=edit_window)
+                        # Re-show placeholders for fields that are still empty
+                        for _e in (first_entry, last_entry, weight_entry, birth_year_entry, club_entry, assoc_entry):
+                            if hasattr(_e, '_show_placeholder'):
+                                _e._show_placeholder()
+                        return
+
+                    fighter['Firstname'] = first_name_val
+                    fighter['Lastname'] = last_name_val
+                    fighter['Weight'] = float(weight_raw)
+                    fighter['Club'] = club_val
+                    fighter['Association'] = assoc_val
+                    fighter['Birthyear'] = int(birth_year_raw)
                     fighter['Valid'] = valid_var.get()
                     fighter['Paid'] = paid_var.get()
                     
                     # Track which bracket to display after save
                     display_bracket_key = bracket_key
                     
-                    if not is_fm and not is_young:
-                        new_weight = float(weight_entry.get())
+                    if not is_free_match and not is_young_category:
+                        new_weight = float(weight_entry.get().replace(',', '.'))
                         effective_age = age_group
-                        effective_wc = current_weight_class
+                        effective_weight_class = current_weight_class
                         
                         # Check if age class was upgraded via dropdown
-                        if not is_adult:
+                        if not is_adult_category:
                             new_ac = age_class_var.get()
                             if new_ac != age_group:
                                 effective_age = new_ac
+                                # Re-map weight class for the new age group
+                                new_age_weight_classes = self._get_available_weight_classes(gender, effective_age)
+                                if current_weight_class not in new_age_weight_classes:
+                                    # Current weight class doesn't exist in new age group
+                                    # Try auto-detect from weight first
+                                    if self.config_repo and new_weight and new_weight > 0:
+                                        detected_weight_class = self.config_repo.get_weight_class(new_weight, gender, effective_age)
+                                        if detected_weight_class and detected_weight_class != 'unknown':
+                                            effective_weight_class = detected_weight_class
+                                        elif new_age_weight_classes:
+                                            effective_weight_class = new_age_weight_classes[0]  # Lowest class
+                                    elif new_age_weight_classes:
+                                        effective_weight_class = new_age_weight_classes[0]  # Lowest class
                         
                         # Check if weight class was manually changed via dropdown (adults)
-                        if is_adult:
-                            new_wc = weight_class_var.get()
-                            if new_wc != current_weight_class:
-                                effective_wc = new_wc
+                        if is_adult_category:
+                            new_weight_class = weight_class_var.get()
+                            if new_weight_class != current_weight_class:
+                                effective_weight_class = new_weight_class
                         
                         # Auto-detect weight class from new weight (overrides manual if weight changed)
                         if self.config_repo and new_weight != weight:
-                            detected_wc = self.config_repo.get_weight_class(new_weight, gender, effective_age)
-                            if detected_wc and detected_wc != 'unknown':
-                                effective_wc = detected_wc
+                            detected_weight_class = self.config_repo.get_weight_class(new_weight, gender, effective_age)
+                            if detected_weight_class and detected_weight_class != 'unknown':
+                                effective_weight_class = detected_weight_class
                         
                         # Move if anything changed
-                        if effective_age != age_group or effective_wc != current_weight_class:
+                        if effective_age != age_group or effective_weight_class != current_weight_class:
                             display_bracket_key = self._move_participant_to_bracket(
-                                bracket_key, fighter_idx, gender, effective_age, effective_wc
+                                bracket_key, fighter_idx, gender, effective_age, effective_weight_class
                             )
                     
                     self._display_participants(display_bracket_key)
@@ -989,7 +1256,7 @@ class GroupPreviewScreen(tk.Frame):
                 except ValueError:
                     tk.messagebox.showerror("Error", "Invalid weight or age. Please enter numbers.")
                 except Exception as e:
-                    self.logger.error(f"Save error: {e}", exc_info=True)
+                    self.logger.error(f"Save error: {e}")
             
             btn_save = tk.Button(button_frame, text="SAVE CHANGES", command=save, bg=COLORS['accent_green'], fg=COLORS['text_primary'], font=FONTS['heading_sm'], bd=0, relief=tk.FLAT, padx=25, pady=12, cursor='hand2')
             btn_save.pack(side=tk.RIGHT)
@@ -998,7 +1265,7 @@ class GroupPreviewScreen(tk.Frame):
             btn_cancel.pack(side=tk.RIGHT, padx=10)
             
         except Exception as e:
-            self.logger.error(f"Error opening edit dialog: {e}", exc_info=True)
+            self.logger.error(f"Error opening edit dialog: {e}")
 
     def _move_participant_to_bracket(self, old_bracket_key, fighter_idx, new_gender, new_age_group, new_weight_class):
         """Move a participant from one bracket to another when weight class or age class changes."""
