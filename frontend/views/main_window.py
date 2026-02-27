@@ -21,6 +21,7 @@ from backend.services.bracket_service import (  # noqa: E402
     export_all_brackets,
     make_bracket,
     set_bracket_config,
+    get_age_group,
 )
 from backend.data.repositories.participant_repository import (  # noqa: E402
     fetch_participants_from_db,
@@ -48,6 +49,8 @@ from ..utils import (  # noqa: E402
     load_participants_from_xlsx,
     normalize_participants,
     draw_pools_on_canvas,
+    build_bracket_rounds,
+    draw_bracket_on_canvas,
 )
 
 # Import generation method screen
@@ -322,7 +325,6 @@ class BracketViewerApp(tk.Tk):
             with name, age, and rejection reason
         """
         import datetime
-        from utils.bracket_utils import get_age_group
         
         valid_participants = []
         invalid_participants = []
@@ -478,8 +480,6 @@ class BracketViewerApp(tk.Tk):
         4. Updates the group preview display
         """
         self.logger.debug("RESORT: resort_brackets() called")
-        
-        from utils.bracket_utils import get_age_group
         
         if 'QUARANTINE' not in self.brackets:
             self.logger.debug("RESORT: QUARANTINE bracket not found in self.brackets, returning early")
@@ -1872,9 +1872,14 @@ class BracketViewerApp(tk.Tk):
             normalized_participants = []
             for p in participants:
                 if isinstance(p, dict):
+                    # Debug: log what keys exist in the participant dict
+                    if not normalized_participants:  # Only log first one
+                        self.logger.debug(f"Participant keys: {list(p.keys())}")
+                        self.logger.debug(f"First participant full object: {p}")
+                    
                     normalized_participants.append({
                         'Name': p.get('Name', p.get('name', '')),
-                        'Verein': p.get('Verein', p.get('verein', p.get('club', '')))
+                        'Verein': p.get('Club', p.get('Verein', p.get('verein', p.get('club', ''))))  # Try Club first (XLSX loader uses uppercase)
                     })
 
             if not normalized_participants:
@@ -1885,34 +1890,25 @@ class BracketViewerApp(tk.Tk):
                 return
 
             self.logger.debug(f"Normalized {len(normalized_participants)} participants")
+            # Debug: log what we extracted
+            for i, p in enumerate(normalized_participants[:3]):  # Log first 3
+                self.logger.debug(f"  Participant {i}: Name='{p['Name']}', Verein='{p['Verein']}'")
 
             # Generate bracket visualization
             bracket = make_bracket(normalized_participants)
             self.logger.debug(f"Generated bracket with {len(bracket)} first round matches")
 
-            # Build rounds for single-elimination tree
-            rounds = []
-            current = [(p1, p2) for p1, p2 in bracket]
-            rounds.append(current)
+            # Build rounds with club information using bracket_renderer infrastructure
+            rounds_with_clubs = build_bracket_rounds(bracket, normalized_participants)
+            self.logger.debug(f"Generated bracket structure with {len(rounds_with_clubs)} rounds and club info")
 
-            while len(current) > 1:
-                next_round = []
-                for i in range(0, len(current), 2):
-                    p1 = f"Winner {i+1}"
-                    p2 = f"Winner {i+2}" if i+1 < len(current) else 'BYE'
-                    next_round.append((p1, p2))
-                current = next_round
-                rounds.append(current)
-
-            self.logger.debug(f"Generated bracket structure with {len(rounds)} rounds")
-
-            # Calculate box dimensions using utility function
-            box_width, box_height, x_gap, y_gap = calculate_box_size(rounds, self.zoom_level)
+            # Calculate box dimensions using utility function (rounds now include clubs)
+            box_width, box_height, x_gap, y_gap = calculate_box_size(rounds_with_clubs, self.zoom_level)
 
             # Calculate bracket positions
             positions = {}
             y_offsets = {}
-            first_total = len(rounds[0])
+            first_total = len(rounds_with_clubs[0])
             start_x = int(60 * self.zoom_level)
             start_y = int(60 * self.zoom_level)
 
@@ -1922,8 +1918,8 @@ class BracketViewerApp(tk.Tk):
                 positions[(0, m)] = (x, y)
                 y_offsets[(0, m)] = y + box_height // 2
 
-            for r in range(1, len(rounds)):
-                matches = rounds[r]
+            for r in range(1, len(rounds_with_clubs)):
+                matches = rounds_with_clubs[r]
                 x = start_x + r * (box_width + x_gap)
                 for m in range(len(matches)):
                     prev1 = (r-1, m*2)
@@ -1934,52 +1930,24 @@ class BracketViewerApp(tk.Tk):
                     positions[(r, m)] = (x, y)
                     y_offsets[(r, m)] = y + box_height // 2
 
-            # Draw rounds (INVERTED COLORS - white on black)
-            for r, matches in enumerate(rounds):
-                for m, (p1, p2) in enumerate(matches):
-                    x, y = positions[(r, m)]
-
-                    # Draw box (white outline) - scale line width too
-                    line_width = max(1, int(2 * self.zoom_level))
-                    self.bracket_canvas.create_rectangle(x, y, x + box_width, y + box_height,
-                                                         outline=COLORS['white'], width=line_width)
-                    self.bracket_canvas.create_line(x, y + box_height // 2, x + box_width, y + box_height // 2,
-                                                   fill=COLORS['text_secondary'], dash=(2, 2))
-
-                    # Draw text (white) - scale font size
-                    font_size = max(6, int(10 * self.zoom_level))
-                    scaled_font = ('Consolas', font_size)
-                    vs_font = ('Arial', max(6, int(10 * self.zoom_level)), 'bold')
-
-                    self.bracket_canvas.create_text(x + box_width // 2, y + box_height // 4,
-                                                   text=p1, anchor='c',
-                                                   fill=COLORS['white'], font=scaled_font)
-                    self.bracket_canvas.create_text(x + box_width // 2, y + 3 * box_height // 4,
-                                                   text=p2, anchor='c',
-                                                   fill=COLORS['white'], font=scaled_font)
-                    # "vs" in red for visibility
-                    self.bracket_canvas.create_text(x + box_width // 2, y + box_height // 2,
-                                                   text='vs', anchor='c',
-                                                   font=vs_font,
-                                                   fill=COLORS['accent_red'])
-
-                    # Draw connector to next round (white arrows)
-                    if r < len(rounds) - 1:
-                        next_match_idx = m // 2
-                        nx, ny = positions[(r + 1, next_match_idx)]
-                        self.bracket_canvas.create_line(
-                            x + box_width, y + box_height // 2,
-                            nx, ny + box_height // 2,
-                            arrow=tk.LAST, width=line_width,
-                            fill=COLORS['white']
-                        )
+            # Draw bracket using your complete infrastructure (includes club display)
+            draw_bracket_on_canvas(
+                self.bracket_canvas, 
+                rounds_with_clubs, 
+                positions, 
+                box_width, 
+                box_height, 
+                self.zoom_level, 
+                COLORS, 
+                FONTS
+            )
 
             # Update scroll region based on bracket size and zoom level
             max_x = max(pos[0] for pos in positions.values()) + box_width + start_x
             max_y = max(pos[1] for pos in positions.values()) + box_height + start_y
             self.bracket_canvas.configure(scrollregion=(0, 0, max_x, max_y))
 
-            self.logger.debug(f"Successfully rendered bracket with {len(rounds)} rounds at {int(self.zoom_level*100)}% zoom")
+            self.logger.debug(f"Successfully rendered bracket with {len(rounds_with_clubs)} rounds and club info at {int(self.zoom_level*100)}% zoom")
 
         except Exception as e:
             self.logger.error(f"Exception rendering bracket: {e}")
@@ -2062,8 +2030,26 @@ class BracketViewerApp(tk.Tk):
                 font=FONTS['body_md'], fill='red')
 
 def main():
-    app = BracketViewerApp()
-    app.mainloop()
+    """
+    Launch the Tournament Bracket Manager application.
+    
+    Initializes the GUI and handles errors gracefully.
+    """
+    try:
+        app = BracketViewerApp()
+        app.logger.info("Application started successfully")
+        app.mainloop()
+    except Exception as e:
+        import traceback
+        error_msg = f"Fatal error during application startup:\n{str(e)}"
+        print(f"[ERROR] {error_msg}")
+        traceback.print_exc()
+        # Try to show a messagebox if tk is available
+        try:
+            tk.Tk().withdraw()
+            tk.messagebox.showerror("Application Error", error_msg)
+        except:
+            pass
 
 
 if __name__ == '__main__':
