@@ -25,6 +25,8 @@ from backend.services.bracket_service import (  # noqa: E402
 )
 from backend.services.database_service import get_database_service  # noqa: E402
 
+from ..services.task_runner import TaskRunner  # noqa: E402
+
 from ..styles import (  # noqa: E402
     COLORS,
     FONTS,
@@ -54,6 +56,50 @@ from .file_loader_screen import FileLoaderScreen  # noqa: E402
 from .group_preview_screen import GroupPreviewScreen  # noqa: E402
 from .fight_monitoring_window import FightMonitoringScreen  # noqa: E402
 from ..search_utils import filter_items  # noqa: E402
+
+# ====================================================================
+# !!!!! CLAUDE: REFACTORING INSTRUCTIONS !!!!!
+# ====================================================================
+# This file is a GOD CLASS with 44 methods doing 9 different jobs.
+# REFACTOR BY EXTRACTING SERVICES - DO NOT hack around in main_window.
+#
+# Available Infrastructure:
+#
+# 1. DATABASE ACCESS (use instead of SessionLocal):
+#    - self.db_service = get_database_service()
+#    - Methods: save_participants(), save_groups_and_brackets(),
+#              assign_bracket_to_table(), create_fights_for_bracket()
+#    - NEVER call TournamentService or import SessionLocal directly
+#
+# 2. BACKGROUND THREADING (use instead of manual Thread spawning):
+#    - self.task_runner = TaskRunner(num_workers=2)
+#    - Submit tasks: self.task_runner.submit_task(
+#        task_id='load_xlsx',
+#        fn=lambda on_progress: self._perform_load(..., on_progress),
+#        on_progress=self.update_progress,
+#        on_complete=self.after(500, self.show_next_screen),
+#        on_error=self.show_error_dialog
+#      )
+#    - This enables: parallel DB init + file load, fine-grained progress,
+#      task cancellation, centralized error handling
+#
+# REFACTORING TARGETS (in priority order):
+# 1. DataLoaderService    - Extracts: load_and_generate, load_from_database,
+#                          load_json_and_generate, split_gender_to_json,
+#                          _load_*_thread (all variants), filter_*,
+#                          _create_quarantine_bracket (300+ lines)
+# 2. BracketManagerService - assign_to_table, unassign_bracket,
+#                           auto_assign_tables, resort_brackets,
+#                           update_bracket_list, update_table_panels,
+#                           calculate_number_of_fights (150+ lines)
+# 3. BracketRendererService - render_bracket, _render_pool, zoom_*,
+#                            update_zoom_label, _on_mousewheel (200+ lines)
+# 4. UIFeedbackService - show_loading_progress, update_progress,
+#                       hide_loading_progress, set_status, set_info_text (100+ lines)
+# 5. ScreenManagerService - show_* methods (just delegates to new screens)
+#
+# DO NOT add more logic to main_window. Wire services to callbacks instead.
+# ====================================================================
 
 # ===== DEBUG CONFIGURATION =====
 # Set to True to print debug logs to console; False to only log to file
@@ -85,6 +131,10 @@ class BracketViewerApp(tk.Tk):
 
         # Initialize database service (handles all DB operations)
         self.db_service = get_database_service()
+
+        # Initialize background task runner (for loading, imports, etc.)
+        self.task_runner = TaskRunner(num_workers=2)
+        self.logger.debug("TaskRunner initialized with 2 workers for parallel operations")
 
         # Data
         self.brackets = {}  # {bracket_key: Bracket data}
@@ -1705,7 +1755,9 @@ class BracketViewerApp(tk.Tk):
             messagebox.showerror("Error", f"Failed to split participants:\n{str(e)}")
 
     def on_closing(self):
-        """Handle window closing."""
+        """Handle window closing - cleanup resources."""
+        self.logger.info("Application closing, shutting down task runner...")
+        self.task_runner.shutdown(wait=False)  # Don't block UI, let tasks finish in background
         self.destroy()
 
     def update_bracket_list(self, *args):
