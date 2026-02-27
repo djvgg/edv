@@ -23,12 +23,7 @@ from backend.services.bracket_service import (  # noqa: E402
     set_bracket_config,
     get_age_group,
 )
-from backend.data.repositories.participant_repository import (  # noqa: E402
-    fetch_participants_from_db,
-)
-import backend.data.database as _db_module  # noqa: E402
-from backend.data.database import SessionLocal  # noqa: E402
-from backend.services.tournament_service import TournamentService  # noqa: E402
+from backend.services.database_service import get_database_service  # noqa: E402
 
 from ..styles import (  # noqa: E402
     COLORS,
@@ -88,6 +83,9 @@ class BracketViewerApp(tk.Tk):
         except Exception as e:
             self.logger.warning(f"Could not load config: {e}")
 
+        # Initialize database service (handles all DB operations)
+        self.db_service = get_database_service()
+
         # Data
         self.brackets = {}  # {bracket_key: Bracket data}
         self.bracket_generation_methods = {}  # {bracket_key: method_name}
@@ -106,35 +104,6 @@ class BracketViewerApp(tk.Tk):
 
         # Start with file loading UI
         self.show_file_loader()
-
-    def _with_db(self, fn):
-        """
-        Create a fresh SQLAlchemy session, run fn(TournamentService(db)), then close.
-        Thread-safe: each call owns its own session.
-        Errors are logged but never crash the app — DB writes are best-effort.
-        If the DB is unavailable, silently returns.
-        """
-        if not _db_module.DB_AVAILABLE:
-            return
-        
-        db = None
-        try:
-            db = SessionLocal()
-            fn(TournamentService(db))
-        except Exception as e:
-            # Connection errors or other DB issues - mark DB as unavailable and log
-            error_msg = str(e).lower()
-            if 'connection refused' in error_msg or 'could not connect' in error_msg:
-                _db_module.DB_AVAILABLE = False
-                self.logger.warning(f"Database unavailable, disabling DB save: {e}")
-            else:
-                # Other errors still logged but don't disable DB
-                if db:
-                    db.rollback()
-                self.logger.error(f"DB operation failed: {e}\n{traceback.format_exc()}")
-        finally:
-            if db:
-                db.close()
 
     def setup_ttk_styles(self):
         """Configure ttk styles for dark theme scrollbars."""
@@ -858,8 +827,7 @@ class BracketViewerApp(tk.Tk):
         
         # Store the assignments for use in bracket viewer
         self.bracket_generation_methods = final_assignments
-        self._with_db(lambda svc, b=self.brackets, m=final_assignments:
-                      svc.save_groups_and_brackets(b, m))
+        self.db_service.save_groups_and_brackets(self.brackets, final_assignments)
 
         # Proceed to bracket viewer
         self.show_bracket_viewer()
@@ -867,15 +835,10 @@ class BracketViewerApp(tk.Tk):
     def show_fight_monitoring_screen(self):
         """Switch to the Fight Monitoring screen (in-app, no separate window)."""
         # Create fight rows in DB for every assigned bracket (idempotent — skips if already created)
-        def _create_fights(svc):
-            for bracket_key, table_num in self.bracket_table_assignment.items():
-                if table_num and bracket_key in self.brackets:
-                    fight_pairs = self.brackets[bracket_key].get('bracket', [])
-                    try:
-                        svc.open_bracket_for_monitoring(bracket_key, fight_pairs)
-                    except ValueError:
-                        pass  # bracket not yet saved to DB (e.g. loaded from DB path)
-        self._with_db(_create_fights)
+        for bracket_key, table_num in self.bracket_table_assignment.items():
+            if table_num and bracket_key in self.brackets:
+                fight_pairs = self.brackets[bracket_key].get('bracket', [])
+                self.db_service.create_fights_for_bracket(bracket_key, fight_pairs)
 
         # Clear existing widgets
         for widget in self.winfo_children():
@@ -1014,7 +977,7 @@ class BracketViewerApp(tk.Tk):
 
         # Assign the bracket
         self.bracket_table_assignment[bracket_key] = table_num
-        self._with_db(lambda svc, k=bracket_key, t=table_num: svc.assign_mat(k, t))
+        self.db_service.assign_bracket_to_table(bracket_key, table_num)
         self.update_bracket_list()
         self.update_table_panels()
         self.logger.info(f"Assigned '{bracket_key}' to Matte {table_num}")
@@ -1066,11 +1029,9 @@ class BracketViewerApp(tk.Tk):
                 table = table % 4 + 1
 
         # Persist all auto-assignments to DB in one pass
-        assignments = {k: v for k, v in self.bracket_table_assignment.items() if v}
-        def _save_auto_assignments(svc):
-            for bkey, tnum in assignments.items():
-                svc.assign_mat(bkey, tnum)
-        self._with_db(_save_auto_assignments)
+        for bracket_key, table_num in self.bracket_table_assignment.items():
+            if table_num:
+                self.db_service.assign_bracket_to_table(bracket_key, table_num)
 
         self.update_bracket_list()
         self.update_table_panels()
@@ -1202,7 +1163,7 @@ class BracketViewerApp(tk.Tk):
             
             participants = normalize_participants(raw_participants)
             self.update_progress(40)
-            self._with_db(lambda svc, p=participants: svc.save_participants(p))
+            self.db_service.save_participants(participants)
 
             # Filter out unpaid participants
             participants, unpaid = self.filter_unpaid_participants(participants)

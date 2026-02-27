@@ -1,23 +1,28 @@
 # SPDX-FileCopyrightText: 2026 TOP Team Combat Control
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""
-Main entry point for the Tournament Bracket Manager application.
+"""Direct entry point: python main.py"""
 
-Refactored structure:
-- frontend/views/main_window.py: GUI code
-- backend/services/bracket_service.py: Business logic
-- backend/data/repositories/config_repository.py: Configuration management
-"""
+import traceback
+import os
+import sys
 
-import backend.data.database as _db
-from backend.data.database import init_db
+# Add edv_backend to path so imports work
+sys.path.insert(0, os.path.dirname(__file__))
+
+from backend.services.database_service import get_database_service
 from frontend.views.main_window import main
 
 if __name__ == '__main__':
+    # Initialize database service (handles schema creation, connection errors)
+    db_service = get_database_service()
+    if db_service.is_available():
+        print("[INFO] Database initialized successfully")
+    else:
+        print("[WARNING] Database unavailable, running in offline mode")
+    
     try:
-        init_db()
+        main()
     except Exception as e:
-        print(f"[WARNING] DB unavailable, running without database: {e}")
-        _db.DB_AVAILABLE = False
-    main()
+        print(f"[ERROR] Application crashed: {e}")
+        traceback.print_exc()
