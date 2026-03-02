@@ -78,6 +78,7 @@ class GroupPreviewScreen(tk.Frame):
         # Callbacks
         self.on_continue = None
         self.on_back = None
+        self.on_resort = None  # Callback to trigger bracket regeneration
 
         self._setup_scrollbar_style()
         self.init_ui()
@@ -943,14 +944,56 @@ class GroupPreviewScreen(tk.Frame):
             
             def save():
                 try:
+                    # Store original values for comparison
+                    original = {
+                        'Firstname': fighter.get('Firstname', fighter.get('name', '')),
+                        'Lastname': fighter.get('Lastname', ''),
+                        'Weight': fighter.get('Weight', fighter.get('weight', '')),
+                        'Club': fighter.get('Club', fighter.get('Verein', fighter.get('verein', fighter.get('club', '')))),
+                        'Association': fighter.get('Association', ''),
+                        'Birthyear': fighter.get('Birthyear', fighter.get('BirthYear', fighter.get('birthyear', fighter.get('age', '')))),
+                        'Valid': fighter.get('Valid', False),
+                        'Paid': fighter.get('Paid', False),
+                    }
+                    
+                    # Update fighter with new values
                     fighter['Firstname'] = first_entry.get()
                     fighter['Lastname'] = last_entry.get()
                     fighter['Weight'] = float(weight_entry.get())
                     fighter['Club'] = club_entry.get()
                     fighter['Association'] = assoc_entry.get()
                     fighter['Birthyear'] = int(birth_year_entry.get())
+                    # IMPORTANT: Also update Age field to match Birthyear (since Age is used in validation)
+                    fighter['Age'] = fighter['Birthyear']
                     fighter['Valid'] = valid_var.get()
                     fighter['Paid'] = paid_var.get()
+                    
+                    # Log what changed
+                    changes = []
+                    if original['Firstname'] != fighter['Firstname']:
+                        changes.append(f"Firstname: '{original['Firstname']}' → '{fighter['Firstname']}'")
+                    if original['Lastname'] != fighter['Lastname']:
+                        changes.append(f"Lastname: '{original['Lastname']}' → '{fighter['Lastname']}'")
+                    if original['Weight'] != fighter['Weight']:
+                        changes.append(f"Weight: {original['Weight']} → {fighter['Weight']}")
+                    if original['Club'] != fighter['Club']:
+                        changes.append(f"Club: '{original['Club']}' → '{fighter['Club']}'")
+                    if original['Association'] != fighter['Association']:
+                        changes.append(f"Association: '{original['Association']}' → '{fighter['Association']}'")
+                    if original['Birthyear'] != fighter['Birthyear']:
+                        changes.append(f"Birthyear: {original['Birthyear']} → {fighter['Birthyear']}")
+                    if original['Valid'] != fighter['Valid']:
+                        changes.append(f"Valid: {original['Valid']} → {fighter['Valid']}")
+                    if original['Paid'] != fighter['Paid']:
+                        changes.append(f"Paid: {original['Paid']} → {fighter['Paid']}")
+                    
+                    # Log all changes
+                    fighter_name = f"{fighter['Firstname']} {fighter['Lastname']}".strip()
+                    if changes:
+                        changes_text = "\n  • ".join(changes)
+                        self.logger.debug(f"EDIT: {fighter_name} - Changes saved:\n  • {changes_text}")
+                    else:
+                        self.logger.debug(f"EDIT: {fighter_name} - No changes made")
                     
                     # Track which bracket to display after save
                     display_bracket_key = bracket_key
@@ -985,6 +1028,21 @@ class GroupPreviewScreen(tk.Frame):
                             )
                     
                     self._display_participants(display_bracket_key)
+                    
+                    # Trigger bracket regeneration if callback is set
+                    # Pass the edited fighter so resort only needs to check this one person
+                    self.logger.debug(f"EDIT: Checking on_resort callback: {self.on_resort is not None}")
+                    if self.on_resort:
+                        try:
+                            fighter_name = f"{fighter.get('Firstname', '')} {fighter.get('Lastname', '')}".strip()
+                            self.logger.debug(f"EDIT: on_resort callback is set, triggering resort_brackets() for {fighter_name}")
+                            self.on_resort(fighter)  # Pass the edited fighter to resort only this person
+                            self.logger.debug("EDIT: on_resort callback completed successfully")
+                        except Exception as callback_err:
+                            self.logger.error(f"EDIT: Error in on_resort callback: {callback_err}", exc_info=True)
+                    else:
+                        self.logger.debug("EDIT: on_resort callback is NOT set")
+                    
                     edit_window.destroy()
                 except ValueError:
                     tk.messagebox.showerror("Error", "Invalid weight or age. Please enter numbers.")

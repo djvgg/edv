@@ -87,6 +87,7 @@ class TournamentService:
         # Derive birth_date from Age (Jahrgang = current_year - age).
         # Stored as Jan 1 of birth year — German tournaments classify by
         # Jahrgang, not exact birthday, so this is the correct granularity.
+        # then why save the age ????????? 
         birth_date = None
         age = raw.get('Age')
         if age is not None:
