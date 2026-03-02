@@ -50,10 +50,11 @@ class GroupPreviewScreen(tk.Frame):
     # Debug flag - set to True for verbose logging
     DEBUG = DEBUG
 
-    def __init__(self, parent, **kwargs):
+    def __init__(self, parent, quarantine_service=None, **kwargs):
         super().__init__(parent, **kwargs)
         self.configure(bg=COLORS['bg_dark'])
         self.logger = logger
+        self.quarantine_service = quarantine_service  # Store reference for edit dialog
 
         # Initialize config repository for weight classes
         try:
@@ -514,15 +515,20 @@ class GroupPreviewScreen(tk.Frame):
         old_fighters.pop(fighter_idx)
         f_name = f"{fighter.get('Firstname', '')} {fighter.get('Lastname', '')}".strip() or fighter.get('Name', 'Unknown')
         self.logger.info(f"Removed {f_name} from {old_bracket_key}")
-        
+
+        # Invalidate the stale KO pairings — they will be regenerated from
+        # fighters the next time the bracket is rendered or monitoring opens.
+        self.brackets[old_bracket_key]['bracket'] = []
+
         # Add to new bracket (create if needed)
         if new_bracket_key not in self.brackets:
             self.brackets[new_bracket_key] = {
                 'fighters': [],
                 'bracket': []
             }
-        
+
         self.brackets[new_bracket_key]['fighters'].append(fighter)
+        self.brackets[new_bracket_key]['bracket'] = []  # Invalidate new bracket too
         f_name = f"{fighter.get('Firstname', '')} {fighter.get('Lastname', '')}".strip() or fighter.get('Name', 'Unknown')
         self.logger.info(f"Added {f_name} to {new_bracket_key}")
         

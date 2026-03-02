@@ -26,6 +26,7 @@ from backend.services.bracket_service import (  # noqa: E402
 from backend.services.database_service import get_database_service  # noqa: E402
 
 from ..services.task_runner import TaskRunner  # noqa: E402
+from ..services.bracket_manager import regenerate_stale_ko_brackets  # noqa: E402
 
 from ..styles import (  # noqa: E402
     COLORS,
@@ -56,6 +57,8 @@ from .file_loader_screen import FileLoaderScreen  # noqa: E402
 from .group_preview_screen import GroupPreviewScreen  # noqa: E402
 from .fight_monitoring_window import FightMonitoringScreen  # noqa: E402
 from ..search_utils import filter_items  # noqa: E402
+from ..services.quarantine_service import QuarantineService  # noqa: E402
+from ..services.ui_feedback_service import UIFeedbackService  # noqa: E402
 
 # ====================================================================
 # !!!!! CLAUDE: REFACTORING INSTRUCTIONS !!!!!
@@ -115,7 +118,7 @@ class BracketViewerApp(tk.Tk):
         # Initialize logger
         self.logger = get_logger('main_window', debug_verbose=DEBUG)
         
-        self.title('Tournament Bracket Manager')
+        self.title('Combat Control')
         self.geometry('520x440')  
         self.configure(bg=COLORS['bg_dark'])
 
@@ -136,6 +139,12 @@ class BracketViewerApp(tk.Tk):
         self.task_runner = TaskRunner(num_workers=2)
         self.logger.debug("TaskRunner initialized with 2 workers for parallel operations")
 
+        # Initialize quarantine service (manages rejected participants)
+        self.quarantine_service = QuarantineService()
+
+        # Initialize UI feedback service (handles progress dialogs, status messages)
+        self.ui_feedback = UIFeedbackService(self)
+
         # Data
         self.brackets = {}  # {bracket_key: Bracket data}
         self.bracket_generation_methods = {}  # {bracket_key: method_name}
@@ -146,6 +155,14 @@ class BracketViewerApp(tk.Tk):
         # Fight monitoring state – persists across window open/close
         # {bracket_key: {(round_idx, match_idx): winner_name}}
         self.match_results = {}
+        # {bracket_key: {(lb_round, lb_match): winner_name}}
+        self.loser_match_results = {}
+        # {bracket_key: {(pool_idx, row, fight_num): score}}
+        self.pool_cell_values = {}
+        # {bracket_key: {'p0_1st': name, 'p0_2nd': name, ...}}
+        self.ko_bracket_data = {}
+        # {bracket_key: {(round, match): winner_name}}
+        self.ko_match_results = {}
 
         # Preview window state
         self.group_listbox_map = {}
@@ -193,6 +210,13 @@ class BracketViewerApp(tk.Tk):
         loader_screen.on_load_database = self.load_from_database
         loader_screen.on_load_json = self.load_json_and_generate
         loader_screen.on_split_gender = self.split_gender_to_json
+        
+        # Register variables with ui_feedback service if they exist
+        if hasattr(loader_screen, 'status_var') and hasattr(loader_screen, 'status_label'):
+            self.ui_feedback.set_status_label_reference(loader_screen.status_label, loader_screen.status_var)
+        if hasattr(loader_screen, 'info_var'):
+            self.ui_feedback.set_info_var_reference(loader_screen.info_var)
+        self.ui_feedback.set_file_loader_screen_reference(loader_screen)
 
         self.logger.debug("File loader screen displayed")
 
@@ -207,16 +231,19 @@ class BracketViewerApp(tk.Tk):
             widget.destroy()
 
         # Create and display preview screen
-        preview_screen = GroupPreviewScreen(self)
+        preview_screen = GroupPreviewScreen(self, quarantine_service=self.quarantine_service)
         preview_screen.pack(fill=tk.BOTH, expand=True)
 
         # Store reference and set up callbacks
         self.group_preview_screen = preview_screen
         preview_screen.on_back = self.show_file_loader
         preview_screen.on_continue = self.show_generation_method_screen
-        preview_screen.on_resort = self.resort_brackets
+        preview_screen.on_resort = lambda edited_fighter: self.quarantine_service.resort_brackets(
+            self.brackets, edited_fighter, preview_screen
+        )
 
-        # Load bracket data
+        # Load bracket data (QuarantineService restores preserved brackets if available)
+        self.quarantine_service.restore_quarantine(self.brackets)
         preview_screen.load_data(self.brackets)
 
         self.logger.debug("Group preview screen displayed")
@@ -226,6 +253,9 @@ class BracketViewerApp(tk.Tk):
         # Clear existing widgets
         for widget in self.winfo_children():
             widget.destroy()
+
+        # QuarantineService handles extraction and preservation of QUARANTINE bracket
+        self.quarantine_service.extract_quarantine(self.brackets)
 
         # Create the generation method screen
         gen_screen = GenerationMethodScreen(self)
@@ -252,43 +282,6 @@ class BracketViewerApp(tk.Tk):
 
         # Set up callback for when generation methods are selected
         gen_screen.on_generation_complete = self.on_generation_methods_selected
-
-    def show_loading_progress(self, message):
-        """Show a loading progress dialog."""
-        # Create a loading window
-        self.loading_window = tk.Toplevel(self)
-        self.loading_window.title("Loading...")
-        self.loading_window.geometry("400x150")
-        self.loading_window.configure(bg=COLORS['bg_dark'])
-        self.loading_window.resizable(False, False)
-        
-        # Make it modal
-        self.loading_window.transient(self)
-        self.loading_window.grab_set()
-        
-        # Center on parent window
-        self.loading_window.update_idletasks()
-        x = self.winfo_x() + (self.winfo_width() - 400) // 2
-        y = self.winfo_y() + (self.winfo_height() - 150) // 2
-        self.loading_window.geometry(f"+{x}+{y}")
-        
-        # Message label
-        msg_label = tk.Label(self.loading_window, text=message)
-        apply_label_style(msg_label, 'heading_md')
-        msg_label.pack(pady=(20, 10))
-        
-        # Progress bar
-        self.progress_var = tk.IntVar(value=0)
-        progress_bar = ttk.Progressbar(self.loading_window, variable=self.progress_var,
-                                       maximum=100, length=350, mode='determinate')
-        progress_bar.pack(pady=10, padx=20)
-        
-        # Percentage label
-        self.progress_label = tk.Label(self.loading_window, text="0%")
-        apply_label_style(self.progress_label, 'info')
-        self.progress_label.pack(pady=(0, 10))
-        
-        self.loading_window.update_idletasks()
 
     def filter_unpaid_participants(self, all_participants):
         """Filter out unpaid participants and show a popup if any are found.
@@ -437,230 +430,6 @@ class BracketViewerApp(tk.Tk):
         if quarantine_count > 0:
             self.logger.warning(f"⚠️  {quarantine_count} participant(s) in QUARANTINE for manual review")
 
-    def _create_quarantine_bracket(self, invalid_participants):
-        """Create a QUARANTINE bracket with all rejected participants for manual review.
-        
-        Args:
-            invalid_participants: List of full participant dicts with 'rejection_reason' and 'calculated_age' added
-        
-        Returns:
-            List of fighter dicts (participant format)
-        """
-        if not invalid_participants:
-            return []
-        
-        # Convert invalid participant dicts to fighter format
-        fighters = []
-        for i, invalid_p in enumerate(invalid_participants, 1):
-            # Copy all original fields from the participant
-            fighter = dict(invalid_p)
-            
-            # Add rejection tracking fields
-            fighter['ID'] = invalid_p.get('ID', f"QUARANTINE_{i}")
-            fighter['RejectionReason'] = invalid_p.get('rejection_reason', 'Unknown reason')
-            
-            # Ensure Age field contains the original age/birthyear value
-            # (calculated_age is the computed age, Age is the original field)
-            if 'Age' not in fighter or fighter.get('Age') is None:
-                # If Age is missing, try Birthyear
-                if 'Birthyear' in invalid_p:
-                    fighter['Age'] = invalid_p['Birthyear']
-            
-            fighters.append(fighter)
-        
-        # Create quarantine bracket entry
-        if 'QUARANTINE' not in self.brackets:
-            self.brackets['QUARANTINE'] = {
-                'fighters': fighters,
-                'bracket': [],  # No bracket structure; people manually reviewed here
-                'pool_size': None,
-                'is_quarantine': True,  # Flag to identify as quarantine
-            }
-        else:
-            # Append to existing quarantine if it exists
-            self.brackets['QUARANTINE']['fighters'].extend(fighters)
-        
-        self.logger.info(f"Created QUARANTINE bracket with {len(fighters)} rejected participant(s)")
-        return fighters
-
-    def resort_brackets(self, edited_fighter=None):
-        """Re-sort brackets after changes in QUARANTINE.
-        
-        Args:
-            edited_fighter: Optional dict of the fighter that was just edited.
-                          If provided, only that fighter is checked for re-sorting.
-                          If None, all QUARANTINE fighters are checked.
-        
-        This method:
-        1. Extracts valid participants from QUARANTINE
-        2. Removes them from QUARANTINE
-        3. Re-generates brackets with all valid participants
-        4. Updates the group preview display
-        """
-        self.logger.debug("RESORT: resort_brackets() called")
-        
-        if 'QUARANTINE' not in self.brackets:
-            self.logger.debug("RESORT: QUARANTINE bracket not found in self.brackets, returning early")
-            return
-        
-        quarantine_fighters = self.brackets['QUARANTINE'].get('fighters', [])
-        self.logger.debug(f"RESORT: Found {len(quarantine_fighters)} fighters in QUARANTINE")
-        
-        if not quarantine_fighters:
-            self.logger.debug("RESORT: QUARANTINE bracket is empty, returning early")
-            return
-        
-        # If a specific fighter was edited, only check that one
-        if edited_fighter is not None:
-            fighters_to_check = [edited_fighter]
-            self.logger.debug(f"RESORT: Checking only the edited fighter: {edited_fighter.get('Name', 'Unknown')}")
-        else:
-            fighters_to_check = quarantine_fighters
-            self.logger.debug(f"RESORT: Checking all {len(quarantine_fighters)} fighters in QUARANTINE")
-        
-        # Separate valid and still-invalid participants
-        valid_from_quarantine = []
-        still_invalid = []
-        
-        current_year = datetime.datetime.now().year
-        for fighter in fighters_to_check:
-            fighter_name = fighter.get('Name', f"Unknown ({fighter.get('ID', '?')})")
-            is_valid = True
-            invalid_reason = None
-            
-            # Check paid status
-            if not fighter.get('Paid', False):
-                is_valid = False
-                invalid_reason = "unpaid"
-            else:
-                # Check age validity
-                age = None
-                age_value = fighter.get('Age')
-                try:
-                    if age_value is not None:
-                        age_value = int(age_value)
-                        age = current_year - age_value
-                except (ValueError, TypeError):
-                    pass
-                
-                if age is None and 'Birthyear' in fighter:
-                    try:
-                        birthyear = int(fighter.get('Birthyear'))
-                        age = current_year - birthyear
-                    except (ValueError, TypeError):
-                        pass
-                
-                # Check age bounds
-                if age is None:
-                    is_valid = False
-                    invalid_reason = "no age/birthyear"
-                elif age < 6:
-                    is_valid = False
-                    invalid_reason = f"too young ({age} years)"
-                elif age > 120:
-                    is_valid = False
-                    invalid_reason = f"too old ({age} years)"
-                else:
-                    # Check age group mapping
-                    try:
-                        age_group = get_age_group(age)
-                        if age_group is None:
-                            is_valid = False
-                            invalid_reason = f"no age group for age {age}"
-                    except Exception as e:
-                        is_valid = False
-                        invalid_reason = f"age validation error: {e}"
-            
-            if is_valid:
-                valid_from_quarantine.append(fighter)
-                self.logger.debug(f"RESORT: {fighter_name} now valid (fixed)")
-            else:
-                still_invalid.append(fighter)
-                self.logger.debug(f"RESORT: {fighter_name} remains invalid ({invalid_reason})")
-        
-        # If we only checked the edited fighter, we need to keep the OTHER quarantine fighters unchanged
-        if edited_fighter is not None:
-            # Add back all the quarantine fighters that weren't checked
-            other_quarantine = [f for f in quarantine_fighters if f.get('ID') != edited_fighter.get('ID')]
-            still_invalid.extend(other_quarantine)
-            self.logger.debug(f"RESORT: Keeping {len(other_quarantine)} other quarantine fighters unchanged")
-        
-        # Update QUARANTINE with only still-invalid fighters
-        if still_invalid:
-            self.brackets['QUARANTINE']['fighters'] = still_invalid
-            self.logger.info(f"Re-sorted from QUARANTINE: {len(valid_from_quarantine)} now valid, {len(still_invalid)} remain invalid")
-        else:
-            # Remove QUARANTINE if empty
-            del self.brackets['QUARANTINE']
-            self.logger.info(f"Re-sorted all {len(valid_from_quarantine)} from QUARANTINE - now valid")
-        
-        # Re-generate brackets with valid participants
-        if valid_from_quarantine:
-            # Save current brackets (excluding QUARANTINE)
-            temp_brackets = {k: v for k, v in self.brackets.items() if k != 'QUARANTINE'}
-            
-            # Re-generate with valid fighters added
-            self.brackets = export_all_brackets(valid_from_quarantine)
-            
-            # Merge back the manually-assigned brackets
-            for key, bracket_data in temp_brackets.items():
-                if key not in self.brackets:
-                    self.brackets[key] = bracket_data
-            
-            # Log where each fighter was placed
-            for fighter in valid_from_quarantine:
-                fighter_id = fighter.get('ID')
-                fighter_name = fighter.get('Name', f"Unknown ({fighter_id})")
-                
-                # Find which bracket contains this fighter
-                new_bracket_key = None
-                for bracket_key, bracket_data in self.brackets.items():
-                    if bracket_key == 'QUARANTINE':
-                        continue
-                    fighters = bracket_data.get('fighters', [])
-                    for f in fighters:
-                        if f.get('ID') == fighter_id:
-                            new_bracket_key = bracket_key
-                            break
-                    if new_bracket_key:
-                        break
-                
-                if new_bracket_key:
-                    self.logger.debug(f"RESORT: {fighter_name} → new bracket: {new_bracket_key}")
-                else:
-                    self.logger.warning(f"RESORT: {fighter_name} could not find assigned bracket after re-sort")
-            
-            self._log_bracket_summary()
-            
-            # Re-add QUARANTINE if there are still-invalid
-            if still_invalid:
-                self.brackets['QUARANTINE'] = {
-                    'fighters': still_invalid,
-                    'bracket': [],
-                    'pool_size': None,
-                    'is_quarantine': True,
-                }
-        
-        # Refresh the group preview display
-        if hasattr(self, 'group_preview_screen') and self.group_preview_screen.winfo_exists():
-            self.group_preview_screen.load_data(self.brackets)
-            self.logger.info("Group preview refreshed after resort")
-        else:
-            self.logger.debug("RESORT: No group_preview_screen to refresh")
-        
-        self.logger.debug("RESORT: resort_brackets() completed")
-
-    def update_progress(self, value):
-        """Update the progress bar."""
-        if hasattr(self, 'progress_var') and hasattr(self, 'loading_window'):
-            self.progress_var.set(value)
-            self.progress_label.config(text=f"{value}%")
-            self.loading_window.update_idletasks()
-
-    def hide_loading_progress(self):
-        """Hide the loading progress dialog."""
-        if hasattr(self, 'loading_window') and self.loading_window.winfo_exists():
-            self.loading_window.destroy()
 
     def show_bracket_viewer(self):
         """Show bracket list and visualization (dark themed)."""
@@ -883,6 +652,10 @@ class BracketViewerApp(tk.Tk):
 
     def show_fight_monitoring_screen(self):
         """Switch to the Fight Monitoring screen (in-app, no separate window)."""
+        # Ensure all KO bracket fields reflect the current fighters lists.
+        regenerate_stale_ko_brackets(
+            self.brackets, self.bracket_generation_methods, make_bracket)
+
         # Create fight rows in DB for every assigned bracket (idempotent — skips if already created)
         for bracket_key, table_num in self.bracket_table_assignment.items():
             if table_num and bracket_key in self.brackets:
@@ -901,6 +674,10 @@ class BracketViewerApp(tk.Tk):
             bracket_table_assignment=self.bracket_table_assignment,
             bracket_generation_methods=self.bracket_generation_methods,
             match_results=self.match_results,
+            loser_match_results=self.loser_match_results,
+            pool_cell_values=self.pool_cell_values,
+            ko_bracket_data=self.ko_bracket_data,
+            ko_match_results=self.ko_match_results,
         )
         screen.pack(fill=tk.BOTH, expand=True)
         screen.on_back = self.show_bracket_viewer
@@ -1160,30 +937,6 @@ class BracketViewerApp(tk.Tk):
             bracket_key = self.bracket_listbox_map.get(display_text, display_text)
             self.show_bracket_view(bracket_key)
 
-    def set_status(self, msg, color=None):
-        """Update status label."""
-        if hasattr(self, 'status_var'):
-            self.status_var.set(msg)
-            if color:
-                self.status_label.config(fg=color)
-            self.update_idletasks()
-        
-        # Also update file loader screen if it exists and is displayed
-        if hasattr(self, 'file_loader_screen') and self.file_loader_screen.winfo_exists():
-            style = 'status_success'
-            if color and color == COLORS['accent_red']:
-                style = 'status_error'
-            elif color and color == COLORS['text_secondary']:
-                style = 'info'
-            self.file_loader_screen.set_status_text(msg, style)
-
-    def set_info_text(self, text):
-        """Update info text on file loader screen if available."""
-        if hasattr(self, 'info_var'):
-            self.info_var.set(text)
-        if hasattr(self, 'file_loader_screen') and self.file_loader_screen.winfo_exists():
-            self.file_loader_screen.set_info_text(text)
-
     def load_and_generate(self):
         """Load participants from XLSX file and generate brackets."""
         filepath = filedialog.askopenfilename(
@@ -1194,7 +947,7 @@ class BracketViewerApp(tk.Tk):
             return
 
         # Show loading progress dialog
-        self.show_loading_progress("Loading and generating brackets...")
+        self.ui_feedback.show_loading_progress("Loading and generating brackets...")
         
         # Run loading in background thread
         thread = threading.Thread(target=self._load_and_generate_thread, args=(filepath,), daemon=True)
@@ -1203,15 +956,15 @@ class BracketViewerApp(tk.Tk):
     def _load_and_generate_thread(self, filepath):
         """Background thread for loading XLSX and generating brackets."""
         try:
-            self.set_status("Reading XLSX file...", COLORS['text_secondary'])
-            self.update_progress(10)
+            self.ui_feedback.set_status("Reading XLSX file...", COLORS['text_secondary'])
+            self.ui_feedback.update_progress(10)
 
             # Load and normalize participants from XLSX using utility function
             raw_participants = load_participants_from_xlsx(filepath)
-            self.update_progress(30)
+            self.ui_feedback.update_progress(30)
             
             participants = normalize_participants(raw_participants)
-            self.update_progress(40)
+            self.ui_feedback.update_progress(40)
             self.db_service.save_participants(participants)
 
             # Filter out unpaid participants
@@ -1223,25 +976,25 @@ class BracketViewerApp(tk.Tk):
             # Create QUARANTINE bracket with all rejected participants (unpaid + invalid ages)
             all_rejected = unpaid + invalid_ages
             if all_rejected:
-                self._create_quarantine_bracket(all_rejected)
+                self.quarantine_service.create_quarantine_bracket(self.brackets, all_rejected)
 
             if not participants:
-                self.set_status("Error: No valid participants found.", COLORS['accent_red'])
-                self.hide_loading_progress()
+                self.ui_feedback.set_status("Error: No valid participants found.", COLORS['accent_red'])
+                self.ui_feedback.hide_loading_progress()
                 return
 
             total_fighters = len(participants)
-            self.set_info_text(f"✓ {total_fighters} participants loaded")
-            self.update_progress(50)
+            self.ui_feedback.set_info_text(f"✓ {total_fighters} participants loaded")
+            self.ui_feedback.update_progress(50)
 
-            self.set_status("Generating brackets...", COLORS['text_secondary'])
+            self.ui_feedback.set_status("Generating brackets...", COLORS['text_secondary'])
 
             # Save QUARANTINE bracket if it exists (it gets overwritten by export_all_brackets)
             quarantine_bracket = self.brackets.pop('QUARANTINE', None)
             
             # Generate brackets using backend service
             self.brackets = export_all_brackets(participants)
-            self.update_progress(80)
+            self.ui_feedback.update_progress(80)
             
             # Restore QUARANTINE bracket if it existed
             if quarantine_bracket is not None:
@@ -1250,22 +1003,22 @@ class BracketViewerApp(tk.Tk):
             # Log bracket generation summary
             self._log_bracket_summary()
 
-            self.set_status(f"Success! Generated {len(self.brackets)} brackets.", COLORS['accent_green'])
-            self.update_progress(100)
+            self.ui_feedback.set_status(f"Success! Generated {len(self.brackets)} brackets.", COLORS['accent_green'])
+            self.ui_feedback.update_progress(100)
 
             # Hide progress and show group preview window
-            self.hide_loading_progress()
+            self.ui_feedback.hide_loading_progress()
             self.after(500, self.show_group_preview_window)
 
         except Exception as e:
             self.logger.error(f"Error during load and generate: {e}")
-            self.set_status(f"Error: {e}", COLORS['accent_red'])
-            self.hide_loading_progress()
+            self.ui_feedback.set_status(f"Error: {e}", COLORS['accent_red'])
+            self.ui_feedback.hide_loading_progress()
 
     def load_from_database(self):
         """Load participants from PostgreSQL database and generate brackets."""
         # Show loading progress dialog
-        self.show_loading_progress("Loading from database...")
+        self.ui_feedback.show_loading_progress("Loading from database...")
         
         # Run loading in background thread
         thread = threading.Thread(target=self._load_from_database_thread, daemon=True)
@@ -1274,16 +1027,16 @@ class BracketViewerApp(tk.Tk):
     def _load_from_database_thread(self):
         """Background thread for loading from database and generating brackets."""
         try:
-            self.set_status("Connecting to database...", COLORS['text_secondary'])
-            self.update_progress(10)
+            self.ui_feedback.set_status("Connecting to database...", COLORS['text_secondary'])
+            self.ui_feedback.update_progress(10)
 
             # Fetch participants from database
             participants = self.db_service.fetch_participants()
-            self.update_progress(30)
+            self.ui_feedback.update_progress(30)
 
             if not participants:
-                self.set_status("Error: No participants found in database.", COLORS['accent_red'])
-                self.hide_loading_progress()
+                self.ui_feedback.set_status("Error: No participants found in database.", COLORS['accent_red'])
+                self.ui_feedback.hide_loading_progress()
                 self.after(500, lambda: messagebox.showwarning("No Data", "No participants found in database."))
                 return
 
@@ -1296,26 +1049,26 @@ class BracketViewerApp(tk.Tk):
             # Create QUARANTINE bracket with all rejected participants (unpaid + invalid ages)
             all_rejected = unpaid + invalid_ages
             if all_rejected:
-                self._create_quarantine_bracket(all_rejected)
+                self.quarantine_service.create_quarantine_bracket(self.brackets, all_rejected)
 
             if not participants:
-                self.set_status("Error: No valid participants found in database.", COLORS['accent_red'])
-                self.hide_loading_progress()
+                self.ui_feedback.set_status("Error: No valid participants found in database.", COLORS['accent_red'])
+                self.ui_feedback.hide_loading_progress()
                 self.after(500, lambda: messagebox.showwarning("No Data", "No valid participants found in database."))
                 return
 
             total_fighters = len(participants)
-            self.set_info_text(f"✓ {total_fighters} participants loaded from database")
-            self.update_progress(50)
+            self.ui_feedback.set_info_text(f"✓ {total_fighters} participants loaded from database")
+            self.ui_feedback.update_progress(50)
 
-            self.set_status("Generating brackets...", COLORS['text_secondary'])
+            self.ui_feedback.set_status("Generating brackets...", COLORS['text_secondary'])
 
             # Save QUARANTINE bracket if it exists (it gets overwritten by export_all_brackets)
             quarantine_bracket = self.brackets.pop('QUARANTINE', None)
             
             # Generate brackets using backend service
             self.brackets = export_all_brackets(participants)
-            self.update_progress(80)
+            self.ui_feedback.update_progress(80)
             
             # Restore QUARANTINE bracket if it existed
             if quarantine_bracket is not None:
@@ -1324,17 +1077,17 @@ class BracketViewerApp(tk.Tk):
             # Log bracket generation summary
             self._log_bracket_summary()
 
-            self.set_status(f"Success! Generated {len(self.brackets)} brackets from database.", COLORS['accent_green'])
-            self.update_progress(100)
+            self.ui_feedback.set_status(f"Success! Generated {len(self.brackets)} brackets from database.", COLORS['accent_green'])
+            self.ui_feedback.update_progress(100)
 
             # Hide progress and show group preview window
-            self.hide_loading_progress()
+            self.ui_feedback.hide_loading_progress()
             self.after(500, self.show_group_preview_window)
 
         except Exception as e:
             self.logger.error(f"Database error during load: {e}")
-            self.set_status(f"Database Error: {e}", COLORS['accent_red'])
-            self.hide_loading_progress()
+            self.ui_feedback.set_status(f"Database Error: {e}", COLORS['accent_red'])
+            self.ui_feedback.hide_loading_progress()
             self.after(500, lambda err=e: messagebox.showerror("Database Error", f"Failed to load from database:\n{str(err)}"))
 
     def load_json_and_generate(self):
@@ -1372,7 +1125,7 @@ class BracketViewerApp(tk.Tk):
             return
 
         # Show loading progress dialog
-        self.show_loading_progress("Loading and generating brackets from JSON...")
+        self.ui_feedback.show_loading_progress("Loading and generating brackets from JSON...")
         
         # Run loading in background thread
         thread = threading.Thread(target=self._load_json_and_generate_thread, args=(filepaths,), daemon=True)
@@ -1381,8 +1134,8 @@ class BracketViewerApp(tk.Tk):
     def _load_json_and_generate_thread(self, filepaths):
         """Background thread for loading JSON files and generating brackets."""
         try:
-            self.set_status("Reading JSON files...", COLORS['text_secondary'])
-            self.update_progress(10)
+            self.ui_feedback.set_status("Reading JSON files...", COLORS['text_secondary'])
+            self.ui_feedback.update_progress(10)
             self.logger.info(f"Loading {len(filepaths)} JSON files")
 
             all_participants = []
@@ -1397,7 +1150,7 @@ class BracketViewerApp(tk.Tk):
                 
                 # Update progress (20% for first file, 50% for second file)
                 progress = 20 + (file_idx - 1) * 30
-                self.update_progress(progress)
+                self.ui_feedback.update_progress(progress)
                 
                 with open(filepath, 'r', encoding='utf-8') as f:
                     data = json.load(f)
@@ -1406,8 +1159,8 @@ class BracketViewerApp(tk.Tk):
                 if not isinstance(data, list):
                     error_msg = f"File must contain a JSON array.\nFile: {filename}\nGot: {type(data).__name__}"
                     self.logger.error(error_msg)
-                    self.hide_loading_progress()
-                    self.set_status(error_msg, COLORS['accent_red'])
+                    self.ui_feedback.hide_loading_progress()
+                    self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
                     self.after(500, lambda msg=error_msg: messagebox.showerror("Invalid JSON Format", msg))
                     return
 
@@ -1420,8 +1173,8 @@ class BracketViewerApp(tk.Tk):
                     if not isinstance(participant, dict):
                         error_msg = f"Participant {idx} is not a valid object (got {type(participant).__name__}).\nFile: {filename}"
                         self.logger.error(error_msg)
-                        self.hide_loading_progress()
-                        self.set_status(error_msg, COLORS['accent_red'])
+                        self.ui_feedback.hide_loading_progress()
+                        self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
                         self.after(500, lambda msg=error_msg: messagebox.showerror("Invalid Participant", msg))
                         return
 
@@ -1431,8 +1184,8 @@ class BracketViewerApp(tk.Tk):
                     if missing_fields:
                         error_msg = f"Participant {idx} is missing required fields: {', '.join(missing_fields)}\nFile: {filename}"
                         self.logger.error(error_msg)
-                        self.hide_loading_progress()
-                        self.set_status(error_msg, COLORS['accent_red'])
+                        self.ui_feedback.hide_loading_progress()
+                        self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
                         self.after(500, lambda msg=error_msg: messagebox.showerror("Missing Required Fields", msg))
                         return
 
@@ -1473,8 +1226,8 @@ class BracketViewerApp(tk.Tk):
                     if validation_errors:
                         error_msg = f"Participant {idx} validation failed:\n" + "\n".join(f"  • {err}" for err in validation_errors) + f"\nFile: {filename}"
                         self.logger.error(error_msg)
-                        self.hide_loading_progress()
-                        self.set_status(error_msg, COLORS['accent_red'])
+                        self.ui_feedback.hide_loading_progress()
+                        self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
                         self.after(500, lambda msg=error_msg: messagebox.showerror("Validation Error", msg))
                         return
 
@@ -1493,46 +1246,46 @@ class BracketViewerApp(tk.Tk):
 
                 self.logger.info(f"[File {file_idx}] Successfully validated {valid_count} participants")
 
-            self.update_progress(60)
+            self.ui_feedback.update_progress(60)
 
             if not all_participants:
                 error_msg = "No valid participants found in JSON files."
                 self.logger.error(error_msg)
-                self.hide_loading_progress()
-                self.set_status(error_msg, COLORS['accent_red'])
+                self.ui_feedback.hide_loading_progress()
+                self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
                 return
 
-            self.set_status("Filtering participants...", COLORS['text_secondary'])
-            self.update_progress(65)
+            self.ui_feedback.set_status("Filtering participants...", COLORS['text_secondary'])
+            self.ui_feedback.update_progress(65)
 
             # Filter out unpaid participants
             all_participants, unpaid = self.filter_unpaid_participants(all_participants)
 
-            self.update_progress(70)
+            self.ui_feedback.update_progress(70)
 
             # Filter out participants with invalid ages
             all_participants, invalid_ages = self.filter_invalid_ages(all_participants)
             
-            self.update_progress(75)
+            self.ui_feedback.update_progress(75)
 
             # Create QUARANTINE bracket with all rejected participants (unpaid + invalid ages)
             all_rejected = unpaid + invalid_ages
             if all_rejected:
-                self._create_quarantine_bracket(all_rejected)
+                self.quarantine_service.create_quarantine_bracket(self.brackets, all_rejected)
 
             if not all_participants:
                 error_msg = "No valid participants found in JSON files."
                 self.logger.error(error_msg)
-                self.hide_loading_progress()
-                self.set_status(error_msg, COLORS['accent_red'])
+                self.ui_feedback.hide_loading_progress()
+                self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
                 return
 
             total_fighters = len(all_participants)
             self.logger.info(f"Total valid participants loaded: {total_fighters}")
-            self.set_info_text(f"✓ {total_fighters} valid participants loaded from JSON files")
+            self.ui_feedback.set_info_text(f"✓ {total_fighters} valid participants loaded from JSON files")
 
-            self.set_status("Generating brackets...", COLORS['text_secondary'])
-            self.update_progress(85)
+            self.ui_feedback.set_status("Generating brackets...", COLORS['text_secondary'])
+            self.ui_feedback.update_progress(85)
             self.logger.info("Starting bracket generation...")
 
             # Save QUARANTINE bracket if it exists (it gets overwritten by export_all_brackets)
@@ -1540,7 +1293,7 @@ class BracketViewerApp(tk.Tk):
             
             # Generate brackets using backend service
             self.brackets = export_all_brackets(all_participants)
-            self.update_progress(95)
+            self.ui_feedback.update_progress(95)
             
             # Restore QUARANTINE bracket if it existed
             if quarantine_bracket is not None:
@@ -1549,30 +1302,30 @@ class BracketViewerApp(tk.Tk):
             # Log bracket generation summary
             self._log_bracket_summary()
 
-            self.set_status(f"Success! Generated {len(self.brackets)} brackets from JSON files.", COLORS['accent_green'])
-            self.update_progress(100)
+            self.ui_feedback.set_status(f"Success! Generated {len(self.brackets)} brackets from JSON files.", COLORS['accent_green'])
+            self.ui_feedback.update_progress(100)
 
             # Hide progress and show group preview window
-            self.hide_loading_progress()
+            self.ui_feedback.hide_loading_progress()
             self.after(500, self.show_group_preview_window)
 
         except json.JSONDecodeError as e:
             error_msg = f"JSON Parse Error: {e}"
             self.logger.error(error_msg)
-            self.set_status(error_msg, COLORS['accent_red'])
-            self.hide_loading_progress()
+            self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
+            self.ui_feedback.hide_loading_progress()
             self.after(500, lambda err=e: messagebox.showerror("JSON Error", f"Failed to parse JSON file:\n{str(err)}"))
         except FileNotFoundError as e:
             error_msg = f"File not found: {e}"
             self.logger.error(error_msg)
-            self.set_status(error_msg, COLORS['accent_red'])
-            self.hide_loading_progress()
+            self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
+            self.ui_feedback.hide_loading_progress()
             self.after(500, lambda err=e: messagebox.showerror("File Error", f"Could not find file:\n{str(err)}"))
         except Exception as e:
             error_msg = f"Unexpected error: {e}"
             self.logger.exception(error_msg)
-            self.set_status(error_msg, COLORS['accent_red'])
-            self.hide_loading_progress()
+            self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
+            self.ui_feedback.hide_loading_progress()
             self.after(500, lambda err=e: messagebox.showerror("Error", f"Failed to load JSON files:\n{str(err)}"))
 
     def split_gender_to_json(self):
@@ -1594,13 +1347,13 @@ class BracketViewerApp(tk.Tk):
             return
 
         try:
-            self.set_status("Reading tournament XLSX file...", COLORS['text_secondary'])
+            self.ui_feedback.set_status("Reading tournament XLSX file...", COLORS['text_secondary'])
 
             # Load participants using the tournament format parser
             raw_participants = load_participants_from_xlsx(input_file)
 
             if not raw_participants:
-                self.set_status("Error: No participants found.", COLORS['accent_red'])
+                self.ui_feedback.set_status("Error: No participants found.", COLORS['accent_red'])
                 messagebox.showerror("Error", "No participants found in the file.")
                 return
             
@@ -1610,7 +1363,7 @@ class BracketViewerApp(tk.Tk):
                 self.logger.debug(f"First participant fields: {list(first_p.keys())}")
                 self.logger.debug(f"First participant: {first_p}")
 
-            self.set_status("Splitting by gender and converting to English format...", COLORS['text_secondary'])
+            self.ui_feedback.set_status("Splitting by gender and converting to English format...", COLORS['text_secondary'])
 
             # Split by gender and convert to English field names
             male_contestants = []
@@ -1714,7 +1467,7 @@ class BracketViewerApp(tk.Tk):
             messagebox.showinfo("Split Results", result_msg)
 
             if male_count == 0 and female_count == 0:
-                self.set_status("No valid contestants to save.", COLORS['accent_red'])
+                self.ui_feedback.set_status("No valid contestants to save.", COLORS['accent_red'])
                 return
 
             # Ask user where to save the files
@@ -1722,10 +1475,10 @@ class BracketViewerApp(tk.Tk):
                 title="Select Folder to Save Split JSON Files"
             )
             if not save_dir:
-                self.set_status("Save cancelled.", COLORS['text_secondary'])
+                self.ui_feedback.set_status("Save cancelled.", COLORS['text_secondary'])
                 return
 
-            self.set_status("Saving JSON files...", COLORS['text_secondary'])
+            self.ui_feedback.set_status("Saving JSON files...", COLORS['text_secondary'])
 
             # Save male contestants if any
             if male_count > 0:
@@ -1750,10 +1503,10 @@ class BracketViewerApp(tk.Tk):
             success_msg += "After weighing, reimport JSON files to generate brackets."
 
             messagebox.showinfo("Success", success_msg)
-            self.set_status("Split complete! Files ready for weighing.", COLORS['accent_green'])
+            self.ui_feedback.set_status("Split complete! Files ready for weighing.", COLORS['accent_green'])
 
         except Exception as e:
-            self.set_status(f"Error: {e}", COLORS['accent_red'])
+            self.ui_feedback.set_status(f"Error: {e}", COLORS['accent_red'])
             self.logger.exception(f"Failed to split participants: {e}")
             messagebox.showerror("Error", f"Failed to split participants:\n{str(e)}")
 
@@ -1795,14 +1548,8 @@ class BracketViewerApp(tk.Tk):
         # Display filtered brackets
         for bracket_key in filtered_keys:
             fighter_count = len(self.brackets[bracket_key].get('fighters', []))
-            
-            # For QUARANTINE bracket, show rejection count instead of fight count
-            is_quarantine = self.brackets[bracket_key].get('is_quarantine', False)
-            if is_quarantine:
-                display_text = f"[⚠️ QUARANTINE] • {fighter_count} rejected"
-            else:
-                fight_count = self.calculate_number_of_fights(bracket_key)
-                display_text = f"{bracket_key} • {fighter_count} / {fight_count}"
+            fight_count = self.calculate_number_of_fights(bracket_key)
+            display_text = f"{bracket_key} • {fighter_count} / {fight_count}"
             
             self.bracket_listbox.insert(tk.END, display_text)
             # Store the mapping
@@ -1913,6 +1660,10 @@ class BracketViewerApp(tk.Tk):
             # Generate bracket visualization
             bracket = make_bracket(normalized_participants)
             self.logger.debug(f"Generated bracket with {len(bracket)} first round matches")
+
+            # Keep stored bracket in sync with what we just rendered,
+            # so fight monitoring always uses exactly what the preview shows.
+            self.brackets[bracket_key]['bracket'] = bracket
 
             # Build rounds with club information using bracket_renderer infrastructure
             rounds_with_clubs = build_bracket_rounds(bracket, normalized_participants)

@@ -32,7 +32,9 @@ class FightMonitoringScreen(tk.Frame):
     """
 
     def __init__(self, parent, brackets, bracket_table_assignment,
-                 bracket_generation_methods, match_results):
+                 bracket_generation_methods, match_results,
+                 loser_match_results=None, pool_cell_values=None,
+                 ko_bracket_data=None, ko_match_results=None):
         super().__init__(parent, bg=COLORS['bg_dark'])
 
         # Callback – set by BracketViewerApp before showing
@@ -44,23 +46,27 @@ class FightMonitoringScreen(tk.Frame):
         self.bracket_generation_methods = bracket_generation_methods
         # {bracket_key: {(round_idx, match_idx): winner_name}}
         self.match_results = match_results
+        # {bracket_key: {(lb_round, lb_match): winner_name}}
+        self.loser_match_results = loser_match_results if loser_match_results is not None else {}
+        # {bracket_key: {(pool_idx, row, fight_num): "score"}}
+        self.pool_cell_values = pool_cell_values if pool_cell_values is not None else {}
+        # {bracket_key: {'p0_1st': name, 'p0_2nd': name, 'p1_1st': name, 'p1_2nd': name}}
+        self.ko_bracket_data = ko_bracket_data if ko_bracket_data is not None else {}
+        # {bracket_key: {(round, match): winner_name}}  — for the pool KO bracket
+        self.ko_match_results = ko_match_results if ko_match_results is not None else {}
 
         # UI state
         self.current_bracket_key = None
         self.zoom_level = 1.0
         # {(round, match): (x1, y1, x2, y2, p1, p2)}
         self._match_boxes = {}
-        # {bracket_key: {(pool_idx, row, fight_num): "score"}}
-        self.pool_cell_values = {}
         # clickable cells from last pool render: {(pool_idx, row, fight_num): (x1,y1,x2,y2)}
         self._pool_cells = {}
         self._active_cell_entry = None
-        # {bracket_key: {'p0_1st': name, 'p0_2nd': name, 'p1_1st': name, 'p1_2nd': name}}
-        self.ko_bracket_data = {}
-        # {bracket_key: {(round, match): winner_name}}  — for the pool KO bracket
-        self.ko_match_results = {}
         # KO box positions from last pool render: {(round, match): (x1,y1,x2,y2,p1,p2)}
         self._ko_match_boxes = {}
+        # losers bracket box positions: {(lb_round, lb_match): (x1,y1,x2,y2,p1,p2)}
+        self._loser_match_boxes = {}
 
         self._setup_ttk_styles()
         self._build_ui()
@@ -353,6 +359,99 @@ class FightMonitoringScreen(tk.Frame):
 
         return rounds
 
+    def _compute_loser_rounds(self, wb_rounds, lb_results):
+        """
+        Compute losers (consolation) bracket rounds from the winners bracket.
+
+        Structure:
+          LB R1  – consecutive WB-R1 losers fight each other in pairs
+          LB R2  – LB-R1 winners vs WB-R2 losers (1-to-1)
+          LB R3  – reduction if needed (LB winners > next WB-loser count), else
+                   LB Rk winners vs WB-Rk losers
+          ...until one match remains → 3rd-place fight
+
+        WB Final loser is NOT fed into the LB (they are already 2nd place).
+        """
+        if len(wb_rounds) < 2:
+            return []
+
+        def get_loser(match):
+            w = match['winner']
+            if w is None:
+                return 'TBD'
+            if match['p1'] == 'Freilos' or match['p2'] == 'Freilos':
+                return 'Freilos'
+            return match['p2'] if w == match['p1'] else match['p1']
+
+        def make_match(p1, p2, lb_r, lb_m):
+            stored = lb_results.get((lb_r, lb_m))
+            if stored is None:
+                if p1 == 'Freilos' and p2 not in ('Freilos', 'TBD'):
+                    stored = p2
+                elif p2 == 'Freilos' and p1 not in ('Freilos', 'TBD'):
+                    stored = p1
+            return {'p1': p1, 'p2': p2, 'winner': stored}
+
+        loser_rounds = []
+        lb_r = 0
+
+        # LB R1: pair consecutive losers from WB R1
+        wb_r1_losers = [get_loser(m) for m in wb_rounds[0]]
+        lb_r1 = []
+        for i in range(0, len(wb_r1_losers), 2):
+            p1 = wb_r1_losers[i]
+            p2 = wb_r1_losers[i + 1] if i + 1 < len(wb_r1_losers) else 'Freilos'
+            lb_r1.append(make_match(p1, p2, lb_r, i // 2))
+        loser_rounds.append(lb_r1)
+        lb_r += 1
+
+        wb_idx = 1  # next WB round to pull losers from (we skip the WB Final)
+
+        while True:
+            prev = loser_rounds[-1]
+            if len(prev) <= 1:
+                break
+
+            lb_winners = [(m['winner'] if m['winner'] is not None else 'TBD')
+                          for m in prev]
+
+            # Inject losers from next WB round (stop before the WB Final)
+            if wb_idx < len(wb_rounds) - 1:
+                wb_losers = [get_loser(m) for m in wb_rounds[wb_idx]]
+
+                if len(lb_winners) > len(wb_losers):
+                    # Reduction round: LB winners fight each other first
+                    reduction = []
+                    for i in range(0, len(lb_winners), 2):
+                        p1 = lb_winners[i]
+                        p2 = lb_winners[i + 1] if i + 1 < len(lb_winners) else 'Freilos'
+                        reduction.append(make_match(p1, p2, lb_r, i // 2))
+                    loser_rounds.append(reduction)
+                    lb_r += 1
+                    # Loop again — re-read prev from the reduction round
+                else:
+                    # Injection round: each LB winner faces a WB loser
+                    injection = []
+                    for j in range(len(wb_losers)):
+                        lw = lb_winners[j] if j < len(lb_winners) else 'TBD'
+                        wl = wb_losers[j]
+                        injection.append(make_match(lw, wl, lb_r, j))
+                    loser_rounds.append(injection)
+                    lb_r += 1
+                    wb_idx += 1
+            else:
+                # No more WB rounds to inject — remaining LB winners fight for 3rd
+                if len(lb_winners) > 1:
+                    final = []
+                    for i in range(0, len(lb_winners), 2):
+                        p1 = lb_winners[i]
+                        p2 = lb_winners[i + 1] if i + 1 < len(lb_winners) else 'Freilos'
+                        final.append(make_match(p1, p2, lb_r, i // 2))
+                    loser_rounds.append(final)
+                break
+
+        return loser_rounds
+
     # ----------------------------------------------------------- rendering
 
     def _render(self, bracket_key):
@@ -368,6 +467,7 @@ class FightMonitoringScreen(tk.Frame):
         self._match_boxes = {}
         self._pool_cells = {}
         self._ko_match_boxes = {}
+        self._loser_match_boxes = {}
 
         method = self.bracket_generation_methods.get(bracket_key)
 
@@ -375,6 +475,177 @@ class FightMonitoringScreen(tk.Frame):
             self._render_pool(bracket_key)
         else:
             self._render_ko(bracket_key)
+
+    def _render_loser_bracket(self, loser_rounds, y_offset,
+                              z, BW, BH, XG, YG, SX, FS, LW):
+        """Draw the losers (consolation) bracket below the winners bracket.
+
+        Returns the max y coordinate used (for scroll-region calculation).
+        """
+        font = ('Consolas', FS)
+        label_font = ('Arial', max(8, int(11 * z)), 'bold')
+
+        # ── Compute positions ───────────────────────────────────────────
+        lb_pos = {}
+        lb_ymid = {}
+
+        # LB R0: stack vertically
+        for m in range(len(loser_rounds[0])):
+            x = SX
+            y = y_offset + m * (BH + YG)
+            lb_pos[(0, m)] = (x, y)
+            lb_ymid[(0, m)] = y + BH // 2
+
+        for r in range(1, len(loser_rounds)):
+            x = SX + r * (BW + XG)
+            prev_count = len(loser_rounds[r - 1])
+            curr_count = len(loser_rounds[r])
+
+            for m in range(curr_count):
+                if curr_count < prev_count:
+                    # Reduction: centre between the two source matches
+                    ya = lb_ymid.get((r - 1, m * 2), y_offset + BH // 2)
+                    yb = lb_ymid.get((r - 1, m * 2 + 1), ya)
+                    y = (ya + yb) // 2 - BH // 2
+                else:
+                    # Injection (or equal-count): same row as source match m
+                    ya = lb_ymid.get((r - 1, m), y_offset + BH // 2)
+                    y = ya - BH // 2
+
+                lb_pos[(r, m)] = (x, y)
+                lb_ymid[(r, m)] = y + BH // 2
+
+        # ── Round labels ─────────────────────────────────────────────────
+        nr = len(loser_rounds)
+        for r in range(nr):
+            lx = SX + r * (BW + XG) + BW // 2
+            label = '3rd Place' if r == nr - 1 else f'Loser R{r + 1}'
+            self._canvas.create_text(
+                lx, y_offset - int(20 * z),
+                text=label, anchor='c',
+                fill=COLORS['accent_orange'], font=label_font)
+
+        # ── Connectors ───────────────────────────────────────────────────
+        for r in range(nr - 1):
+            prev_count = len(loser_rounds[r])
+            next_count = len(loser_rounds[r + 1])
+            is_reduction = next_count < prev_count
+
+            for m in range(prev_count):
+                if (r, m) not in lb_pos:
+                    continue
+                x, y = lb_pos[(r, m)]
+                xr = x + BW
+                yc = y + BH // 2
+                nm = m // 2 if is_reduction else m
+
+                if (r + 1, nm) not in lb_pos:
+                    continue
+                nx, ny = lb_pos[(r + 1, nm)]
+                xmid = xr + XG // 2
+
+                if is_reduction:
+                    ty = ny + BH // 4 if m % 2 == 0 else ny + 3 * BH // 4
+                else:
+                    ty = ny + BH // 4  # LB winner → top half (p1) of injection match
+
+                self._canvas.create_line(
+                    xr, yc, xmid, yc,
+                    fill=COLORS['accent_orange'], width=LW, dash=(4, 3))
+                self._canvas.create_line(
+                    xmid, yc, xmid, ty,
+                    fill=COLORS['accent_orange'], width=LW, dash=(4, 3))
+                self._canvas.create_line(
+                    xmid, ty, nx, ty,
+                    fill=COLORS['accent_orange'], width=LW, dash=(4, 3))
+
+        # ── Match boxes ──────────────────────────────────────────────────
+        for r, matches in enumerate(loser_rounds):
+            is_last = (r == nr - 1)
+            for m, match in enumerate(matches):
+                p1, p2, winner = match['p1'], match['p2'], match['winner']
+                x, y = lb_pos[(r, m)]
+                x2, y2 = x + BW, y + BH
+                my = y + BH // 2
+
+                if is_last:
+                    # Both fighters share 3rd place — no fight, both shown green
+                    p1w = p1 not in ('Freilos', 'TBD')
+                    p2w = p2 not in ('Freilos', 'TBD')
+                    decided = True
+                else:
+                    self._loser_match_boxes[(r, m)] = (x, y, x2, y2, p1, p2)
+                    p1w = (winner is not None and winner == p1
+                           and p1 not in ('Freilos', 'TBD'))
+                    p2w = (winner is not None and winner == p2
+                           and p2 not in ('Freilos', 'TBD'))
+                    decided = winner is not None
+
+                # Box (orange border to distinguish from WB)
+                self._canvas.create_rectangle(
+                    x, y, x2, y2,
+                    fill=COLORS['bg_panel'],
+                    outline=COLORS['accent_orange'], width=LW)
+
+                if p1w:
+                    self._canvas.create_rectangle(
+                        x + LW, y + LW, x2 - LW, my, fill='#1a3d1a', outline='')
+                elif decided and not p1w and p1 not in ('Freilos', 'TBD'):
+                    self._canvas.create_rectangle(
+                        x + LW, y + LW, x2 - LW, my, fill='#3d1a1a', outline='')
+
+                if p2w:
+                    self._canvas.create_rectangle(
+                        x + LW, my, x2 - LW, y2 - LW, fill='#1a3d1a', outline='')
+                elif decided and not p2w and p2 not in ('Freilos', 'TBD'):
+                    self._canvas.create_rectangle(
+                        x + LW, my, x2 - LW, y2 - LW, fill='#3d1a1a', outline='')
+
+                self._canvas.create_line(
+                    x, my, x2, my,
+                    fill=COLORS['border'], width=1, dash=(4, 3))
+
+                def _col(name, won):
+                    if name == 'Freilos':
+                        return COLORS['text_disabled']
+                    if name == 'TBD':
+                        return COLORS['text_muted']
+                    if won:
+                        return COLORS['accent_green']
+                    if decided and not won:
+                        return COLORS['accent_red']
+                    return COLORS['text_primary']
+
+                self._canvas.create_text(
+                    x + 8, y + BH // 4,
+                    text=(p1[:24] if len(p1) > 24 else p1),
+                    anchor='w', fill=_col(p1, p1w), font=font)
+                self._canvas.create_text(
+                    x + 8, y + 3 * BH // 4,
+                    text=(p2[:24] if len(p2) > 24 else p2),
+                    anchor='w', fill=_col(p2, p2w), font=font)
+
+                ck_font = ('Arial', FS + 1, 'bold')
+                if p1w:
+                    self._canvas.create_text(
+                        x2 - 10, y + BH // 4, text='✓',
+                        anchor='c', fill=COLORS['accent_green'], font=ck_font)
+                if p2w:
+                    self._canvas.create_text(
+                        x2 - 10, y + 3 * BH // 4, text='✓',
+                        anchor='c', fill=COLORS['accent_green'], font=ck_font)
+
+                sm_font = ('Arial', max(6, FS - 1))
+                both_real = (p1 not in ('Freilos', 'TBD')
+                             and p2 not in ('Freilos', 'TBD'))
+                if both_real and not decided:
+                    self._canvas.create_text(
+                        x2 - 6, my, text='← pick',
+                        anchor='e', fill=COLORS['text_muted'], font=sm_font)
+
+        if lb_pos:
+            return max(p[1] for p in lb_pos.values()) + BH + YG
+        return y_offset
 
     # ---- pool (read-only) ------------------------------------------------
 
@@ -571,9 +842,43 @@ class FightMonitoringScreen(tk.Frame):
                                              font=sm_font)
 
         if pos:
-            mx = max(p[0] for p in pos.values()) + BW + XG + SX
-            my_max = max(p[1] for p in pos.values()) + BH + YG + SY
-            self._canvas.configure(scrollregion=(0, 0, mx, my_max))
+            wb_max_x = max(p[0] for p in pos.values()) + BW + XG + SX
+            wb_max_y = max(p[1] for p in pos.values()) + BH + YG + SY
+        else:
+            wb_max_x = SX + BW + SX
+            wb_max_y = SY + BH + SY
+
+        # ── Losers Bracket ───────────────────────────────────────────────
+        lb_results = self.loser_match_results.get(bracket_key, {})
+        loser_rounds = self._compute_loser_rounds(rounds, lb_results)
+
+        total_height = wb_max_y
+        total_width = wb_max_x
+
+        if loser_rounds:
+            SECTION_GAP = int(60 * z)
+            lb_y_start = wb_max_y + SECTION_GAP
+
+            # Section divider
+            div_y = wb_max_y + SECTION_GAP // 2
+            self._canvas.create_line(
+                SX, div_y, wb_max_x - SX, div_y,
+                fill=COLORS['accent_orange'], width=1, dash=(6, 4))
+            self._canvas.create_text(
+                SX, div_y - int(10 * z),
+                text='Losers Bracket',
+                anchor='w', fill=COLORS['accent_orange'],
+                font=('Arial', max(8, int(11 * z)), 'bold'))
+
+            lb_max_y = self._render_loser_bracket(
+                loser_rounds, lb_y_start,
+                z, BW, BH, XG, YG, SX, FS, LW)
+
+            lb_max_x = SX + len(loser_rounds) * (BW + XG) + SX
+            total_height = lb_max_y + SY
+            total_width = max(wb_max_x, lb_max_x)
+
+        self._canvas.configure(scrollregion=(0, 0, total_width, total_height))
 
     # ------------------------------------------------------------ clicking
 
@@ -619,6 +924,29 @@ class FightMonitoringScreen(tk.Frame):
 
         cx = self._canvas.canvasx(event.x)
         cy = self._canvas.canvasy(event.y)
+
+        # Check losers bracket boxes first (they sit below WB, no overlap)
+        for (r, m), (x1, y1, x2, y2, p1, p2) in self._loser_match_boxes.items():
+            if not (x1 <= cx <= x2 and y1 <= cy <= y2):
+                continue
+            if p1 in ('Freilos', 'TBD') or p2 in ('Freilos', 'TBD'):
+                return
+
+            clicked = p1 if cy <= (y1 + y2) / 2 else p2
+            lb_results = self.loser_match_results.setdefault(
+                self.current_bracket_key, {})
+            current = lb_results.get((r, m))
+
+            if current == clicked:
+                del lb_results[(r, m)]
+                self._clear_loser_downstream(r)
+            else:
+                if current is not None:
+                    self._clear_loser_downstream(r)
+                lb_results[(r, m)] = clicked
+
+            self._render(self.current_bracket_key)
+            return
 
         for (r, m), (x1, y1, x2, y2, p1, p2) in self._match_boxes.items():
             if not (x1 <= cx <= x2 and y1 <= cy <= y2):
@@ -797,6 +1125,12 @@ class FightMonitoringScreen(tk.Frame):
             del results[(r, m)]
             m = m // 2
             r += 1
+
+    def _clear_loser_downstream(self, lb_round_idx):
+        """Clear all losers-bracket results in rounds after lb_round_idx."""
+        results = self.loser_match_results.get(self.current_bracket_key, {})
+        for k in [k for k in results if k[0] > lb_round_idx]:
+            del results[k]
 
     # ----------------------------------------------------------------- zoom
 
