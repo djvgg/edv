@@ -514,15 +514,20 @@ class GroupPreviewScreen(tk.Frame):
         old_fighters.pop(fighter_idx)
         f_name = f"{fighter.get('Firstname', '')} {fighter.get('Lastname', '')}".strip() or fighter.get('Name', 'Unknown')
         self.logger.info(f"Removed {f_name} from {old_bracket_key}")
-        
+
+        # Invalidate the stale KO pairings — they will be regenerated from
+        # fighters the next time the bracket is rendered or monitoring opens.
+        self.brackets[old_bracket_key]['bracket'] = []
+
         # Add to new bracket (create if needed)
         if new_bracket_key not in self.brackets:
             self.brackets[new_bracket_key] = {
                 'fighters': [],
                 'bracket': []
             }
-        
+
         self.brackets[new_bracket_key]['fighters'].append(fighter)
+        self.brackets[new_bracket_key]['bracket'] = []  # Invalidate new bracket too
         f_name = f"{fighter.get('Firstname', '')} {fighter.get('Lastname', '')}".strip() or fighter.get('Name', 'Unknown')
         self.logger.info(f"Added {f_name} to {new_bracket_key}")
         

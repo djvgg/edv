@@ -26,6 +26,7 @@ from backend.services.bracket_service import (  # noqa: E402
 from backend.services.database_service import get_database_service  # noqa: E402
 
 from ..services.task_runner import TaskRunner  # noqa: E402
+from ..services.bracket_manager import regenerate_stale_ko_brackets  # noqa: E402
 
 from ..styles import (  # noqa: E402
     COLORS,
@@ -146,6 +147,14 @@ class BracketViewerApp(tk.Tk):
         # Fight monitoring state – persists across window open/close
         # {bracket_key: {(round_idx, match_idx): winner_name}}
         self.match_results = {}
+        # {bracket_key: {(lb_round, lb_match): winner_name}}
+        self.loser_match_results = {}
+        # {bracket_key: {(pool_idx, row, fight_num): score}}
+        self.pool_cell_values = {}
+        # {bracket_key: {'p0_1st': name, 'p0_2nd': name, ...}}
+        self.ko_bracket_data = {}
+        # {bracket_key: {(round, match): winner_name}}
+        self.ko_match_results = {}
 
         # Preview window state
         self.group_listbox_map = {}
@@ -883,6 +892,10 @@ class BracketViewerApp(tk.Tk):
 
     def show_fight_monitoring_screen(self):
         """Switch to the Fight Monitoring screen (in-app, no separate window)."""
+        # Ensure all KO bracket fields reflect the current fighters lists.
+        regenerate_stale_ko_brackets(
+            self.brackets, self.bracket_generation_methods, make_bracket)
+
         # Create fight rows in DB for every assigned bracket (idempotent — skips if already created)
         for bracket_key, table_num in self.bracket_table_assignment.items():
             if table_num and bracket_key in self.brackets:
@@ -901,6 +914,10 @@ class BracketViewerApp(tk.Tk):
             bracket_table_assignment=self.bracket_table_assignment,
             bracket_generation_methods=self.bracket_generation_methods,
             match_results=self.match_results,
+            loser_match_results=self.loser_match_results,
+            pool_cell_values=self.pool_cell_values,
+            ko_bracket_data=self.ko_bracket_data,
+            ko_match_results=self.ko_match_results,
         )
         screen.pack(fill=tk.BOTH, expand=True)
         screen.on_back = self.show_bracket_viewer
@@ -1909,6 +1926,10 @@ class BracketViewerApp(tk.Tk):
             # Generate bracket visualization
             bracket = make_bracket(normalized_participants)
             self.logger.debug(f"Generated bracket with {len(bracket)} first round matches")
+
+            # Keep stored bracket in sync with what we just rendered,
+            # so fight monitoring always uses exactly what the preview shows.
+            self.brackets[bracket_key]['bracket'] = bracket
 
             # Build rounds with club information using bracket_renderer infrastructure
             rounds_with_clubs = build_bracket_rounds(bracket, normalized_participants)
