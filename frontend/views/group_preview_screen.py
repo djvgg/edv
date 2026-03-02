@@ -79,6 +79,7 @@ class GroupPreviewScreen(tk.Frame):
         # Callbacks
         self.on_continue = None
         self.on_back = None
+        self.on_resort = None  # Callback to trigger bracket regeneration
 
         self._setup_scrollbar_style()
         self.init_ui()

@@ -85,26 +85,6 @@ def get_age_group(age, event_year=None):
     return group
 
 
-def _create_first_round(participants):
-    """Create the first round by pairing participants to nearest power of 2."""
-    pool = participants[:]
-    first_round = []
-    
-    # Calculate next power of 2
-    num_matches = math.ceil(len(pool) / 2)  # Number of matches needed
-    
-    # Create matches
-    for i in range(num_matches):
-        if i * 2 + 1 < len(pool):
-            first_round.append((pool[i*2]['Name'], pool[i*2 + 1]['Name']))
-        elif i * 2 < len(pool):
-            first_round.append((pool[i*2]['Name'], 'Freilos'))
-        else:
-            first_round.append(('Freilos', 'Freilos'))
-    
-    return first_round
-
-
 def make_bracket(participants):
     """Generate a balanced tournament bracket using the 3-layer system.
     
