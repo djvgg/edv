@@ -29,6 +29,7 @@ from ..styles import (
     create_dark_frame,
 )
 from ..search_utils import filter_items
+from .edit_participant_dialog import Edit_Participants
 
 # Debug flag - set to True for verbose logging
 DEBUG = True
@@ -116,15 +117,15 @@ class GroupPreviewScreen(tk.Frame):
         style.map('Dark.Horizontal.TScrollbar',
             background=[('active', SCROLLBAR_ACTIVE_STYLE['background'])],
             arrowcolor=[('active', SCROLLBAR_ACTIVE_STYLE['arrowcolor'])],
-        )
-
+        ) 
+        
     def load_data(self, brackets):
         """Load bracket data."""
         self.brackets = brackets
         self.logger.info(f"Loaded {len(brackets)} brackets for preview")
         if self.DEBUG:
             self.logger.debug(f"DEBUG: Bracket keys: {list(brackets.keys())}")
-        self._populate_group_list()
+        self._populate_group_list()    
 
     def init_ui(self):
         """Initialize the user interface."""
@@ -152,6 +153,7 @@ class GroupPreviewScreen(tk.Frame):
         # Bottom navigation buttons
         self._create_navigation_buttons(main_frame)
 
+    # Left panel: Group list
     def _create_group_list_panel(self, parent_paned):
         """Create the left panel with group list and search."""
         left_frame = create_dark_frame(parent_paned)
@@ -193,7 +195,7 @@ class GroupPreviewScreen(tk.Frame):
         self.group_listbox.pack(fill=tk.BOTH, expand=True, pady=5)
         self.group_listbox.bind('<Double-Button-1>', self._on_group_double_click)
 
-    # draw Participants Window
+    # Right panel: Draw Participant preview
     def _create_participant_preview_panel(self, parent_paned):
         """Create the right panel for participant preview."""
         right_frame = create_dark_frame(parent_paned)
@@ -209,9 +211,9 @@ class GroupPreviewScreen(tk.Frame):
         self.participant_display_frame = create_dark_frame(right_frame)
         self.participant_display_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Placeholder
-        placeholder = tk.Label(
-            self.participant_display_frame,
+        # Placeholder, TODO: Symbole nutzen für mehr Eindeutigkeit und UX, UX bei Edit Participant, Code besser machen
+        placeholder = tk.Label( # machen, Neue Klasse auslagern Edit Participant, Window Springen bei Age oder Weigth  
+            self.participant_display_frame, # Update weg machen aber neues Blinken bei wieght Group einfügen, Tabsystem einfügen
             text="Double-click a group to preview participants",
         )
         apply_label_style(placeholder, 'info')
@@ -238,7 +240,7 @@ class GroupPreviewScreen(tk.Frame):
         apply_button_style(continue_btn, 'primary')
         continue_btn.pack(side=tk.RIGHT, padx=5)
 
-    # Fill in Weight Classes (m | 18+ | -66kg etc..)
+    # Fill in Weight Classes (m | 18+ | -66kg etc..), Left Panel
     def _populate_group_list(self):
         """Populate the group list with all non-empty brackets."""
         if not self.group_listbox or not self.group_listbox.winfo_exists():
@@ -320,6 +322,13 @@ class GroupPreviewScreen(tk.Frame):
         self.logger.info(f"Previewing group: {bracket_key}")
         self._display_participants(bracket_key)
 
+    def _parse_bracket_key(self, bracket_key):
+        """Parse bracket key into gender, age_group, weight_class."""
+        parts = [p.strip() for p in bracket_key.split('|')]
+        if len(parts) >= 3:
+            return parts[0], parts[1], parts[2]
+        return None, None, None
+
     def _display_participants(self, bracket_key):
         """Display participant details for the selected group."""
         # Clear previous content
@@ -383,19 +392,19 @@ class GroupPreviewScreen(tk.Frame):
         text_widget.bind('<Double-Button-1>', lambda e: self._on_row_double_click(text_widget, bracket_key, count))
 
         # Column widths (in characters)
-        COL_FIRST = 15
+        COL_FIRSTNAME = 15
         COL_LAST = 15
         COL_BIRTH = 12
         COL_CLUB = 25
-        COL_ASSOC = 15
+        COL_ASSOCIATION = 15
         COL_WEIGHT = 12
         COL_GENDER = 10
         
         # Calculate total width for separator line
-        SEPARATOR_LENGTH = COL_FIRST + COL_LAST + COL_BIRTH + COL_CLUB + COL_ASSOC + COL_WEIGHT + COL_GENDER + 4
+        SEPARATOR_LENGTH = COL_FIRSTNAME + COL_LAST + COL_BIRTH + COL_CLUB + COL_ASSOCIATION + COL_WEIGHT + COL_GENDER + 4
 
         # Header
-        header = f"{'Firstname':<{COL_FIRST}}{'Lastname':<{COL_LAST}}{'Birthyear':<{COL_BIRTH}}{'Club':<{COL_CLUB}}{'Association':<{COL_ASSOC}}{'Weight':<{COL_WEIGHT}}{'Gender':<{COL_GENDER}}\n"
+        header = f"{'Firstname':<{COL_FIRSTNAME}}{'Lastname':<{COL_LAST}}{'Birthyear':<{COL_BIRTH}}{'Club':<{COL_CLUB}}{'Association':<{COL_ASSOCIATION}}{'Weight':<{COL_WEIGHT}}{'Gender':<{COL_GENDER}}\n"
         text_widget.insert(tk.END, header, 'header')
         text_widget.insert(tk.END, "=" * SEPARATOR_LENGTH + "\n")
         
@@ -403,9 +412,9 @@ class GroupPreviewScreen(tk.Frame):
         for idx, fighter in enumerate(fighters, 1): #begin with 1 instead of 0
             first = str(fighter.get('Firstname', fighter.get('name', 'N/A')))
             last = str(fighter.get('Lastname', ''))
-            birth = str(fighter.get('Birthyear', fighter.get('BirthYear', fighter.get('age', 'N/A'))))
+            birth = str(fighter.get('Birthyear', fighter.get('BirthYear')))
             club = str(fighter.get('Club', fighter.get('Verein', fighter.get('club', 'N/A'))))
-            assoc = str(fighter.get('Association', ''))
+            association = str(fighter.get('Association', ''))
             gender = str(fighter.get('Gender', ''))
             weight = fighter.get('Weight', 'N/A')
 
@@ -415,7 +424,7 @@ class GroupPreviewScreen(tk.Frame):
             else:
                 weight_str = str(weight)
 
-            row = f"{first:<{COL_FIRST}}{last:<{COL_LAST}}{birth:<{COL_BIRTH}}{club:<{COL_CLUB}}{assoc:<{COL_ASSOC}}{weight_str:<{COL_WEIGHT}}{gender:<{COL_GENDER}}\n"
+            row = f"{first:<{COL_FIRSTNAME}}{last:<{COL_LAST}}{birth:<{COL_BIRTH}}{club:<{COL_CLUB}}{association:<{COL_ASSOCIATION}}{weight_str:<{COL_WEIGHT}}{gender:<{COL_GENDER}}\n"
             text_widget.insert(tk.END, row, f'row_{idx}')
 
         # Style header
@@ -483,580 +492,10 @@ class GroupPreviewScreen(tk.Frame):
         except (ValueError, tk.TclError):
             pass
 
-    def _parse_bracket_key(self, bracket_key):
-        """Parse bracket key into gender, age_group, weight_class."""
-        parts = [p.strip() for p in bracket_key.split('|')]
-        if len(parts) >= 3:
-            return parts[0], parts[1], parts[2]
-        return None, None, None
-
-    # Fixed age class hierarchy for upgrades
-    AGE_CLASS_ORDER = ['U9', 'U11', 'U13', 'U15', 'U18', '18+']
-
-    def _get_available_age_classes(self, gender, current_age_group):
-        """Get the next higher age class based on the fixed hierarchy."""
-        try:
-            current_idx = self.AGE_CLASS_ORDER.index(current_age_group)
-        except ValueError:
-            return []
-        
-        # Return all higher age classes
-        higher_classes = self.AGE_CLASS_ORDER[current_idx + 1:]
-        return higher_classes
-
-    def _get_available_weight_classes(self, gender, age_group):
-        """Get all available weight classes for gender and age_group from config."""
-        available_classes = []
-        
-        # Try config first (has ALL possible weight classes)
-        if self.config_repo:
-            try:
-                # Normalize gender for config lookup
-                gender_norm = str(gender).lower().strip()
-                if gender_norm in ('m', 'male'):
-                    gender_norm = 'm'
-                elif gender_norm in ('w', 'f', 'female'):
-                    gender_norm = 'w'
-                
-                df = self.config_repo.weight_classes
-                filtered = df[
-                    (df['Gender'] == gender_norm) & 
-                    (df['AgeGroup'] == age_group)
-                ]
-                available_classes = filtered['Label'].tolist()
-            except Exception as e:
-                self.logger.warning(f"Config lookup failed, falling back to brackets: {e}")
-                available_classes = []
-        
-        # Fallback: look at existing brackets
-        if not available_classes:
-            for bracket_key in self.brackets.keys():
-                parts = [p.strip() for p in bracket_key.split('|')]
-                if len(parts) >= 3:
-                    bck_gender = parts[0]
-                    bck_age = parts[1]
-                    bck_weight = parts[2]
-                    
-                    if bck_gender == gender and bck_age == age_group:
-                        if bck_weight not in available_classes:
-                            available_classes.append(bck_weight)
-        
-        if self.DEBUG:
-            self.logger.debug(f"DEBUG: Available weight classes for {gender} {age_group}: {available_classes}")
-        
-        # Sort: first by numeric value, then "-" before "+"
-        def sort_key(x):
-            if x == 'no-class':
-                return (0, 0)
-            num_str = x.replace('kg', '').replace('-', '').replace('+', '')
-            try:
-                num = float(num_str)
-            except ValueError:
-                return (999, 0)
-            is_plus = 1 if x.startswith('+') else 0
-            return (num, is_plus)
-        
-        available_classes.sort(key=sort_key)
-        
-        return available_classes
-
     def _open_edit_dialog(self, bracket_key, fighter_idx):
         """Open edit dialog for participant."""
-        try:
-            fighters = self.brackets[bracket_key].get('fighters', [])
-            if not (0 <= fighter_idx < len(fighters)):
-                return
-            
-            fighter = fighters[fighter_idx]
-            gender, age_group, current_weight_class = self._parse_bracket_key(bracket_key)
-            if gender is None:
-                gender = ""
-            if age_group is None:
-                age_group = ""
-            if current_weight_class is None:
-                current_weight_class = ""
-            
-            first_name = fighter.get('Firstname', fighter.get('name', ''))
-            last_name = fighter.get('Lastname', '')
-            weight = fighter.get('Weight', fighter.get('weight', ''))
-            club = fighter.get('Club', fighter.get('Verein', fighter.get('verein', fighter.get('club', ''))))
-            assoc = fighter.get('Association', '')
-            birth_year = fighter.get('Birthyear', fighter.get('BirthYear', fighter.get('birthyear', fighter.get('age', ''))))
-            is_valid = fighter.get('Valid', False)
-            is_paid = fighter.get('Paid', False)
-            
-            if isinstance(weight, (int, float)):
-                weight_str = f"{weight:.1f}"
-            else:
-                weight_str = str(weight)
-            
-            available_weight_classes = self._get_available_weight_classes(gender, age_group)
-            
-            # Create edit window
-            edit_window = tk.Toplevel(self)
-            edit_window.title("Edit Participant")
-            edit_window.geometry("500x680")
-            edit_window.configure(bg=COLORS['bg_dark'])
-            edit_window.transient(self.master)
-            edit_window.resizable(False, False)
-            edit_window.grab_set()
-            
-            # Center window on screen
-            self.update_idletasks()
-            width = 500
-            height = 680
-            x = (self.winfo_screenwidth() // 2) - (width // 2)
-            y = (self.winfo_screenheight() // 2) - (height // 2)
-            edit_window.geometry(f"{width}x{height}+{x}+{y}")
-            
-            # Header with participant name
-            header_frame = tk.Frame(edit_window, bg=COLORS['bg_darker'], height=70)
-            header_frame.pack(fill=tk.X)
-            header_frame.pack_propagate(False)
-            
-            tk.Frame(header_frame, bg=COLORS['accent_blue'], width=5).pack(side=tk.LEFT, fill=tk.Y)
-            
-            title_label = tk.Label(header_frame, text=f"Participant: {first_name} {last_name}".strip(), bg=COLORS['bg_darker'], fg=COLORS['text_primary'], font=FONTS['preview_title'])
-            title_label.pack(side=tk.LEFT, padx=20, pady=20)
-            
-            # Main container with better padding
-            container = tk.Frame(edit_window, bg=COLORS['bg_dark'])
-            container.pack(fill=tk.BOTH, expand=True, padx=30, pady=20)
-            
-            # Helper function to create form fields with subtle borders
-            def create_field(parent, label_text, entry_var=None, is_readonly=False):
-                """Create a nicely styled form field"""
-                field_frame = tk.Frame(parent, bg=COLORS['bg_dark'])
-                field_frame.pack(fill=tk.X, pady=(0, 18))
-                
-                label = tk.Label(field_frame, text=label_text.upper(), bg=COLORS['bg_dark'], fg=COLORS['accent_blue'], font=FONTS['preview_label'])
-                label.pack(anchor=tk.W, pady=(0, 6))
-                
-                # Wrapper for border effect
-                border_frame = tk.Frame(field_frame, bg=COLORS['border'], padx=1, pady=1)
-                border_frame.pack(fill=tk.X)
-                
-                entry = tk.Entry(border_frame, bg=COLORS['bg_input'], fg=COLORS['text_primary'], font=FONTS['preview_text'], bd=0, relief=tk.FLAT)
-                entry.pack(fill=tk.X, ipady=10, ipadx=10)
-                
-                if is_readonly:
-                    entry.config(state=tk.DISABLED, fg=COLORS['text_muted'])
-                    border_frame.config(bg=COLORS['bg_panel'])
-                
-                # Highlight on focus
-                def on_focus_in(e, b=border_frame):
-                    if not is_readonly:
-                        b.config(bg=COLORS['accent_blue'])
-                def on_focus_out(e, b=border_frame):
-                    if not is_readonly:
-                        b.config(bg=COLORS['border'])
-                
-                entry.bind("<FocusIn>", on_focus_in)
-                entry.bind("<FocusOut>", on_focus_out)
-                
-                return entry
-            
-            # Name fields in a row
-            name_row = tk.Frame(container, bg=COLORS['bg_dark'])
-            name_row.pack(fill=tk.X)
-            
-            first_col = tk.Frame(name_row, bg=COLORS['bg_dark'])
-            first_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-            first_entry = create_field(first_col, "First Name")
-            first_entry.insert(0, first_name)
-            
-            last_col = tk.Frame(name_row, bg=COLORS['bg_dark'])
-            last_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
-            last_entry = create_field(last_col, "Last Name")
-            last_entry.insert(0, last_name)
-            
-            # Weight and Age in a row
-            row_frame = tk.Frame(container, bg=COLORS['bg_dark'])
-            row_frame.pack(fill=tk.X)
-            
-            weight_col = tk.Frame(row_frame, bg=COLORS['bg_dark'])
-            weight_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-            weight_entry = create_field(weight_col, "Weight (kg)")
-            weight_entry.insert(0, weight_str)
-            
-            age_col = tk.Frame(row_frame, bg=COLORS['bg_dark'])
-            age_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
-            birth_year_entry = create_field(age_col, "Birth Year")
-            birth_year_entry.insert(0, str(birth_year))
-            
-            # Club and Association fields in a row
-            club_row = tk.Frame(container, bg=COLORS['bg_dark'])
-            club_row.pack(fill=tk.X)
-            
-            club_col = tk.Frame(club_row, bg=COLORS['bg_dark'])
-            club_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-            club_entry = create_field(club_col, "Club")
-            club_entry.insert(0, club)
-            
-            assoc_col = tk.Frame(club_row, bg=COLORS['bg_dark'])
-            assoc_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
-            assoc_entry = create_field(assoc_col, "Association")
-            assoc_entry.insert(0, assoc)
-            
-            # Weight Class / Age Class section
-            is_fm = str(bracket_key).startswith("FM |")
-            is_young = age_group in ('U9', 'U11') or str(bracket_key).strip() in ('U9', 'U11')
-            is_adult = age_group == "18+"
-            label_text = "WEIGHT CLASS ASSIGNMENT" if is_adult else "AGE CLASS UPGRADE"
-            
-            wc_frame = tk.Frame(container, bg=COLORS['bg_dark'])
-            if not is_fm and not is_young:
-                wc_frame.pack(fill=tk.X, pady=(0, 14))
-                
-                wc_label = tk.Label(wc_frame, text=label_text, bg=COLORS['bg_dark'], fg=COLORS['accent_blue'], font=FONTS['preview_label'])
-                wc_label.pack(anchor=tk.W, pady=(0, 6))
-            
-            weight_class_var = tk.StringVar(value=current_weight_class)
-            age_class_var = tk.StringVar(value=age_group)
-            
-            def get_weight_key(wc_str):
-                """Returns (numeric_value, is_plus) for sorting."""
-                num_str = wc_str.replace('kg', '').replace('-', '').replace('+', '')
-                try:
-                    num = float(num_str)
-                except ValueError:
-                    return (999, 0)
-                is_plus = 1 if wc_str.startswith('+') else 0
-                return (num, is_plus)
-            
-            current_weight_key = get_weight_key(current_weight_class)
-            
-            options_to_show = []
-            selected_var = None
-            
-            if not is_fm and not is_young:
-                if is_adult:
-                    # Only the next heavier weight class
-                    heavier_classes = [wc for wc in available_weight_classes if get_weight_key(wc) > current_weight_key]
-                    if heavier_classes:
-                        next_class = heavier_classes[0]
-                        options_to_show = [current_weight_class, next_class]
-                    selected_var = weight_class_var
-                else:
-                    available_age_classes = self._get_available_age_classes(gender, age_group)
-                    if available_age_classes:
-                        next_class = available_age_classes[0]
-                        options_to_show = [age_group, next_class]
-                    selected_var = age_class_var
-                
-            if not is_fm and not is_young:
-                if options_to_show:
-                    # CUSTOM DROPDOWN REPLACEMENT (Using a Frame-based layout to prevent draw collisions)
-                    dropdown_border = tk.Frame(wc_frame, bg=COLORS['border'], padx=1, pady=1)
-                    dropdown_border.pack(fill=tk.X)
-                    
-                    # The clickable button container
-                    dropdown_btn = tk.Frame(dropdown_border, bg=COLORS['bg_input'], cursor='hand2')
-                    dropdown_btn.pack(fill=tk.BOTH, expand=True)
-                    
-                    # Left side: Text label bound to the variable
-                    text_label = tk.Label(
-                        dropdown_btn, 
-                        textvariable=selected_var,
-                        bg=COLORS['bg_input'], 
-                        fg=COLORS['text_primary'], 
-                        font=FONTS['preview_text'],
-                        anchor=tk.W,
-                        padx=10,
-                        pady=8
-                    )
-                    text_label.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-                    
-                    # Right side: The arrow symbol
-                    arrow_label = tk.Label(
-                        dropdown_btn, 
-                        text="▼", 
-                        bg=COLORS['bg_input'], 
-                        fg=COLORS['accent_blue'], 
-                        font=FONTS['preview_small'],
-                        padx=10
-                    )
-                    arrow_label.pack(side=tk.RIGHT, fill=tk.Y)
-                    
-                    def show_dropdown_menu():
-                        # Create a custom popup for the dropdown
-                        popup = tk.Toplevel(edit_window)
-                        popup.withdraw()
-                        popup.overrideredirect(True)
-                        popup.configure(bg=COLORS['border'])
-                        
-                        # List container
-                        list_frame = tk.Frame(popup, bg=COLORS['bg_input'])
-                        list_frame.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
-                        
-                        scrollbar = None
-                        if len(options_to_show) > 8:
-                            scrollbar = tk.Scrollbar(list_frame, width=10)
-                            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-                        
-                        lb = tk.Listbox(
-                            list_frame, 
-                            bg=COLORS['bg_input'], 
-                            fg=COLORS['text_primary'],
-                            font=FONTS['preview_text'],
-                            bd=0,
-                            highlightthickness=0,
-                            selectbackground=COLORS['accent_blue'],
-                            selectforeground=COLORS['text_primary'],
-                            activestyle='none',
-                            yscrollcommand=scrollbar.set if scrollbar else None,
-                            cursor='hand2'
-                        )
-                        lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-                        if scrollbar:
-                            scrollbar.config(command=lb.yview)
-                        
-                        for opt in options_to_show:
-                            lb.insert(tk.END, f"  {opt}")
-                            if opt == selected_var.get():
-                                lb.selection_set(lb.size()-1)
-                                lb.see(lb.size()-1)
-                        
-                        edit_window.update_idletasks()
-                        width = dropdown_btn.winfo_width()
-                        
-                        max_visible_items = 8
-                        visible_items = min(len(options_to_show), max_visible_items)
-                        lb.config(height=visible_items)
-                        
-                        # Update widget geometry properties to accurately fetch reqheight
-                        popup.update_idletasks()
-                        
-                        # Compute pixel-perfect height from Listbox's own font rendering
-                        req_height = lb.winfo_reqheight()
-                        if req_height > 10:
-                            height = req_height + 2  # +2 for list_frame (padx=1, pady=1)
-                        else:
-                            height = visible_items * 22 + 4  # Safe fallback if window hasn't mapped
-                        
-                        root_x = dropdown_btn.winfo_rootx()
-                        root_y = dropdown_btn.winfo_rooty()
-                        btn_height = dropdown_btn.winfo_height()
-                        
-                        screen_height = edit_window.winfo_screenheight()
-                        if root_y + btn_height + height > screen_height - 50:
-                            pos_y = root_y - height
-                        else:
-                            pos_y = root_y + btn_height
-                            
-                        popup.geometry(f"{width}x{height}+{root_x}+{pos_y}")
-                        popup.deiconify()
-                        popup.lift()
-                        popup.focus_force()
-                        
-                        def on_select(event):
-                            selection = lb.curselection()
-                            if selection:
-                                selected_var.set(options_to_show[selection[0]].strip())
-                                popup.destroy()
-                                dropdown_border.config(bg=COLORS['border'])
-                                # Ensure the arrow label stays on top when the button is redrawn
-                                arrow_label.lift()
-                        
-                        def on_motion(event):
-                            idx = lb.nearest(event.y)
-                            lb.selection_clear(0, tk.END)
-                            lb.selection_set(idx)
-                            lb.activate(idx)
-    
-                        lb.bind("<ButtonRelease-1>", on_select)
-                        lb.bind("<Motion>", on_motion)
-                        lb.bind("<FocusOut>", lambda e: popup.destroy())
-                        lb.bind("<Escape>", lambda e: popup.destroy())
-                        
-                        dropdown_border.config(bg=COLORS['accent_blue'])
-                    
-                    # Bind click events to both labels and the container
-                    def handle_click(e):
-                        # Force remove hover effect when opening menu
-                        on_leave(None)
-                        show_dropdown_menu()
-                    
-                    for widget in (dropdown_btn, text_label, arrow_label):
-                        widget.bind("<Button-1>", handle_click)
-                    
-                    # Hover effects
-                    def on_enter(e):
-                        if popup and popup.winfo_exists() and popup.winfo_viewable():
-                            return
-                        dropdown_border.config(bg=COLORS['accent_blue'])
-                        dropdown_btn.config(bg=COLORS['bg_panel'])
-                        text_label.config(bg=COLORS['bg_panel'])
-                        arrow_label.config(bg=COLORS['bg_panel'])
-                        
-                    def on_leave(e):
-                        # Prevent flickering when moving between child widgets of the button
-                        if e and e.widget != dropdown_btn and e.widget.winfo_containing(e.x_root, e.y_root) in (dropdown_btn, text_label, arrow_label):
-                            return
-                        dropdown_border.config(bg=COLORS['border'])
-                        dropdown_btn.config(bg=COLORS['bg_input'])
-                        text_label.config(bg=COLORS['bg_input'])
-                        arrow_label.config(bg=COLORS['bg_input'])
-                    
-                    # Use a dummy popup variable reference so on_enter can check if menu is open
-                    popup = None
-                    
-                    for widget in (dropdown_btn, text_label, arrow_label):
-                        widget.bind("<Enter>", on_enter)
-                        widget.bind("<Leave>", on_leave)
-                else:
-                    status_frame = tk.Frame(wc_frame, bg=COLORS['bg_panel'], padx=1, pady=1)
-                    status_frame.pack(fill=tk.X)
-                    status_text = f"● {current_weight_class} (Highest class)" if is_adult else f"● {age_group} (Highest class)"
-                    status_label = tk.Label(status_frame, text=status_text, bg=COLORS['bg_input'], fg=COLORS['text_muted'], font=FONTS['preview_text'], anchor=tk.W, padx=10, pady=10)
-                    status_label.pack(fill=tk.X)
-            
-            # Valid and Paid checkboxes
-            vp_row = tk.Frame(container, bg=COLORS['bg_dark'])
-            vp_row.pack(fill=tk.X, pady=(0, 14))
-
-            valid_var = tk.BooleanVar(value=is_valid)
-            valid_cb = tk.Checkbutton(
-                vp_row, text="Valid", variable=valid_var,
-                bg=COLORS['bg_dark'], fg=COLORS['text_primary'],
-                selectcolor=COLORS['bg_input'], activebackground=COLORS['bg_dark'],
-                activeforeground=COLORS['text_primary'],
-                font=FONTS['preview_text'], cursor='hand2',
-            )
-            valid_cb.pack(side=tk.LEFT, padx=(0, 20))
-
-            paid_var = tk.BooleanVar(value=is_paid)
-            paid_cb = tk.Checkbutton(
-                vp_row, text="Paid", variable=paid_var,
-                bg=COLORS['bg_dark'], fg=COLORS['text_primary'],
-                selectcolor=COLORS['bg_input'], activebackground=COLORS['bg_dark'],
-                activeforeground=COLORS['text_primary'],
-                font=FONTS['preview_text'], cursor='hand2',
-            )
-            paid_cb.pack(side=tk.LEFT)
-
-            # Separator
-            tk.Frame(container, bg=COLORS['border'], height=1).pack(fill=tk.X, pady=25)
-            
-            # Buttons
-            button_frame = tk.Frame(container, bg=COLORS['bg_dark'])
-            button_frame.pack(fill=tk.X)
-            
-            def save():
-                try:
-                    # Store original values for comparison
-                    original = {
-                        'Firstname': fighter.get('Firstname', fighter.get('name', '')),
-                        'Lastname': fighter.get('Lastname', ''),
-                        'Weight': fighter.get('Weight', fighter.get('weight', '')),
-                        'Club': fighter.get('Club', fighter.get('Verein', fighter.get('verein', fighter.get('club', '')))),
-                        'Association': fighter.get('Association', ''),
-                        'Birthyear': fighter.get('Birthyear', fighter.get('BirthYear', fighter.get('birthyear', fighter.get('age', '')))),
-                        'Valid': fighter.get('Valid', False),
-                        'Paid': fighter.get('Paid', False),
-                    }
-                    
-                    # Update fighter with new values
-                    fighter['Firstname'] = first_entry.get()
-                    fighter['Lastname'] = last_entry.get()
-                    fighter['Weight'] = float(weight_entry.get())
-                    fighter['Club'] = club_entry.get()
-                    fighter['Association'] = assoc_entry.get()
-                    fighter['Birthyear'] = int(birth_year_entry.get())
-                    # IMPORTANT: Also update Age field to match Birthyear (since Age is used in validation)
-                    fighter['Age'] = fighter['Birthyear']
-                    fighter['Valid'] = valid_var.get()
-                    fighter['Paid'] = paid_var.get()
-                    
-                    # Log what changed
-                    changes = []
-                    if original['Firstname'] != fighter['Firstname']:
-                        changes.append(f"Firstname: '{original['Firstname']}' → '{fighter['Firstname']}'")
-                    if original['Lastname'] != fighter['Lastname']:
-                        changes.append(f"Lastname: '{original['Lastname']}' → '{fighter['Lastname']}'")
-                    if original['Weight'] != fighter['Weight']:
-                        changes.append(f"Weight: {original['Weight']} → {fighter['Weight']}")
-                    if original['Club'] != fighter['Club']:
-                        changes.append(f"Club: '{original['Club']}' → '{fighter['Club']}'")
-                    if original['Association'] != fighter['Association']:
-                        changes.append(f"Association: '{original['Association']}' → '{fighter['Association']}'")
-                    if original['Birthyear'] != fighter['Birthyear']:
-                        changes.append(f"Birthyear: {original['Birthyear']} → {fighter['Birthyear']}")
-                    if original['Valid'] != fighter['Valid']:
-                        changes.append(f"Valid: {original['Valid']} → {fighter['Valid']}")
-                    if original['Paid'] != fighter['Paid']:
-                        changes.append(f"Paid: {original['Paid']} → {fighter['Paid']}")
-                    
-                    # Log all changes
-                    fighter_name = f"{fighter['Firstname']} {fighter['Lastname']}".strip()
-                    if changes:
-                        changes_text = "\n  • ".join(changes)
-                        self.logger.debug(f"EDIT: {fighter_name} - Changes saved:\n  • {changes_text}")
-                    else:
-                        self.logger.debug(f"EDIT: {fighter_name} - No changes made")
-                    
-                    # Track which bracket to display after save
-                    display_bracket_key = bracket_key
-                    
-                    if not is_fm and not is_young:
-                        new_weight = float(weight_entry.get())
-                        effective_age = age_group
-                        effective_wc = current_weight_class
-                        
-                        # Check if age class was upgraded via dropdown
-                        if not is_adult:
-                            new_ac = age_class_var.get()
-                            if new_ac != age_group:
-                                effective_age = new_ac
-                        
-                        # Check if weight class was manually changed via dropdown (adults)
-                        if is_adult:
-                            new_wc = weight_class_var.get()
-                            if new_wc != current_weight_class:
-                                effective_wc = new_wc
-                        
-                        # Auto-detect weight class from new weight (overrides manual if weight changed)
-                        if self.config_repo and new_weight != weight:
-                            detected_wc = self.config_repo.get_weight_class(new_weight, gender, effective_age)
-                            if detected_wc and detected_wc != 'unknown':
-                                effective_wc = detected_wc
-                        
-                        # Move if anything changed
-                        if effective_age != age_group or effective_wc != current_weight_class:
-                            display_bracket_key = self._move_participant_to_bracket(
-                                bracket_key, fighter_idx, gender, effective_age, effective_wc
-                            )
-                    
-                    self._display_participants(display_bracket_key)
-                    
-                    # Trigger bracket regeneration if callback is set
-                    # Pass the edited fighter so resort only needs to check this one person
-                    self.logger.debug(f"EDIT: Checking on_resort callback: {self.on_resort is not None}")
-                    if self.on_resort:
-                        try:
-                            fighter_name = f"{fighter.get('Firstname', '')} {fighter.get('Lastname', '')}".strip()
-                            self.logger.debug(f"EDIT: on_resort callback is set, triggering resort_brackets() for {fighter_name}")
-                            self.on_resort(fighter)  # Pass the edited fighter to resort only this person
-                            self.logger.debug("EDIT: on_resort callback completed successfully")
-                        except Exception as callback_err:
-                            self.logger.error(f"EDIT: Error in on_resort callback: {callback_err}", exc_info=True)
-                    else:
-                        self.logger.debug("EDIT: on_resort callback is NOT set")
-                    
-                    edit_window.destroy()
-                except ValueError:
-                    tk.messagebox.showerror("Error", "Invalid weight or age. Please enter numbers.")
-                except Exception as e:
-                    self.logger.error(f"Save error: {e}", exc_info=True)
-            
-            btn_save = tk.Button(button_frame, text="SAVE CHANGES", command=save, bg=COLORS['accent_green'], fg=COLORS['text_primary'], font=FONTS['heading_sm'], bd=0, relief=tk.FLAT, padx=25, pady=12, cursor='hand2')
-            btn_save.pack(side=tk.RIGHT)
-            
-            btn_cancel = tk.Button(button_frame, text="CANCEL", command=edit_window.destroy, bg=COLORS['bg_panel'], fg=COLORS['text_secondary'], font=FONTS['heading_sm'], bd=0, relief=tk.FLAT, padx=25, pady=12, cursor='hand2')
-            btn_cancel.pack(side=tk.RIGHT, padx=10)
-            
-        except Exception as e:
-            self.logger.error(f"Error opening edit dialog: {e}", exc_info=True)
+        # Use the separate Edit_Participants class to handle the dialog
+        Edit_Participants(self, bracket_key, fighter_idx)
 
     def _move_participant_to_bracket(self, old_bracket_key, fighter_idx, new_gender, new_age_group, new_weight_class):
         """Move a participant from one bracket to another when weight class or age class changes."""
