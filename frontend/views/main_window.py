@@ -1214,10 +1214,14 @@ class BracketViewerApp(tk.Tk):
                         except (ValueError, TypeError):
                             validation_errors.append(f"Weight must be number, got: {weight}")
                     
-                    # Check Gender is male/female
+                    # Check and normalize Gender
                     gender = str(participant.get('Gender', '')).strip().lower()
-                    if gender not in ['male', 'female']:
-                        validation_errors.append(f"Gender must be 'male' or 'female', got: {gender}")
+                    if gender in ['m', 'male', 'maennlich', 'männlich']:
+                        participant['Gender'] = 'male'
+                    elif gender in ['w', 'f', 'female', 'weiblich', 'frau']:
+                        participant['Gender'] = 'female'
+                    else:
+                        validation_errors.append(f"Gender must be male/female/männlich/weiblich, got: {gender}")
                     
                     if validation_errors:
                         error_msg = f"Participant {idx} validation failed:\n" + "\n".join(f"  • {err}" for err in validation_errors) + f"\nFile: {filename}"

@@ -1,7 +1,7 @@
 import re
 import datetime
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox
 
 import sys
 import os
@@ -52,8 +52,10 @@ class Edit_Participants(tk.Toplevel):
         if self.parent.config_repo:
             try:
                 gender_norm = str(gender).lower().strip()
-                if gender_norm in ('m', 'male'): gender_norm = 'm'
-                elif gender_norm in ('w', 'f', 'female'): gender_norm = 'w'
+                if gender_norm in ('m', 'male', 'maennlich', 'männlich'):
+                    gender_norm = 'm'
+                elif gender_norm in ('w', 'f', 'female', 'weiblich', 'frau'):
+                    gender_norm = 'w'
                 
                 df = self.parent.config_repo.weight_classes
                 filtered = df[(df['Gender'] == gender_norm) & (df['AgeGroup'] == age_group)]
@@ -71,7 +73,8 @@ class Edit_Participants(tk.Toplevel):
         
         if used_fallback:
             def sort_key(x):
-                if x == 'no-class': return (0, 0)
+                if x == 'no-class':
+                    return (0, 0)
                 num_str = x.replace('kg', '').replace('-', '').replace('+', '')
                 try:
                     num = float(num_str)
@@ -220,19 +223,12 @@ class Edit_Participants(tk.Toplevel):
             MAX_ASSOCIATION_LENGTH = 30
 
             # Hint texts
-            HINT_NAME = "Letters and hyphens only, max 30"
-            HINT_WEIGHT = "Digits only, 52.3 or 52,3"
-            HINT_BIRTHYEAR = "Exactly 4 digits"
-            HINT_CLUB = "Max 50 characters"
-            HINT_ASSOCIATION = "Max 30 characters"
+            HINT_NAME = "Nur Buchstaben und -, max 30 Zeichen"
+            HINT_WEIGHT = "Nur Ziffern, 52.3 oder 52,3"
+            HINT_BIRTHYEAR = "Genau 4 Ziffern"
+            HINT_CLUB = "Maximal 50 Zeichen"
+            HINT_ASSOCIATION = "Maximal 30 Zeichen"
 
-            # Placeholder texts
-            PLACEHOLDER_FIRST_NAME = "Max-Peter"
-            PLACEHOLDER_LAST_NAME = "Müller"
-            PLACEHOLDER_WEIGHT = "52.3"
-            PLACEHOLDER_BIRTHYEAR = "2015"
-            PLACEHOLDER_CLUB = "TSV Bushido Köln"
-            PLACEHOLDER_ASSOCIATION = "NWJV"
 
             def _validate_name(action, value_if_allowed):
                 """Allow only letters, hyphens, spaces, and umlauts. Max 30 chars.
@@ -302,7 +298,7 @@ class Edit_Participants(tk.Toplevel):
 
             # Helper function to create form fields with subtle borders
             def create_field(parent_frame, label_text, entry_var=None, is_readonly=False,
-                             validation_command=None, hint_text=None, placeholder=None):
+                             validation_command=None, hint_text=None):
                 """Create a nicely styled form field with optional validation feedback."""
                 field_frame = tk.Frame(parent_frame, bg=COLORS['bg_dark'])
                 field_frame.pack(fill=tk.X, pady=(0, 18))
@@ -350,60 +346,24 @@ class Edit_Participants(tk.Toplevel):
                                           fg=COLORS['text_muted'], font=FONTS['preview_hint'])
                     hint_label.pack(anchor=tk.W, pady=(3, 0))
 
-                # ── Placeholder text ──
-                _has_placeholder = [False]
-
-                def _show_placeholder():
-                    if entry == self.focus_get():
-                        return
-                    if placeholder and not entry.get():
-                        entry.config(validate='none')
-                        entry.insert(0, placeholder)
-                        entry.config(fg=COLORS['text_muted'])
-                        _has_placeholder[0] = True
-                        if validation_command:
-                            entry.config(validate='key',
-                                         validatecommand=validation_command,
-                                         invalidcommand=invalid_input_command)
-
-                def _hide_placeholder():
-                    if _has_placeholder[0]:
-                        entry.config(validate='none')
-                        entry.delete(0, tk.END)
-                        entry.config(fg=COLORS['text_primary'])
-                        _has_placeholder[0] = False
-                        if validation_command:
-                            entry.config(validate='key',
-                                         validatecommand=validation_command,
-                                         invalidcommand=invalid_input_command)
-                
-                # Highlight on focus + placeholder handling
+                # Highlight on focus
                 def on_focus_in(e, b=border_frame):
                     if not is_readonly:
                         b.config(bg=COLORS['accent_blue'])
-                    _hide_placeholder()
 
                 def on_focus_out(e, b=border_frame):
                     if not is_readonly:
                         b.config(bg=COLORS['border'])
-                    _show_placeholder()
                 
                 entry.bind("<FocusIn>", on_focus_in)
                 entry.bind("<FocusOut>", on_focus_out)
-
-                # Store placeholder setter so we can call it after insert
-                entry._show_placeholder = _show_placeholder
-                entry._hide_placeholder = _hide_placeholder
-                entry._has_placeholder = _has_placeholder
                 
                 return entry
 
-            def _insert_with_placeholder(entry, value):
-                """Insert a value into the entry; show placeholder if empty."""
+            def insert_value(entry, value):
+                """Insert a value into the entry."""
                 if value:
                     entry.insert(0, value)
-                else:
-                    entry._show_placeholder()
 
             # Name fields in a row
             name_row = tk.Frame(container, bg=COLORS['bg_dark'])
@@ -412,16 +372,14 @@ class Edit_Participants(tk.Toplevel):
             first_col = tk.Frame(name_row, bg=COLORS['bg_dark'])
             first_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
             first_entry = create_field(first_col, "First Name", validation_command=validation_command_name,
-                                        hint_text=HINT_NAME,
-                                        placeholder=PLACEHOLDER_FIRST_NAME)
-            _insert_with_placeholder(first_entry, first_name)
+                                        hint_text=HINT_NAME)
+            insert_value(first_entry, first_name)
             
             last_col = tk.Frame(name_row, bg=COLORS['bg_dark'])
             last_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
             last_entry = create_field(last_col, "Last Name", validation_command=validation_command_name,
-                                       hint_text=HINT_NAME,
-                                       placeholder=PLACEHOLDER_LAST_NAME)
-            _insert_with_placeholder(last_entry, last_name)
+                                       hint_text=HINT_NAME)
+            insert_value(last_entry, last_name)
             
             # Weight and Age in a row
             row_frame = tk.Frame(container, bg=COLORS['bg_dark'])
@@ -430,9 +388,8 @@ class Edit_Participants(tk.Toplevel):
             weight_col = tk.Frame(row_frame, bg=COLORS['bg_dark'])
             weight_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
             weight_entry = create_field(weight_col, "Weight (kg)", validation_command=validation_command_weight,
-                                         hint_text=HINT_WEIGHT,
-                                         placeholder=PLACEHOLDER_WEIGHT)
-            _insert_with_placeholder(weight_entry, weight_str)
+                                         hint_text=HINT_WEIGHT)
+            insert_value(weight_entry, weight_str)
             
             # Show detected weight class as user types
             weight_class_hint = tk.Label(weight_col, text="", bg=COLORS['bg_dark'],
@@ -476,9 +433,8 @@ class Edit_Participants(tk.Toplevel):
             age_col = tk.Frame(row_frame, bg=COLORS['bg_dark'])
             age_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
             birth_year_entry = create_field(age_col, "Birth Year", validation_command=validation_command_birthyear,
-                                             hint_text=HINT_BIRTHYEAR,
-                                             placeholder=PLACEHOLDER_BIRTHYEAR)
-            _insert_with_placeholder(birth_year_entry, str(birth_year))
+                                             hint_text=HINT_BIRTHYEAR)
+            insert_value(birth_year_entry, str(birth_year))
             
             # Auto-detect age group from birth year on focus out
             def _on_birth_year_changed(e):
@@ -521,16 +477,14 @@ class Edit_Participants(tk.Toplevel):
             club_col = tk.Frame(club_row, bg=COLORS['bg_dark'])
             club_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
             club_entry = create_field(club_col, "Club", validation_command=validation_command_club,
-                                       hint_text=HINT_CLUB,
-                                       placeholder=PLACEHOLDER_CLUB)
-            _insert_with_placeholder(club_entry, club)
+                                       hint_text=HINT_CLUB)
+            insert_value(club_entry, club)
             
             association_col = tk.Frame(club_row, bg=COLORS['bg_dark'])
             association_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
             association_entry = create_field(association_col, "Association", validation_command=validation_command_association,
-                                        hint_text=HINT_ASSOCIATION,
-                                        placeholder=PLACEHOLDER_ASSOCIATION)
-            _insert_with_placeholder(association_entry, association)
+                                        hint_text=HINT_ASSOCIATION)
+            insert_value(association_entry, association)
             
             # Weight Class / Age Class section
             is_free_match = str(bracket_key).startswith("FM |")
@@ -814,12 +768,6 @@ class Edit_Participants(tk.Toplevel):
                     # ── Minimum length / value validation ──
                     errors = []
 
-                    # Clear any active placeholders before reading values
-                    for _e in (first_entry, last_entry, weight_entry, birth_year_entry, club_entry, association_entry):
-                        if hasattr(_e, '_has_placeholder') and _e._has_placeholder[0]:
-                            _e.delete(0, tk.END)
-                            _e._has_placeholder[0] = False
-
                     first_name_val = first_entry.get().strip()
                     last_name_val = last_entry.get().strip()
                     weight_raw = weight_entry.get().strip().replace(',', '.')
@@ -827,20 +775,18 @@ class Edit_Participants(tk.Toplevel):
                     club_val = club_entry.get().strip()
                     association_val = association_entry.get().strip()
 
+                    if not first_name_val:
+                        errors.append("Firstname must not be empty.")
                     if first_name_val and first_name_val.endswith('-'):
                         errors.append("Firstname must not end with a hyphen.")
                     if last_name_val and last_name_val.endswith('-'):
                         errors.append("Lastname must not end with a hyphen.")
                     if not weight_raw or float(weight_raw) <= 0:
                         errors.append("Weight must be greater than 0.")
-                    if len(birth_year_raw) != 4 or not birth_year_raw.isdigit():
+                    if birth_year_raw and (len(birth_year_raw) != 4 or not birth_year_raw.isdigit()):
                         errors.append("Birth Year must be exactly 4 digits.")
                     if errors:
                         messagebox.showwarning("Validation Error", "\n".join(errors), parent=self)
-                        # Re-show placeholders for fields that are still empty
-                        for _e in (first_entry, last_entry, weight_entry, birth_year_entry, club_entry, association_entry):
-                            if hasattr(_e, '_show_placeholder'):
-                                _e._show_placeholder()
                         return
 
                     fighter['Firstname'] = first_name_val
@@ -848,9 +794,7 @@ class Edit_Participants(tk.Toplevel):
                     fighter['Weight'] = float(weight_raw)
                     fighter['Club'] = club_val
                     fighter['Association'] = association_val
-                    fighter['Birthyear'] = int(birth_year_raw)
-                    old_valid = is_valid
-                    old_paid = is_paid
+                    fighter['Birthyear'] = int(birth_year_raw) if birth_year_raw else ''
                     fighter['Valid'] = valid_var.get()
                     fighter['Paid'] = paid_var.get()
                     

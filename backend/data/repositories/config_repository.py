@@ -102,9 +102,9 @@ class ConfigRepository:
         
         # Normalize gender: m/M/Male -> 'm', w/W/Female/F -> 'w'
         gender_str = str(gender).lower().strip()
-        if gender_str in ('m', 'male'):
+        if gender_str in ('m', 'male', 'maennlich', 'männlich'):
             gender = 'm'
-        elif gender_str in ('w', 'f', 'female', 'frau'):
+        elif gender_str in ('w', 'f', 'female', 'weiblich', 'frau'):
             gender = 'w'
         else:
             # Fallback: take first character
