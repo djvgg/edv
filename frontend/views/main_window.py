@@ -222,7 +222,7 @@ class BracketViewerApp(tk.Tk):
             widget.destroy()
 
         # Create and display preview screen
-        preview_screen = GroupPreviewScreen(self)
+        preview_screen = GroupPreviewScreen(self, quarantine_service=self.quarantine_service)
         preview_screen.pack(fill=tk.BOTH, expand=True)
 
         # Store reference and set up callbacks

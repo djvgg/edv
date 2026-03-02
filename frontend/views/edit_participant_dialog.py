@@ -1,6 +1,12 @@
 import re
+import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox
+
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+from backend.services.bracket_service import get_age_group as get_age_group_with_fallback  # noqa: E402
 
 from ..styles import COLORS, FONTS
 
@@ -78,16 +84,48 @@ class Edit_Participants(tk.Toplevel):
         return available_classes
 
     def _build_ui(self):
+        """Build the edit participant dialog UI.
+        
+        ⚙️ INTEGRATIONS:
+        
+        1. **QuarantineService** (on save for QUARANTINE bracket):
+           - Uses resort_brackets(brackets, edited_fighter) for proper state sync
+           - Re-validates quarantine participants and moves valid ones to correct brackets
+           - Maintains quarantine_bracket reference consistency
+        
+        2. **ConfigRepository** (real-time):
+           - get_weight_class(weight, gender, age_group) → Shows auto-detected weight class as user types
+           - get_age_group(birth_year) → Validates birth year & suggests primary age group  
+           - get_all_eligible_age_groups(birth_year) → Shows all eligible age groups (double starts)
+        
+        3. **group_preview_screen._move_participant_to_bracket()** (for non-quarantine):
+           - Direct bracket movement when age/weight class changes
+           - Only used for non-quarantine brackets (QUARANTINE uses resort_brackets for state sync)
+        
+        4. **Inline Validation**:
+           - Name format validation (letters, hyphens, spaces only)
+           - Weight validation (numeric, 0.1-999.9 kg range)
+           - Birth year validation (exactly 4 digits, age 6-120 years)
+           - Age group mapping validation
+        
+        5. **TaskRunner** (optional future):
+           - Could defer validation/re-sorting to background thread
+        """
         bracket_key = self.bracket_key
         fighter_idx = self.fighter_idx
+        
+        is_quarantine = bracket_key == 'QUARANTINE'
+        self.parent.logger.debug(f"EDIT_DIALOG: Opening dialog for bracket={bracket_key}, fighter_idx={fighter_idx}, is_quarantine={is_quarantine}")
         
         try:
             fighters = self.parent.brackets[bracket_key].get('fighters', [])
             if not (0 <= fighter_idx < len(fighters)):
+                self.parent.logger.error(f"EDIT_DIALOG: Invalid fighter_idx {fighter_idx} for bracket {bracket_key}")
                 self.destroy()
                 return
             
             fighter = fighters[fighter_idx]
+            self.parent.logger.debug(f"EDIT_DIALOG: Editing {fighter.get('Firstname', '')} {fighter.get('Lastname', '')} (ID: {fighter.get('ID', '?')})")
             gender, age_group, current_weight_class = self.parent._parse_bracket_key(bracket_key)
             if gender is None:
                 gender = ""
@@ -95,6 +133,13 @@ class Edit_Participants(tk.Toplevel):
                 age_group = ""
             if current_weight_class is None:
                 current_weight_class = ""
+            
+            # For QUARANTINE or when gender is empty, use fighter's Gender field
+            if not gender and fighter.get('Gender'):
+                gender = str(fighter.get('Gender')).strip().lower()
+                if gender:
+                    gender = gender[0]  # Take first character (m, w, f)
+                    self.parent.logger.debug(f"EDIT_DIALOG: Using fighter's Gender field: {gender}")
             
             first_name = fighter.get('Firstname', fighter.get('name', ''))
             last_name = fighter.get('Lastname', '')
@@ -105,12 +150,28 @@ class Edit_Participants(tk.Toplevel):
             is_valid = fighter.get('Valid', False)
             is_paid = fighter.get('Paid', False)
             
+            self.parent.logger.debug(f"EDIT_DIALOG: Current state - Valid={is_valid}, Paid={is_paid}, Weight={weight}, BirthYear={birth_year}")
+            
+            # For QUARANTINE or when age_group is empty, calculate fallback age group from birth year
+            if not age_group and birth_year:
+                try:
+                    birth_year_int = int(birth_year) if isinstance(birth_year, str) else birth_year
+                    current_year = datetime.datetime.now().year
+                    calculated_age = current_year - birth_year_int
+                    fallback_age_group = get_age_group_with_fallback(calculated_age)
+                    if fallback_age_group:
+                        age_group = fallback_age_group
+                        self.parent.logger.debug(f"EDIT_DIALOG: Calculated age group from birth year {birth_year_int}: {age_group} (age={calculated_age})")
+                except (ValueError, TypeError, Exception) as e:
+                    self.parent.logger.debug(f"EDIT_DIALOG: Could not calculate age group from birth year: {e}")
+            
             if isinstance(weight, (int, float)):
                 weight_str = f"{weight:.1f}"
             else:
                 weight_str = str(weight)
             
             available_weight_classes = self._get_available_weight_classes(gender, age_group)
+            self.parent.logger.debug(f"EDIT_DIALOG: Available weight classes for {gender}|{age_group}: {available_weight_classes}")
             
             # Header with participant name
             header_frame = tk.Frame(self, bg=COLORS['bg_darker'], height=70)
@@ -373,12 +434,85 @@ class Edit_Participants(tk.Toplevel):
                                          placeholder=PLACEHOLDER_WEIGHT)
             _insert_with_placeholder(weight_entry, weight_str)
             
+            # Show detected weight class as user types
+            weight_class_hint = tk.Label(weight_col, text="", bg=COLORS['bg_dark'],
+                                         fg=COLORS['text_muted'], font=FONTS['preview_hint'])
+            
+            def _on_weight_changed(e=None):
+                """Show auto-detected weight class as user types (uses ConfigRepository.get_weight_class).
+                Uses current age_group or fallback age_group if birth year is out of bounds."""
+                weight_str_input = weight_entry.get().strip().replace(',', '.')
+                birth_year_str = birth_year_entry.get().strip()
+                
+                if weight_str_input and self.parent.config_repo:
+                    try:
+                        weight_val = float(weight_str_input)
+                        if weight_val > 0:
+                            # Determine effective age group for weight class lookup
+                            effective_age_group = age_group
+                            if birth_year_str and len(birth_year_str) == 4 and birth_year_str.isdigit():
+                                try:
+                                    birth_year_int = int(birth_year_str)
+                                    current_year = datetime.datetime.now().year
+                                    calculated_age = current_year - birth_year_int
+                                    fallback_ag = get_age_group_with_fallback(calculated_age)
+                                    if fallback_ag:
+                                        effective_age_group = fallback_ag
+                                except (ValueError, Exception):
+                                    pass
+                            
+                            detected = self.parent.config_repo.get_weight_class(weight_val, gender, effective_age_group)
+                            if detected and detected != 'unknown':
+                                weight_class_hint.config(text=f"→ Auto-class: {detected}")
+                                self.parent.logger.debug(f"EDIT_DIALOG: Weight {weight_val}kg detected as {detected} (age_group={effective_age_group})")
+                            else:
+                                weight_class_hint.config(text="")
+                    except (ValueError, Exception):
+                        weight_class_hint.config(text="")
+            
+            weight_entry.bind("<KeyRelease>", _on_weight_changed)
+            weight_entry.bind("<FocusOut>", lambda e: weight_class_hint.pack(anchor=tk.W, pady=(3, 0)) if weight_class_hint.cget("text") else None)
+            
             age_col = tk.Frame(row_frame, bg=COLORS['bg_dark'])
             age_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
             birth_year_entry = create_field(age_col, "Birth Year", validation_command=validation_command_birthyear,
                                              hint_text=HINT_BIRTHYEAR,
                                              placeholder=PLACEHOLDER_BIRTHYEAR)
             _insert_with_placeholder(birth_year_entry, str(birth_year))
+            
+            # Auto-detect age group from birth year on focus out
+            def _on_birth_year_changed(e):
+                """Auto-detect age group when birth year is entered (uses bracket_service.get_age_group WITH fallback)."""
+                birth_year_str = birth_year_entry.get().strip()
+                if birth_year_str and len(birth_year_str) == 4 and birth_year_str.isdigit():
+                    try:
+                        birth_year_int = int(birth_year_str)
+                        current_year = datetime.datetime.now().year
+                        calculated_age = current_year - birth_year_int
+                        
+                        # Use bracket_service.get_age_group which has fallback for out-of-bounds years
+                        auto_age_group = get_age_group_with_fallback(calculated_age)
+                        
+                        # Also try config_repo for config-defined eligibility if available
+                        config_age_group = None
+                        all_eligible = []
+                        if self.parent.config_repo:
+                            config_age_group = self.parent.config_repo.get_age_group(birth_year_int)
+                            all_eligible = self.parent.config_repo.get_all_eligible_age_groups(birth_year_int)
+                        
+                        self.parent.logger.debug(
+                            f"EDIT_DIALOG: Birth year {birth_year_int} (age {calculated_age}) → "
+                            f"auto_age_group (with fallback) = {auto_age_group}, "
+                            f"config_age_group = {config_age_group}, eligible = {all_eligible}"
+                        )
+                        
+                        if auto_age_group and auto_age_group != age_group and not is_young_category:
+                            self.parent.logger.debug(f"EDIT_DIALOG: Birth year {birth_year_int} detected age group: {auto_age_group}")
+                            # Could auto-update age_group_var here if implementing auto-upgrade feature
+                    except (ValueError, Exception) as ex:
+                        self.parent.logger.debug(f"EDIT_DIALOG: Birth year auto-detect failed: {ex}")
+            
+            birth_year_entry.bind("<FocusOut>", _on_birth_year_changed)
             
             # Club and Association fields in a row
             club_row = tk.Frame(container, bg=COLORS['bg_dark'])
@@ -466,6 +600,7 @@ class Edit_Participants(tk.Toplevel):
                     if available_age_classes:
                         next_class = available_age_classes[0]
                         options_to_show = [age_group, next_class]
+                        self.parent.logger.debug(f"EDIT_DIALOG: Age upgrade available: {age_group} → {next_class}")
                     selected_var = age_class_var
                 
             if not is_free_match and not is_young_category:
@@ -668,6 +803,14 @@ class Edit_Participants(tk.Toplevel):
             
             def save():
                 try:
+                    # ── Integrations Used ──
+                    # 1. QuarantineService.resort_brackets() - Re-validates and re-assigns QUARANTINE participants
+                    # 2. ConfigRepository.get_weight_class() - Auto-detects weight class from entered weight
+                    # 3. bracket_service.get_age_group(age) - Gets age group WITH FALLBACK for out-of-bounds birth years
+                    # 4. ConfigRepository.get_age_group(birth_year) - Config-based lookup (for reference only)
+                    # 5. group_preview_screen._move_participant_to_bracket() - Direct bracket movement (non-quarantine)
+                    # 6. Inline validation - Name format, weight bounds, age bounds
+                    
                     # ── Minimum length / value validation ──
                     errors = []
 
@@ -706,8 +849,14 @@ class Edit_Participants(tk.Toplevel):
                     fighter['Club'] = club_val
                     fighter['Association'] = association_val
                     fighter['Birthyear'] = int(birth_year_raw)
+                    old_valid = is_valid
+                    old_paid = is_paid
                     fighter['Valid'] = valid_var.get()
                     fighter['Paid'] = paid_var.get()
+                    
+                    self.parent.logger.debug(f"EDIT_DIALOG: Updated fighter - Valid: {old_valid}→{fighter['Valid']}, Paid: {old_paid}→{fighter['Paid']}, Weight: {weight}→{float(weight_raw)}")
+                    if is_quarantine and not old_valid and fighter['Valid']:
+                        self.parent.logger.info(f"QUARANTINE ↔ MAIN: Marked QUARANTINE participant as VALID: {first_name_val} {last_name_val}")
                     
                     # Track which bracket to display after save
                     display_bracket_key = bracket_key
@@ -750,10 +899,46 @@ class Edit_Participants(tk.Toplevel):
                         
                         # Move if anything changed
                         if effective_age != age_group or effective_weight_class != current_weight_class:
-                            display_bracket_key = self.parent._move_participant_to_bracket(
-                                bracket_key, fighter_idx, gender, effective_age, effective_weight_class
-                            )
+                            self.parent.logger.debug(f"EDIT_DIALOG: Moving participant: {bracket_key} → {gender}|{effective_age}|{effective_weight_class}")
+                            if is_quarantine and effective_age != age_group:
+                                self.parent.logger.info(f"QUARANTINE ↔ MAIN: Age upgraded in QUARANTINE: {first_name_val} {last_name_val} ({age_group} → {effective_age})")
+                            elif is_quarantine and effective_weight_class != current_weight_class:
+                                self.parent.logger.info(f"QUARANTINE ↔ MAIN: Weight class changed in QUARANTINE: {first_name_val} {last_name_val} ({current_weight_class} → {effective_weight_class})")
+                            
+                            # Use quarantine service for resort if edited from QUARANTINE (maintains state sync)
+                            if is_quarantine:
+                                self.parent.logger.debug(f"QUARANTINE ↔ MAIN: Using quarantine service for re-sorting")
+                                if self.parent.quarantine_service:
+                                    self.parent.quarantine_service.resort_brackets(
+                                        self.parent.brackets, 
+                                        edited_fighter=fighter
+                                    )
+                                else:
+                                    self.parent.logger.error("quarantine_service not available")
+                                    return
+                                
+                                # After resort, find where this fighter ended up (if still valid)
+                                display_bracket_key = None
+                                for bracket_key_check, bracket_data in self.parent.brackets.items():
+                                    if bracket_key_check == 'QUARANTINE':
+                                        continue
+                                    for f in bracket_data.get('fighters', []):
+                                        if f.get('ID') == fighter.get('ID'):
+                                            display_bracket_key = bracket_key_check
+                                            break
+                                    if display_bracket_key:
+                                        break
+                                # If fighter still in quarantine (didn't become valid), show quarantine
+                                if display_bracket_key is None and 'QUARANTINE' in self.parent.brackets:
+                                    display_bracket_key = bracket_key
+                            else:
+                                # Direct movement for non-quarantine brackets (no state sync issue)
+                                display_bracket_key = self.parent._move_participant_to_bracket(
+                                    bracket_key, fighter_idx, gender, effective_age, effective_weight_class
+                                )
                     
+                    self.parent.logger.info(f"EDIT_DIALOG: Save completed for {first_name_val} {last_name_val}, displaying bracket {display_bracket_key}")
+                    self.parent.logger.debug(f"EDIT_DIALOG: Integrations used - QuarantineService, ConfigRepository, movement logic")
                     self.parent._display_participants(display_bracket_key)
                     self.destroy()
                 except ValueError:
@@ -768,4 +953,4 @@ class Edit_Participants(tk.Toplevel):
             btn_cancel.pack(side=tk.RIGHT, padx=10)
             
         except Exception as e:
-            self.parent.logger.error(f"Error opening edit dialog: {e}")
+            self.parent.logger.error(f"EDIT_DIALOG: Fatal error - {e}", exc_info=True)
