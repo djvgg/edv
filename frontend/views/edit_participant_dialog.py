@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 TOP Team Combat Control
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 import re
 import datetime
 import tkinter as tk
@@ -816,7 +819,7 @@ class Edit_Participants(tk.Toplevel):
                     display_bracket_key = bracket_key
                     
                     if is_quarantine:
-                        self.parent.logger.debug(f"QUARANTINE: Using quarantine service for re-sorting")
+                        self.parent.logger.debug("QUARANTINE: Using quarantine service for re-sorting")
                         if self.parent.quarantine_service:
                             self.parent.quarantine_service.resort_brackets(
                                 self.parent.brackets, 
@@ -890,7 +893,7 @@ class Edit_Participants(tk.Toplevel):
                             )
                     
                     self.parent.logger.info(f"EDIT_DIALOG: Save completed for {first_name_val} {last_name_val}, displaying bracket {display_bracket_key}")
-                    self.parent.logger.debug(f"EDIT_DIALOG: Integrations used - QuarantineService, ConfigRepository, movement logic")
+                    self.parent.logger.debug("EDIT_DIALOG: Integrations used - QuarantineService, ConfigRepository, movement logic")
                     self.parent._display_participants(display_bracket_key)
                     self.destroy()
                 except ValueError:

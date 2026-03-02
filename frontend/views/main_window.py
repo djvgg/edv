@@ -3,7 +3,6 @@
 
 # Extracted GUI code from bracket_viewer.py
 
-import datetime
 import json
 import os
 import sys
@@ -336,8 +335,6 @@ class BracketViewerApp(tk.Tk):
             Tuple of (valid_participants, invalid_list) where invalid_list contains dicts 
             with name, age, and rejection reason
         """
-        import datetime
-        
         valid_participants = []
         invalid_participants = []
         current_year = datetime.datetime.now().year
