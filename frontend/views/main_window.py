@@ -1141,6 +1141,10 @@ class BracketViewerApp(tk.Tk):
             # Define expected fields
             required_core_fields = ['Firstname', 'Lastname', 'Birthyear', 'Weight', 'Gender']
 
+            self.ui_feedback.set_status("Loading and validating files...", COLORS['text_secondary'])
+            
+            global_id_counter = 1
+
             # Load both JSON files
             for file_idx, filepath in enumerate(filepaths, 1):
                 filename = os.path.basename(filepath)
@@ -1236,6 +1240,10 @@ class BracketViewerApp(tk.Tk):
                     # Ensure Age field exists (use Birthyear)
                     if 'Age' not in participant:
                         participant['Age'] = participant.get('Birthyear')
+                        
+                    # Override any potentially conflicting imported IDs with a globally unique one
+                    participant['ID'] = global_id_counter
+                    global_id_counter += 1
 
                     self.logger.debug(f"[File {file_idx}] Participant {idx}: {participant['Name']} (Age: {participant.get('Birthyear')}, Weight: {participant.get('Weight', 0.0)}kg, Gender: {gender})")
                     
