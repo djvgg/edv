@@ -40,9 +40,9 @@ def _normalize_gender(raw: str) -> str:
     v = str(raw).lower().strip()
     if v in ('m', 'male', 'maennlich', 'männlich'):
         return 'm'
-    if v in ('w', 'f', 'female', 'weiblich'):
+    if v in ('w', 'f', 'female', 'weiblich', 'frau'):
         return 'w'
-    return v[:1]  # best-effort fallback
+    return v[0] if v else 'm'  # best-effort fallback
 
 
 class TournamentService:
