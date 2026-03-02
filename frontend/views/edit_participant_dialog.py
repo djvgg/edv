@@ -465,6 +465,9 @@ class Edit_Participants(tk.Toplevel):
                         if auto_age_group and auto_age_group != age_group and not is_young_category:
                             self.parent.logger.debug(f"EDIT_DIALOG: Birth year {birth_year_int} detected age group: {auto_age_group}")
                             # Could auto-update age_group_var here if implementing auto-upgrade feature
+                            
+                        # Re-calculate weight class hint based on new age group
+                        _on_weight_changed()
                     except (ValueError, Exception) as ex:
                         self.parent.logger.debug(f"EDIT_DIALOG: Birth year auto-detect failed: {ex}")
             
@@ -493,7 +496,8 @@ class Edit_Participants(tk.Toplevel):
             label_text = "WEIGHT CLASS ASSIGNMENT" if is_adult_category else "AGE CLASS UPGRADE"
             
             weight_class_frame = tk.Frame(container, bg=COLORS['bg_dark'])
-            if not is_free_match and not is_young_category:
+            # Only show class assignments for participants outside of QUARANTINE
+            if not is_free_match and not is_young_category and not is_quarantine:
                 weight_class_frame.pack(fill=tk.X, pady=(0, 14))
                 
                 weight_class_label = tk.Label(weight_class_frame, text=label_text, bg=COLORS['bg_dark'], fg=COLORS['accent_blue'], font=FONTS['preview_label'])
@@ -514,6 +518,7 @@ class Edit_Participants(tk.Toplevel):
             
             current_weight_key = get_weight_key(current_weight_class)
             
+            # -- Dropdown Option Variables --
             options_to_show = []
             selected_var = None
             
@@ -557,7 +562,7 @@ class Edit_Participants(tk.Toplevel):
                         self.parent.logger.debug(f"EDIT_DIALOG: Age upgrade available: {age_group} → {next_class}")
                     selected_var = age_class_var
                 
-            if not is_free_match and not is_young_category:
+            if not is_free_match and not is_young_category and not is_quarantine:
                 if options_to_show:
                     # CUSTOM DROPDOWN REPLACEMENT (Using a Frame-based layout to prevent draw collisions)
                     dropdown_border = tk.Frame(weight_class_frame, bg=COLORS['border'], padx=1, pady=1)
@@ -799,6 +804,7 @@ class Edit_Participants(tk.Toplevel):
                     fighter['Club'] = club_val
                     fighter['Association'] = association_val
                     fighter['Birthyear'] = int(birth_year_raw) if birth_year_raw else ''
+                    fighter['Age'] = fighter['Birthyear']  # TODO Sync Age property for export compatibility
                     fighter['Valid'] = valid_var.get()
                     fighter['Paid'] = paid_var.get()
                     
@@ -809,22 +815,38 @@ class Edit_Participants(tk.Toplevel):
                     # Track which bracket to display after save
                     display_bracket_key = bracket_key
                     
-                    if not is_free_match and not is_young_category:
+                    if is_quarantine:
+                        self.parent.logger.debug(f"QUARANTINE: Using quarantine service for re-sorting")
+                        if self.parent.quarantine_service:
+                            self.parent.quarantine_service.resort_brackets(
+                                self.parent.brackets, 
+                                edited_fighter=fighter,
+                                group_preview_screen=self.parent
+                            )
+                        else:
+                            self.parent.logger.error("quarantine_service not available")
+                            return
+                        
+                        # Unless QUARANTINE is now empty, stay in the QUARANTINE view
+                        if 'QUARANTINE' in self.parent.brackets:
+                            display_bracket_key = 'QUARANTINE'
+                        else:
+                            # If QUARANTINE is completely empty now, find where this fighter ended up
+                            display_bracket_key = None
+                            for bracket_key_check, bracket_data in self.parent.brackets.items():
+                                if bracket_key_check == 'QUARANTINE':
+                                    continue
+                                for f in bracket_data.get('fighters', []):
+                                    if f.get('ID') == fighter.get('ID'):
+                                        display_bracket_key = bracket_key_check
+                                        break
+                                if display_bracket_key:
+                                    break
+                    
+                    elif not is_free_match and not is_young_category:
                         new_weight = float(weight_entry.get().replace(',', '.'))
                         effective_age = age_group
                         effective_weight_class = current_weight_class
-                        
-                        # Recalculate effective age if the birth year was modified
-                        if birth_year_raw and birth_year_raw != str(birth_year):
-                            try:
-                                current_year = datetime.datetime.now().year
-                                new_calc_age = current_year - int(birth_year_raw)
-                                fallback_group = get_age_group_with_fallback(new_calc_age)
-                                if fallback_group:
-                                    effective_age = fallback_group
-                                    self.parent.logger.debug(f"EDIT_DIALOG: Recalculated age group from new birth year {birth_year_raw}: {effective_age}")
-                            except Exception as e:
-                                self.parent.logger.warning(f"Could not recalculate age group: {e}")
                         
                         # Check if age class was upgraded via dropdown
                         if not is_adult_category:
@@ -857,45 +879,15 @@ class Edit_Participants(tk.Toplevel):
                             if detected_weight_class and detected_weight_class != 'unknown':
                                 effective_weight_class = detected_weight_class
                         
+                        
                         # Move if anything changed
                         if effective_age != age_group or effective_weight_class != current_weight_class:
                             self.parent.logger.debug(f"EDIT_DIALOG: Moving participant: {bracket_key} → {gender}|{effective_age}|{effective_weight_class}")
-                            if is_quarantine and effective_age != age_group:
-                                self.parent.logger.info(f"QUARANTINE ↔ MAIN: Age upgraded in QUARANTINE: {first_name_val} {last_name_val} ({age_group} → {effective_age})")
-                            elif is_quarantine and effective_weight_class != current_weight_class:
-                                self.parent.logger.info(f"QUARANTINE ↔ MAIN: Weight class changed in QUARANTINE: {first_name_val} {last_name_val} ({current_weight_class} → {effective_weight_class})")
                             
-                            # Use quarantine service for resort if edited from QUARANTINE (maintains state sync)
-                            if is_quarantine:
-                                self.parent.logger.debug(f"QUARANTINE ↔ MAIN: Using quarantine service for re-sorting")
-                                if self.parent.quarantine_service:
-                                    self.parent.quarantine_service.resort_brackets(
-                                        self.parent.brackets, 
-                                        edited_fighter=fighter
-                                    )
-                                else:
-                                    self.parent.logger.error("quarantine_service not available")
-                                    return
-                                
-                                # After resort, find where this fighter ended up (if still valid)
-                                display_bracket_key = None
-                                for bracket_key_check, bracket_data in self.parent.brackets.items():
-                                    if bracket_key_check == 'QUARANTINE':
-                                        continue
-                                    for f in bracket_data.get('fighters', []):
-                                        if f.get('ID') == fighter.get('ID'):
-                                            display_bracket_key = bracket_key_check
-                                            break
-                                    if display_bracket_key:
-                                        break
-                                # If fighter still in quarantine (didn't become valid), show quarantine
-                                if display_bracket_key is None and 'QUARANTINE' in self.parent.brackets:
-                                    display_bracket_key = bracket_key
-                            else:
-                                # Direct movement for non-quarantine brackets (no state sync issue)
-                                display_bracket_key = self.parent._move_participant_to_bracket(
-                                    bracket_key, fighter_idx, gender, effective_age, effective_weight_class
-                                )
+                            # Direct movement for non-quarantine brackets (no state sync issue)
+                            display_bracket_key = self.parent._move_participant_to_bracket(
+                                bracket_key, fighter_idx, gender, effective_age, effective_weight_class
+                            )
                     
                     self.parent.logger.info(f"EDIT_DIALOG: Save completed for {first_name_val} {last_name_val}, displaying bracket {display_bracket_key}")
                     self.parent.logger.debug(f"EDIT_DIALOG: Integrations used - QuarantineService, ConfigRepository, movement logic")
