@@ -127,10 +127,14 @@ def export_all_brackets(participants, event_year=None):
         weight = p.get('Weight', p.get('weight', 0))
         name = p.get('Name', p.get('name', ''))
 
-        # Normalize gender
-        gender_norm = str(raw_gender).strip()
-        if not gender_norm:
-            gender_norm = 'Unknown'
+        # Normalize gender to 'm'/'w' to match config group names
+        _g = str(raw_gender).lower().strip()
+        if _g in ('m', 'male', 'maennlich', 'männlich'):
+            gender_norm = 'm'
+        elif _g in ('w', 'f', 'female', 'weiblich', 'frau'):
+            gender_norm = 'w'
+        else:
+            gender_norm = _g or 'Unknown'
 
         # Determine age group
         age_group = None

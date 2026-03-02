@@ -231,7 +231,7 @@ class BracketViewerApp(tk.Tk):
             widget.destroy()
 
         # Create and display preview screen
-        preview_screen = GroupPreviewScreen(self, quarantine_service=self.quarantine_service)
+        preview_screen = GroupPreviewScreen(self, quarantine_service=self.quarantine_service, db_service=self.db_service)
         preview_screen.pack(fill=tk.BOTH, expand=True)
 
         # Store reference and set up callbacks
@@ -250,6 +250,9 @@ class BracketViewerApp(tk.Tk):
 
     def show_generation_method_screen(self):
         """Show the generation method selection screen."""
+        # Sync any group preview edits to DB before proceeding
+        self.db_service.save_groups(self.brackets)
+
         # Clear existing widgets
         for widget in self.winfo_children():
             widget.destroy()
@@ -645,7 +648,7 @@ class BracketViewerApp(tk.Tk):
         
         # Store the assignments for use in bracket viewer
         self.bracket_generation_methods = final_assignments
-        self.db_service.save_groups_and_brackets(self.brackets, final_assignments)
+        self.db_service.save_brackets(self.brackets, final_assignments)
 
         # Proceed to bracket viewer
         self.show_bracket_viewer()
@@ -966,6 +969,7 @@ class BracketViewerApp(tk.Tk):
             participants = normalize_participants(raw_participants)
             self.ui_feedback.update_progress(40)
             self.db_service.save_participants(participants)
+            self.db_service.initialize_all_groups()
 
             # Filter out unpaid participants
             participants, unpaid = self.filter_unpaid_participants(participants)
@@ -994,12 +998,16 @@ class BracketViewerApp(tk.Tk):
             
             # Generate brackets using backend service
             self.brackets = export_all_brackets(participants)
-            self.ui_feedback.update_progress(80)
-            
+
             # Restore QUARANTINE bracket if it existed
             if quarantine_bracket is not None:
                 self.brackets['QUARANTINE'] = quarantine_bracket
-            
+
+            # Persist groups + group_participants immediately after generation
+            self.ui_feedback.set_status("Saving groups to database...", COLORS['text_secondary'])
+            self.db_service.save_groups(self.brackets)
+            self.ui_feedback.update_progress(80)
+
             # Log bracket generation summary
             self._log_bracket_summary()
 
@@ -1255,6 +1263,11 @@ class BracketViewerApp(tk.Tk):
                 self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
                 return
 
+            # Save to DB — wipes previous data and inserts fresh (same as XLSX load)
+            self.ui_feedback.set_status("Saving participants to database...", COLORS['text_secondary'])
+            self.db_service.save_participants(all_participants)
+            self.db_service.initialize_all_groups()
+
             self.ui_feedback.set_status("Filtering participants...", COLORS['text_secondary'])
             self.ui_feedback.update_progress(65)
 
@@ -1293,12 +1306,16 @@ class BracketViewerApp(tk.Tk):
             
             # Generate brackets using backend service
             self.brackets = export_all_brackets(all_participants)
-            self.ui_feedback.update_progress(95)
-            
+
             # Restore QUARANTINE bracket if it existed
             if quarantine_bracket is not None:
                 self.brackets['QUARANTINE'] = quarantine_bracket
-            
+
+            # Persist groups + group_participants immediately after generation
+            self.ui_feedback.set_status("Saving groups to database...", COLORS['text_secondary'])
+            self.db_service.save_groups(self.brackets)
+            self.ui_feedback.update_progress(95)
+
             # Log bracket generation summary
             self._log_bracket_summary()
 

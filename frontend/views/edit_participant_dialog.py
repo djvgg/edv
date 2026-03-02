@@ -152,6 +152,8 @@ class Edit_Participants(tk.Toplevel):
             birth_year = fighter.get('Birthyear', fighter.get('BirthYear', fighter.get('birthyear', fighter.get('age', ''))))
             is_valid = fighter.get('Valid', False)
             is_paid = fighter.get('Paid', False)
+            old_valid = is_valid
+            old_paid = is_paid
             
             self.parent.logger.debug(f"EDIT_DIALOG: Current state - Valid={is_valid}, Paid={is_paid}, Weight={weight}, BirthYear={birth_year}")
             
@@ -797,6 +799,8 @@ class Edit_Participants(tk.Toplevel):
                     fighter['Birthyear'] = int(birth_year_raw) if birth_year_raw else ''
                     fighter['Valid'] = valid_var.get()
                     fighter['Paid'] = paid_var.get()
+                    # NOTE: fighter['Name'] is intentionally NOT updated here yet.
+                    # update_participant() needs the old Name to look up the participant in DB.
                     
                     self.parent.logger.debug(f"EDIT_DIALOG: Updated fighter - Valid: {old_valid}→{fighter['Valid']}, Paid: {old_paid}→{fighter['Paid']}, Weight: {weight}→{float(weight_raw)}")
                     if is_quarantine and not old_valid and fighter['Valid']:
@@ -883,6 +887,17 @@ class Edit_Participants(tk.Toplevel):
                     
                     self.parent.logger.info(f"EDIT_DIALOG: Save completed for {first_name_val} {last_name_val}, displaying bracket {display_bracket_key}")
                     self.parent.logger.debug(f"EDIT_DIALOG: Integrations used - QuarantineService, ConfigRepository, movement logic")
+
+                    # Persist changes to DB.
+                    # fighter['Name'] still holds the OLD full name here — used as DB lookup key.
+                    # display_bracket_key is the group the fighter ended up in after movement.
+                    db_svc = getattr(self.parent, 'db_service', None)
+                    if db_svc:
+                        db_svc.update_participant(fighter, display_bracket_key or 'QUARANTINE')
+
+                    # Now sync Name so subsequent in-memory edits find the right record.
+                    fighter['Name'] = f"{first_name_val} {last_name_val}".strip()
+
                     self.parent._display_participants(display_bracket_key)
                     self.destroy()
                 except ValueError:

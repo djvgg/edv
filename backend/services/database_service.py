@@ -145,7 +145,38 @@ class DatabaseService:
         return self._execute_with_session(_fetch)
 
     # ===== BRACKET & GROUP CRUD =====
-    
+
+    def update_participant(self, fighter: dict, new_bracket_key: str) -> bool:
+        """
+        Persist edits from edit_participant_dialog to DB.
+        Updates the participants row and moves the group_participants entry.
+        """
+        def _update(svc: TournamentService):
+            svc.update_participant(fighter, new_bracket_key)
+            return True
+        return self._execute_with_session(_update) is True
+
+    def initialize_all_groups(self) -> bool:
+        """Create all possible groups from config + QUARANTINE. Called once after save_participants."""
+        def _init(svc: TournamentService):
+            svc.initialize_all_groups()
+            return True
+        return self._execute_with_session(_init) is True
+
+    def save_groups(self, brackets: dict) -> bool:
+        """Re-sync group_participants after load or group preview edits."""
+        def _save(svc: TournamentService):
+            svc.save_groups(brackets)
+            return True
+        return self._execute_with_session(_save) is True
+
+    def save_brackets(self, brackets: dict, generation_methods: dict) -> bool:
+        """Write brackets table after generation methods are confirmed."""
+        def _save(svc: TournamentService):
+            svc.save_brackets(brackets, generation_methods)
+            return True
+        return self._execute_with_session(_save) is True
+
     def save_groups_and_brackets(self, brackets: dict, generation_methods: dict) -> bool:
         """
         Save bracket groups and their assignments.

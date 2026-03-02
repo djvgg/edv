@@ -128,6 +128,42 @@ class ConfigRepository:
                 return row['Label']
         return 'unknown'
     
+    def get_all_group_combinations(self):
+        """Return all possible group definitions from config.
+
+        U9/U11  → no gender, no weight class (pool age groups)
+        U13+    → one entry per (gender, age_group, weight_class) from WeightClasses sheet
+        """
+        groups = []
+
+        # U9 and U11: mixed gender, no fixed weight class
+        for ag in ('U9', 'U11'):
+            if ag in self.age_eligibility.columns:
+                groups.append({
+                    'name': ag,
+                    'gender': None,
+                    'age_group': ag,
+                    'weight_class': 'no-class',
+                })
+
+        # U13+ combinations from WeightClasses sheet
+        for _, row in (
+            self.weight_classes[['Gender', 'AgeGroup', 'Label']]
+            .drop_duplicates()
+            .iterrows()
+        ):
+            gender = str(row['Gender'])
+            age_group = str(row['AgeGroup'])
+            weight_class = str(row['Label'])
+            groups.append({
+                'name': f"{gender} | {age_group} | {weight_class}",
+                'gender': gender,
+                'age_group': age_group,
+                'weight_class': weight_class,
+            })
+
+        return groups
+
     def get_generation_methods(self):
         """
         Get the list of generation methods from config.

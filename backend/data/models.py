@@ -28,14 +28,12 @@ class Participant(Base):
 
 class Group(Base):
     __tablename__ = 'groups'
-    __table_args__ = (
-        UniqueConstraint('gender', 'age_group', 'weight_class'),
-    )
 
     id           = Column(Integer, primary_key=True)
-    gender       = Column(String(1),  nullable=False)
-    age_group    = Column(String(20), nullable=False)  # U9, U11, U13, U15, U18, 18+
-    weight_class = Column(String(20), nullable=False)  # -52kg, no-class, etc.
+    name         = Column(String(100), nullable=False, unique=True)  # 'm | U15 | -66kg' or 'QUARANTINE'
+    gender       = Column(String(10),  nullable=True)   # 'm', 'w', None for QUARANTINE/U9/U11
+    age_group    = Column(String(20),  nullable=True)   # 'U13', 'U15', None for QUARANTINE
+    weight_class = Column(String(20),  nullable=True)   # '-66kg', 'no-class', None for QUARANTINE
 
     group_participants = relationship('GroupParticipant', back_populates='group')
     bracket            = relationship('Bracket', back_populates='group', uselist=False)
