@@ -123,7 +123,12 @@ def export_all_brackets(participants, event_year=None):
     # Group participants
     for p in participants:
         raw_gender = p.get('Gender', p.get('gender', 'Unknown'))
-        birth_year = p.get('Age', p.get('age'))
+        
+        # Explicit priority to 'Birthyear' since it's the intended field, fallback to 'Age'
+        birth_year = p.get('Birthyear', p.get('BirthYear', p.get('birthyear')))
+        if birth_year in (None, ''):
+            birth_year = p.get('Age', p.get('age'))
+            
         weight = p.get('Weight', p.get('weight', 0))
         name = p.get('Name', p.get('name', ''))
 

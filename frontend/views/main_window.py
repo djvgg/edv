@@ -336,8 +336,6 @@ class BracketViewerApp(tk.Tk):
             Tuple of (valid_participants, invalid_list) where invalid_list contains dicts 
             with name, age, and rejection reason
         """
-        import datetime
-        
         valid_participants = []
         invalid_participants = []
         current_year = datetime.datetime.now().year
@@ -1323,7 +1321,7 @@ class BracketViewerApp(tk.Tk):
             self.after(500, lambda err=e: messagebox.showerror("File Error", f"Could not find file:\n{str(err)}"))
         except Exception as e:
             error_msg = f"Unexpected error: {e}"
-            self.logger.exception(error_msg)
+            self.logger.error(error_msg, exc_info=True)
             self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
             self.ui_feedback.hide_loading_progress()
             self.after(500, lambda err=e: messagebox.showerror("Error", f"Failed to load JSON files:\n{str(err)}"))

@@ -129,21 +129,36 @@ class QuarantineService:
             self.logger.debug("RESORT: QUARANTINE bracket is empty, returning early")
             return
         
-        # If a specific fighter was edited, only check that one
+        # Determine which fighters to check
         if edited_fighter is not None:
-            fighters_to_check = [edited_fighter]
-            self.logger.debug(f"RESORT: Checking only the edited fighter: {edited_fighter.get('Name', 'Unknown')}")
+            fighters_to_check = [edited_fighter.get('ID')]
+            self.logger.debug(f"RESORT: Checking only the edited fighter ID: {edited_fighter.get('ID')}")
         else:
-            fighters_to_check = quarantine_fighters
+            fighters_to_check = [f.get('ID') for f in quarantine_fighters]
             self.logger.debug(f"RESORT: Checking all {len(quarantine_fighters)} fighters in QUARANTINE")
         
-        # Separate valid and still-invalid participants
+        # Separate valid and still-invalid participants while PRESERVING original list order
         valid_from_quarantine = []
         still_invalid = []
         
         current_year = datetime.datetime.now().year
-        for fighter in fighters_to_check:
-            fighter_name = fighter.get('Name', f"Unknown ({fighter.get('ID', '?')})")
+        
+        # We iterate over the ORIGINAL quarantine list, so anyone remaining invalid keeps their exact spot
+        for base_fighter in quarantine_fighters:
+            fighter_id = base_fighter.get('ID')
+            
+            # If we're only checking one edited fighter, use that new data. Otherwise, use base data
+            if edited_fighter is not None and fighter_id == edited_fighter.get('ID'):
+                fighter = edited_fighter
+            else:
+                fighter = base_fighter
+                
+            # If we're not checking this fighter, they automatically remain invalid in their current spot
+            if fighter_id not in fighters_to_check:
+                still_invalid.append(fighter)
+                continue
+            
+            fighter_name = fighter.get('Name', f"Unknown ({fighter_id})")
             is_valid = True
             invalid_reason = None
             
@@ -220,13 +235,6 @@ class QuarantineService:
                 still_invalid.append(fighter)
                 self.logger.info(f"RESORT: ✗ {fighter_name} remains invalid ({invalid_reason})")
         
-        # If we only checked the edited fighter, we need to keep the OTHER quarantine fighters unchanged
-        if edited_fighter is not None:
-            # Add back all the quarantine fighters that weren't checked
-            other_quarantine = [f for f in quarantine_fighters if f.get('ID') != edited_fighter.get('ID')]
-            still_invalid.extend(other_quarantine)
-            self.logger.debug(f"RESORT: Keeping {len(other_quarantine)} other quarantine fighters unchanged")
-        
         # Update QUARANTINE with only still-invalid fighters
         if still_invalid:
             brackets['QUARANTINE']['fighters'] = still_invalid
@@ -243,15 +251,25 @@ class QuarantineService:
             # Save current brackets (excluding QUARANTINE)
             temp_brackets = {k: v for k, v in brackets.items() if k != 'QUARANTINE'}
             
-            # Re-generate with valid fighters added
+            # Generate brackets for the newly valid fighters
             new_brackets = export_all_brackets(valid_from_quarantine)
-            brackets.clear()
-            brackets.update(new_brackets)
             
-            # Merge back the manually-assigned brackets
-            for key, bracket_data in temp_brackets.items():
-                if key not in brackets:
-                    brackets[key] = bracket_data
+            # Start brackets with the existing ones
+            brackets.clear()
+            brackets.update(temp_brackets)
+            
+            # Merge the newly valid fighters into the brackets
+            for key, new_bracket_data in new_brackets.items():
+                if key in brackets:
+                    # Bracket already exists, append the new fighters
+                    brackets[key]['fighters'].extend(new_bracket_data.get('fighters', []))
+                    # Reset the fight tree (bracket) so it gets regenerated later if needed
+                    brackets[key]['bracket'] = []
+                    self.logger.debug(f"RESORT: Merged {len(new_bracket_data.get('fighters', []))} fighter(s) into existing bracket {key}")
+                else:
+                    # New bracket, add it entirely
+                    brackets[key] = new_bracket_data
+                    self.logger.debug(f"RESORT: Created new bracket {key} with {len(new_bracket_data.get('fighters', []))} fighter(s)")
             
             # Log where each fighter was placed
             for fighter in valid_from_quarantine:
