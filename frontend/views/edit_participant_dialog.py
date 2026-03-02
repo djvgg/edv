@@ -755,6 +755,10 @@ class Edit_Participants(tk.Toplevel):
             button_frame = tk.Frame(container, bg=COLORS['bg_dark'])
             button_frame.pack(fill=tk.X)
             
+            # Capture initial states for logging reference inside save()
+            old_valid = is_valid
+            old_paid = is_paid
+            
             def save():
                 try:
                     # ── Integrations Used ──
@@ -809,6 +813,18 @@ class Edit_Participants(tk.Toplevel):
                         new_weight = float(weight_entry.get().replace(',', '.'))
                         effective_age = age_group
                         effective_weight_class = current_weight_class
+                        
+                        # Recalculate effective age if the birth year was modified
+                        if birth_year_raw and birth_year_raw != str(birth_year):
+                            try:
+                                current_year = datetime.datetime.now().year
+                                new_calc_age = current_year - int(birth_year_raw)
+                                fallback_group = get_age_group_with_fallback(new_calc_age)
+                                if fallback_group:
+                                    effective_age = fallback_group
+                                    self.parent.logger.debug(f"EDIT_DIALOG: Recalculated age group from new birth year {birth_year_raw}: {effective_age}")
+                            except Exception as e:
+                                self.parent.logger.warning(f"Could not recalculate age group: {e}")
                         
                         # Check if age class was upgraded via dropdown
                         if not is_adult_category:
