@@ -350,7 +350,6 @@ class BracketViewerApp(tk.Tk):
         current_year = datetime.datetime.now().year
         
         for p in all_participants:
-            name = p.get('Name', 'Unknown')
             age = None
             
             # Get age value from 'Age' field
@@ -1279,7 +1278,7 @@ class BracketViewerApp(tk.Tk):
             self.update_progress(10)
 
             # Fetch participants from database
-            participants = fetch_participants_from_db()
+            participants = self.db_service.fetch_participants()
             self.update_progress(30)
 
             if not participants:
@@ -2061,7 +2060,7 @@ def main():
         try:
             tk.Tk().withdraw()
             tk.messagebox.showerror("Application Error", error_msg)
-        except:
+        except Exception:
             pass
 
 

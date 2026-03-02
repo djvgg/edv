@@ -26,7 +26,7 @@ import os
 import sys
 import queue
 import threading
-from typing import Callable, Optional, Any
+from typing import Callable, Optional
 
 # Add edv_backend to path
 _edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
