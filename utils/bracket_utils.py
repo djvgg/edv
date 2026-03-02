@@ -76,12 +76,21 @@ def get_age_group(age, event_year=None):
         logger.warning(f'Invalid age value: {age!r}')
         return None
     birth_year = event_year - age_num
-    group = bracket_config.get_age_group(birth_year)
+    group = bracket_config.get_age_group(int(float(birth_year)))
     if group is None:
-        # Fallback: treat adults (age >= 18) as '18+' if config lacks older birth years
         if age_num >= 18:
-            logger.info(f"Age group not found for birth_year={birth_year}; falling back to '18+' for age={age_num}")
-            return '18+'
+            group = '18+'
+        elif age_num >= 15:
+            group = 'U18'
+        elif age_num >= 13:
+            group = 'U15'
+        elif age_num >= 11:
+            group = 'U13'
+        elif age_num >= 9:
+            group = 'U11'
+        else:
+            group = 'U9'
+        logger.info(f"Age group not found in config for birth_year={birth_year}; mathematically fallback to '{group}'")
     return group
 
 
@@ -141,16 +150,34 @@ def export_all_brackets(participants, event_year=None):
         age_group = None
         if birth_year is not None:
             try:
-                age_group = bracket_config.get_age_group(birth_year)
+                age_group = bracket_config.get_age_group(int(float(birth_year)))
             except Exception as e:
                 logger.warning(f"Could not determine age group for birth_year {birth_year}: {e}")
         
         if age_group is None:
             if birth_year is not None:
-                logger.warning(f"Missing/unknown birth year {birth_year!r} for {name!r}, defaulting to '18+'")
+                try:
+                    current_year_num = event_year if event_year else bracket_config.get_event_year()
+                    calc_age = int(current_year_num) - int(float(birth_year))
+                    if calc_age >= 18:
+                        age_group = '18+'
+                    elif calc_age >= 15:
+                        age_group = 'U18'
+                    elif calc_age >= 13:
+                        age_group = 'U15'
+                    elif calc_age >= 11:
+                        age_group = 'U13'
+                    elif calc_age >= 9:
+                        age_group = 'U11'
+                    else:
+                        age_group = 'U9'
+                    logger.warning(f"Excel mapping missing for birth_year {birth_year!r}, mathematically fallback to '{age_group}'")
+                except Exception:
+                    logger.warning(f"Missing/unknown birth year {birth_year!r} for {name!r}, defaulting to '18+'")
+                    age_group = '18+'
             else:
                 logger.warning(f"Missing age for {name!r}, defaulting to '18+'")
-            age_group = '18+'
+                age_group = '18+'
 
         # For U9/U11: no gender separation, group by age only, sorted by weight
         if age_group in ('U9', 'U11'):
