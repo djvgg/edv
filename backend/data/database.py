@@ -48,6 +48,21 @@ def init_db():
                 with engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE groups ALTER COLUMN {col} DROP NOT NULL"))
 
+    if 'fights' in inspector.get_table_names():
+        fight_cols = {c['name'] for c in inspector.get_columns('fights')}
+        # Migration 3: bracket position metadata columns
+        new_fight_cols = {
+            'bracket_phase': "VARCHAR(10) NOT NULL DEFAULT 'wb'",
+            'round':         'INTEGER',
+            'pos_in_round':  'INTEGER',
+            'pool_index':    'INTEGER',
+            'winner_id':     'INTEGER REFERENCES group_participants(id)',
+        }
+        for col_name, col_def in new_fight_cols.items():
+            if col_name not in fight_cols:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE fights ADD COLUMN {col_name} {col_def}"))
+
 
 def get_db():
     db = SessionLocal()

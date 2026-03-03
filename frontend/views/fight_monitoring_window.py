@@ -22,6 +22,14 @@ from ..styles import (
 )
 from ..utils import draw_pools_on_canvas
 
+import os
+import sys
+_edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if _edv_backend_path not in sys.path:
+    sys.path.insert(0, _edv_backend_path)
+from utils.logging import get_logger  # noqa: E402
+logger = get_logger('fight_monitoring')
+
 
 class FightMonitoringScreen(tk.Frame):
     """
@@ -34,8 +42,11 @@ class FightMonitoringScreen(tk.Frame):
     def __init__(self, parent, brackets, bracket_table_assignment,
                  bracket_generation_methods, match_results,
                  loser_match_results=None, pool_cell_values=None,
-                 ko_bracket_data=None, ko_match_results=None):
+                 ko_bracket_data=None, ko_match_results=None,
+                 db_service=None):
         super().__init__(parent, bg=COLORS['bg_dark'])
+        self.db_service = db_service
+        logger.info(f"FightMonitoringScreen initialized with {len(brackets)} brackets, {len(bracket_table_assignment)} table assignments")
 
         # Callback – set by BracketViewerApp before showing
         self.on_back = None
@@ -151,12 +162,14 @@ class FightMonitoringScreen(tk.Frame):
         self._matten_frame.grid_columnconfigure(1, weight=1)
 
     def _refresh_matten_panels(self):
+        logger.info("[MATTEN REFRESH] Refreshing mat panels")
         for t, panel in self._matte_panels.items():
             for w in panel.winfo_children():
                 w.destroy()
 
             assigned = [k for k, v in self.bracket_table_assignment.items()
                         if v == t]
+            logger.info(f"  Mat {t}: {len(assigned)} brackets assigned: {assigned}")
             if not assigned:
                 lbl = tk.Label(panel, text='(no brackets assigned)',
                                bg=COLORS['bg_panel'], fg=COLORS['text_muted'],
@@ -259,6 +272,7 @@ class FightMonitoringScreen(tk.Frame):
 
     def show_fight_view(self, bracket_key):
         """Show the interactive KO or pool view for a bracket."""
+        logger.info(f"Showing fight view for bracket '{bracket_key}'")
         self.current_bracket_key = bracket_key
         self._matten_frame.pack_forget()
         self._fight_frame.pack(fill=tk.BOTH, expand=True)
@@ -311,6 +325,8 @@ class FightMonitoringScreen(tk.Frame):
         if not bracket_pairs:
             return []
 
+        logger.debug(f"_compute_rounds: {len(bracket_pairs)} R0 pairs, {len(match_results)} existing results")
+
         rounds = []
 
         # Round 0
@@ -320,8 +336,14 @@ class FightMonitoringScreen(tk.Frame):
             if winner is None:
                 if p1 == 'Freilos' and p2 != 'Freilos':
                     winner = p2
+                    match_results[(0, i)] = winner  # Persist auto-bye winner
+                    logger.debug(f"  R0 pos{i}: BYE — '{p2}' auto-advances")
                 elif p2 == 'Freilos' and p1 != 'Freilos':
                     winner = p1
+                    match_results[(0, i)] = winner  # Persist auto-bye winner
+                    logger.debug(f"  R0 pos{i}: BYE — '{p1}' auto-advances")
+            else:
+                logger.debug(f"  R0 pos{i}: '{p1}' vs '{p2}' → winner='{winner}'")
             r0.append({'p1': p1, 'p2': p2, 'winner': winner})
         rounds.append(r0)
 
@@ -350,8 +372,10 @@ class FightMonitoringScreen(tk.Frame):
                 if winner is None:
                     if p1 == 'Freilos' and p2 not in ('Freilos', 'TBD'):
                         winner = p2
+                        match_results[(r_idx, m_idx)] = winner  # Persist auto-bye winner
                     elif p2 == 'Freilos' and p1 not in ('Freilos', 'TBD'):
                         winner = p1
+                        match_results[(r_idx, m_idx)] = winner  # Persist auto-bye winner
 
                 next_r.append({'p1': p1, 'p2': p2, 'winner': winner})
 
@@ -388,21 +412,23 @@ class FightMonitoringScreen(tk.Frame):
             if stored is None:
                 if p1 == 'Freilos' and p2 not in ('Freilos', 'TBD'):
                     stored = p2
+                    lb_results[(lb_r, lb_m)] = stored  # Persist auto-bye winner
                 elif p2 == 'Freilos' and p1 not in ('Freilos', 'TBD'):
                     stored = p1
+                    lb_results[(lb_r, lb_m)] = stored  # Persist auto-bye winner
             return {'p1': p1, 'p2': p2, 'winner': stored}
 
         loser_rounds = []
-        lb_r = 0
+        lb_r = 0  # Use 0-indexed rounds for consistency with rendering
 
-        # LB R1: pair consecutive losers from WB R1
-        wb_r1_losers = [get_loser(m) for m in wb_rounds[0]]
-        lb_r1 = []
-        for i in range(0, len(wb_r1_losers), 2):
-            p1 = wb_r1_losers[i]
-            p2 = wb_r1_losers[i + 1] if i + 1 < len(wb_r1_losers) else 'Freilos'
-            lb_r1.append(make_match(p1, p2, lb_r, i // 2))
-        loser_rounds.append(lb_r1)
+        # LB R0: pair consecutive losers from WB R0
+        wb_r0_losers = [get_loser(m) for m in wb_rounds[0]]
+        lb_r0 = []
+        for i in range(0, len(wb_r0_losers), 2):
+            p1 = wb_r0_losers[i]
+            p2 = wb_r0_losers[i + 1] if i + 1 < len(wb_r0_losers) else 'Freilos'
+            lb_r0.append(make_match(p1, p2, lb_r, i // 2))
+        loser_rounds.append(lb_r0)
         lb_r += 1
 
         wb_idx = 1  # next WB round to pull losers from (we skip the WB Final)
@@ -684,7 +710,9 @@ class FightMonitoringScreen(tk.Frame):
 
     def _render_ko(self, bracket_key):
         pairs = self.brackets.get(bracket_key, {}).get('bracket', [])
+        logger.debug(f"Rendering KO bracket '{bracket_key}' with {len(pairs)} pairs from self.brackets")
         if not pairs:
+            logger.warning(f"No bracket data in self.brackets for '{bracket_key}'")
             self._canvas.create_text(300, 200,
                                      text='No bracket data available.',
                                      fill=COLORS['text_muted'],
@@ -692,9 +720,29 @@ class FightMonitoringScreen(tk.Frame):
             return
 
         results = self.match_results.get(bracket_key, {})
+        logger.debug(f"Rendering KO rounds: {len(results)} fight results already recorded")
         rounds = self._compute_rounds(pairs, results)
         if not rounds:
             return
+
+        # Sync auto-bye winners back to global results (Freilos matches auto-advance)
+        for r, matches in enumerate(rounds):
+            for m, match in enumerate(matches):
+                if (r, m) not in results and match['winner'] is not None:
+                    results[(r, m)] = match['winner']
+                    # Also sync to DB if we have db_service
+                    if self.db_service and (match['p1'] == 'Freilos' or match['p2'] == 'Freilos'):
+                        p1, p2 = match['p1'], match['p2']
+                        if p1 != 'Freilos' and p2 == 'Freilos':
+                            p1_name = p1
+                            p2_name = 'Freilos'
+                        else:
+                            p1_name = p2
+                            p2_name = 'Freilos'
+                        self.db_service.record_fight_result(
+                            bracket_key, 'wb', r, m, match['winner'],
+                            p1_name=p1_name, p2_name=p2_name)
+        self.match_results[bracket_key] = results
 
         z = self.zoom_level
         BW = int(200 * z)   # box width
@@ -852,6 +900,47 @@ class FightMonitoringScreen(tk.Frame):
         lb_results = self.loser_match_results.get(bracket_key, {})
         loser_rounds = self._compute_loser_rounds(rounds, lb_results)
 
+        # Sync auto-bye winners back to global results (Freilos matches auto-advance)
+        for r, matches in enumerate(loser_rounds):
+            for m, match in enumerate(matches):
+                if (r, m) not in lb_results and match['winner'] is not None:
+                    lb_results[(r, m)] = match['winner']
+                    # Also sync to DB if we have db_service
+                    if self.db_service and (match['p1'] == 'Freilos' or match['p2'] == 'Freilos'):
+                        p1, p2 = match['p1'], match['p2']
+                        if p1 != 'Freilos' and p2 == 'Freilos':
+                            p1_name = p1
+                            p2_name = 'Freilos'
+                        else:
+                            p1_name = p2
+                            p2_name = 'Freilos'
+                        self.db_service.record_fight_result(
+                            bracket_key, 'lb', r, m, match['winner'],
+                            p1_name=p1_name, p2_name=p2_name)
+
+        # Auto-advance bye/TBD matches in final LB round (prevents infinite waiting)
+        # Only if: last round has ≤2 matches (meaning no more opponents can come from WB)
+        if loser_rounds and len(loser_rounds[-1]) <= 2:
+            last_round_idx = len(loser_rounds) - 1
+            last_round = loser_rounds[last_round_idx]
+            for m, match in enumerate(last_round):
+                key = (last_round_idx, m)
+                # Auto-advance if fighting bye/TBD and this is the final round
+                if (key not in lb_results and
+                    match['winner'] is not None and
+                    (match['p1'] in ('Freilos', 'TBD') or match['p2'] in ('Freilos', 'TBD'))):
+                    lb_results[key] = match['winner']
+                    # Sync to DB
+                    if self.db_service:
+                        p1, p2 = match['p1'], match['p2']
+                        p1_name = p1 if p1 not in ('Freilos', 'TBD') else 'Freilos'
+                        p2_name = p2 if p2 not in ('Freilos', 'TBD') else 'Freilos'
+                        self.db_service.record_fight_result(
+                            bracket_key, 'lb', last_round_idx, m,
+                            match['winner'], p1_name=p1_name, p2_name=p2_name)
+
+        self.loser_match_results[bracket_key] = lb_results
+
         total_height = wb_max_y
         total_width = wb_max_x
 
@@ -888,7 +977,10 @@ class FightMonitoringScreen(tk.Frame):
             self._active_cell_entry._commit()
 
         if not self.current_bracket_key:
+            logger.debug("Click handler: no current bracket key")
             return
+
+        logger.debug(f"Canvas click on bracket '{self.current_bracket_key}' at ({event.x}, {event.y})")
         method = self.bracket_generation_methods.get(self.current_bracket_key)
         if method in ('pools', 'double'):
             cx = self._canvas.canvasx(event.x)
@@ -898,21 +990,44 @@ class FightMonitoringScreen(tk.Frame):
             for (r, m), (x1, y1, x2, y2, p1, p2) in self._ko_match_boxes.items():
                 if not (x1 <= cx <= x2 and y1 <= cy <= y2):
                     continue
-                if not p1 or not p2 or 'TBD' in (p1, p2):
+                # Only block if BOTH are missing or TBD
+                if not p1 or not p2:
                     return
-                clicked = p1 if cy <= (y1 + y2) / 2 else p2
-                results = self.ko_match_results.setdefault(self.current_bracket_key, {})
+                if p1 == 'TBD' and p2 == 'TBD':
+                    return
+
+                # If clicking TBD opponent, only select the real person
+                if p1 == 'TBD':
+                    clicked = p2
+                elif p2 == 'TBD':
+                    clicked = p1
+                else:
+                    clicked = p1 if cy <= (y1 + y2) / 2 else p2
+                bkey = self.current_bracket_key
+                results = self.ko_match_results.setdefault(bkey, {})
                 current = results.get((r, m))
                 if current == clicked:
                     del results[(r, m)]
-                    # clear downstream final if a semi changed
                     if r == 0:
+                        # Undoing a semi invalidates the final
+                        if self.db_service:
+                            self.db_service.delete_fight_position(bkey, 'wb', 1, 0)
                         results.pop((1, 0), None)
+                    if self.db_service:
+                        self.db_service.reset_fight_result(bkey, 'wb', r, m)
                 else:
                     if current is not None and r == 0:
+                        # Changing a semi: the final gets new participants
+                        if self.db_service:
+                            self.db_service.delete_fight_position(bkey, 'wb', 1, 0)
                         results.pop((1, 0), None)
                     results[(r, m)] = clicked
-                self._render(self.current_bracket_key)
+                    logger.info(f"Fight result set: bracket='{bkey}', wb r{r} m{m}: {p1} vs {p2} -> Winner: {clicked}")
+                    if self.db_service:
+                        logger.debug(f"Recording fight result to DB for '{bkey}'")
+                        self.db_service.record_fight_result(
+                            bkey, 'wb', r, m, clicked, p1_name=p1, p2_name=p2)
+                self._render(bkey)
                 return
 
             # Pool score cells
@@ -929,45 +1044,140 @@ class FightMonitoringScreen(tk.Frame):
         for (r, m), (x1, y1, x2, y2, p1, p2) in self._loser_match_boxes.items():
             if not (x1 <= cx <= x2 and y1 <= cy <= y2):
                 continue
-            if p1 in ('Freilos', 'TBD') or p2 in ('Freilos', 'TBD'):
+            if p1 in ('Freilos', 'TBD') and p2 in ('Freilos', 'TBD'):
+                logger.debug(f"LB click ignored: both slots are '{p1}'/'{p2}' at R{r} pos{m}")
                 return
 
-            clicked = p1 if cy <= (y1 + y2) / 2 else p2
-            lb_results = self.loser_match_results.setdefault(
-                self.current_bracket_key, {})
+            if p1 in ('Freilos', 'TBD'):
+                clicked = p2
+            elif p2 in ('Freilos', 'TBD'):
+                clicked = p1
+            else:
+                clicked = p1 if cy <= (y1 + y2) / 2 else p2
+            bkey = self.current_bracket_key
+            lb_results = self.loser_match_results.setdefault(bkey, {})
             current = lb_results.get((r, m))
 
+            logger.info(
+                f"[LB CLICK] '{bkey}' R{r} pos{m}: '{p1}' vs '{p2}' | "
+                f"clicked='{clicked}', current_winner='{current}'"
+            )
+
             if current == clicked:
+                logger.info(f"[LB CLICK] De-selecting winner '{clicked}' at R{r} pos{m}")
                 del lb_results[(r, m)]
+                if self.db_service:
+                    for (dr, dm) in list(lb_results):
+                        if dr > r:
+                            logger.info(f"[LB CLICK] Deleting downstream fight lb R{dr} pos{dm}")
+                            self.db_service.delete_fight_position(bkey, 'lb', dr, dm)
                 self._clear_loser_downstream(r)
+                if self.db_service:
+                    self.db_service.reset_fight_result(bkey, 'lb', r, m)
             else:
                 if current is not None:
+                    logger.info(f"[LB CLICK] Changing winner from '{current}' to '{clicked}' at R{r} pos{m}")
+                    if self.db_service:
+                        for (dr, dm) in list(lb_results):
+                            if dr > r:
+                                logger.info(f"[LB CLICK] Deleting downstream fight lb R{dr} pos{dm}")
+                                self.db_service.delete_fight_position(bkey, 'lb', dr, dm)
                     self._clear_loser_downstream(r)
+                else:
+                    logger.info(f"[LB CLICK] Setting winner '{clicked}' at R{r} pos{m}")
                 lb_results[(r, m)] = clicked
+                if self.db_service:
+                    self.db_service.record_fight_result(
+                        bkey, 'lb', r, m, clicked, p1_name=p1, p2_name=p2)
 
-            self._render(self.current_bracket_key)
+            self._render(bkey)
             return
 
         for (r, m), (x1, y1, x2, y2, p1, p2) in self._match_boxes.items():
             if not (x1 <= cx <= x2 and y1 <= cy <= y2):
                 continue
-            if p1 in ('Freilos', 'TBD') or p2 in ('Freilos', 'TBD'):
+            # Only block if BOTH are bye/unknown (can't click pure-bye match)
+            # Allow clicking if one side is real (auto-advance that person)
+            if p1 in ('Freilos', 'TBD') and p2 in ('Freilos', 'TBD'):
+                logger.debug(f"WB click ignored: both slots are '{p1}'/'{p2}' at R{r} pos{m}")
                 return
 
-            clicked = p1 if cy <= (y1 + y2) / 2 else p2
-            results = self.match_results.setdefault(self.current_bracket_key, {})
+            # If clicking TBD opponent, only select the real person
+            if p1 in ('Freilos', 'TBD'):
+                clicked = p2
+            elif p2 in ('Freilos', 'TBD'):
+                clicked = p1
+            else:
+                clicked = p1 if cy <= (y1 + y2) / 2 else p2
+            bkey = self.current_bracket_key
+            results = self.match_results.setdefault(bkey, {})
             current = results.get((r, m))
 
+            logger.info(
+                f"[WB CLICK] '{bkey}' R{r} pos{m}: '{p1}' vs '{p2}' | "
+                f"clicked='{clicked}', current_winner='{current}'"
+            )
+
             if current == clicked:
+                logger.info(f"[WB CLICK] De-selecting winner '{clicked}' at R{r} pos{m}")
                 del results[(r, m)]
+                # Delete downstream WB fight rows before clearing memory
+                if self.db_service:
+                    dr, dm = r + 1, m // 2
+                    while (dr, dm) in results:
+                        logger.info(f"[WB CLICK] Deleting downstream fight wb R{dr} pos{dm}")
+                        self.db_service.delete_fight_position(bkey, 'wb', dr, dm)
+                        dm = dm // 2
+                        dr += 1
                 self._clear_downstream(r, m)
+                if self.db_service:
+                    self.db_service.reset_fight_result(bkey, 'wb', r, m)
             else:
                 if current is not None:
+                    logger.info(f"[WB CLICK] Changing winner from '{current}' to '{clicked}' at R{r} pos{m}")
+                    if self.db_service:
+                        dr, dm = r + 1, m // 2
+                        while (dr, dm) in results:
+                            logger.info(f"[WB CLICK] Deleting downstream fight wb R{dr} pos{dm}")
+                            self.db_service.delete_fight_position(bkey, 'wb', dr, dm)
+                            dm = dm // 2
+                            dr += 1
                     self._clear_downstream(r, m)
+                else:
+                    logger.info(f"[WB CLICK] Setting winner '{clicked}' at R{r} pos{m}")
                 results[(r, m)] = clicked
+                if self.db_service:
+                    self.db_service.record_fight_result(
+                        bkey, 'wb', r, m, clicked, p1_name=p1, p2_name=p2)
 
-            self._render(self.current_bracket_key)
+                    # Check if this was the final — if so, compute placements
+                    self._maybe_compute_placements(bkey)
+
+            self._render(bkey)
             break
+
+    def _maybe_compute_placements(self, bkey):
+        """Compute and store placements if the bracket is fully decided."""
+        if not self.db_service:
+            return
+        pairs = self.brackets.get(bkey, {}).get('bracket', [])
+        if not pairs:
+            return
+        results = self.match_results.get(bkey, {})
+        rounds = self._compute_rounds(pairs, results)
+        if not rounds:
+            return
+        # Check: does the final round have a winner?
+        final_round = rounds[-1]
+        if final_round and final_round[0].get('winner'):
+            logger.info(f"[PLACEMENTS] Final decided for '{bkey}' — computing placements")
+            placements = self.db_service.compute_placements(bkey)
+            if placements:
+                logger.info(
+                    f"[PLACEMENTS] '{bkey}': 1st=gp{placements.get('first')}, "
+                    f"2nd=gp{placements.get('second')}, "
+                    f"3rd=gp{placements.get('third_1')} & gp{placements.get('third_2')}"
+                )
 
     def _finish_pool(self):
         """Read Platz 1 & 2 from each pool and populate the KO bracket slots."""
@@ -1060,6 +1270,7 @@ class FightMonitoringScreen(tk.Frame):
                 del vals[cell_key]
             if is_score_cell:
                 self._mirror_score(cell_key, val, vals)
+                self._persist_pool_score(bkey, cell_key, vals)
             entry.destroy()
             self._render(bkey)
 
@@ -1117,6 +1328,58 @@ class FightMonitoringScreen(tk.Frame):
             vals[mirror_key] = val
         elif mirror_key in vals:
             del vals[mirror_key]
+
+    def _persist_pool_score(self, bkey, cell_key, vals):
+        """
+        After a score cell is committed, write the fight result to DB.
+        cell_key = (pool_idx, row, fight_num, 'L'|'R')
+        Resolves both fighters from the fight schedule, then calls db_service.
+        """
+        if not self.db_service:
+            return
+        from frontend.utils.pool_renderer import _generate_fight_schedule
+        from frontend.utils import split_into_pools, determine_pool_structure
+
+        pool_idx, row, fight_num, side = cell_key
+
+        bracket_data = self.brackets.get(bkey, {})
+        participants = bracket_data.get('fighters', [])
+        normalized = [
+            {'Name': p.get('Name', p.get('name', '')),
+             'Verein': p.get('Verein', p.get('verein', p.get('club', '')))}
+            for p in participants if isinstance(p, dict)
+        ]
+
+        num_pools = determine_pool_structure(len(normalized))
+        pools = split_into_pools(normalized, num_pools=num_pools)
+        if pool_idx >= len(pools):
+            return
+
+        pool = pools[pool_idx]
+        schedule = _generate_fight_schedule(len(pool))
+        if fight_num >= len(schedule):
+            return
+
+        # Find the two fighter indices for this fight
+        idx_a = idx_b = None
+        for match in schedule[fight_num]:
+            if row in match:
+                idx_a = match[0]
+                idx_b = match[1]
+                break
+        if idx_a is None or idx_b is None or idx_a >= len(pool) or idx_b >= len(pool):
+            return
+
+        name_a = pool[idx_a]['Name']
+        name_b = pool[idx_b]['Name']
+
+        # Collect both sides of the score for this fight
+        score_a = vals.get((pool_idx, idx_a, fight_num, 'L'), '')
+        score_b = vals.get((pool_idx, idx_b, fight_num, 'L'), '')
+
+        self.db_service.record_pool_score(
+            bkey, name_a, name_b, score_a, score_b
+        )
 
     def _clear_downstream(self, round_idx, match_idx):
         results = self.match_results.get(self.current_bracket_key, {})

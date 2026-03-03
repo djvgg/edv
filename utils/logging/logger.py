@@ -53,6 +53,7 @@ class Logger:
         # Write to level-specific log
         if level == 'info':
             self.info_handler.emit(log_entry)
+            self.console_handler.emit(log_entry)
         elif level == 'error':
             self.error_handler.emit(log_entry)
             self.console_handler.emit(log_entry)

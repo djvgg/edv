@@ -655,15 +655,35 @@ class BracketViewerApp(tk.Tk):
 
     def show_fight_monitoring_screen(self):
         """Switch to the Fight Monitoring screen (in-app, no separate window)."""
+        self.logger.info(f"show_fight_monitoring_screen() called with {len(self.brackets)} brackets in self.brackets")
+        self.logger.info(f"Bracket table assignments: {self.bracket_table_assignment}")
+
         # Ensure all KO bracket fields reflect the current fighters lists.
         regenerate_stale_ko_brackets(
             self.brackets, self.bracket_generation_methods, make_bracket)
+        self.logger.debug("Regenerated stale KO brackets")
 
         # Create fight rows in DB for every assigned bracket (idempotent — skips if already created)
+        processed = 0
         for bracket_key, table_num in self.bracket_table_assignment.items():
             if table_num and bracket_key in self.brackets:
-                fight_pairs = self.brackets[bracket_key].get('bracket', [])
-                self.db_service.create_fights_for_bracket(bracket_key, fight_pairs)
+                bracket_data    = self.brackets[bracket_key]
+                bracket_type    = self.bracket_generation_methods.get(bracket_key, 'ko')
+                fight_pairs     = bracket_data.get('bracket', [])
+                fighters        = bracket_data.get('fighters', [])
+                pool_size       = bracket_data.get('pool_size')
+                self.logger.info(f"Creating fights for bracket '{bracket_key}' (mat {table_num}) with {len(fight_pairs)} pairs (type={bracket_type})")
+                self.db_service.create_fights_for_bracket(
+                    bracket_key, fight_pairs,
+                    bracket_type=bracket_type,
+                    fighters=fighters,
+                    pool_size=pool_size,
+                )
+                processed += 1
+            elif table_num:
+                self.logger.warning(f"Bracket '{bracket_key}' assigned to table {table_num} but NOT in self.brackets (skipping fight creation)")
+
+        self.logger.info(f"Processed {processed} brackets for fight creation")
 
         # Clear existing widgets
         for widget in self.winfo_children():
@@ -681,6 +701,7 @@ class BracketViewerApp(tk.Tk):
             pool_cell_values=self.pool_cell_values,
             ko_bracket_data=self.ko_bracket_data,
             ko_match_results=self.ko_match_results,
+            db_service=self.db_service,
         )
         screen.pack(fill=tk.BOTH, expand=True)
         screen.on_back = self.show_bracket_viewer
@@ -807,6 +828,17 @@ class BracketViewerApp(tk.Tk):
         # Assign the bracket
         self.bracket_table_assignment[bracket_key] = table_num
         self.db_service.assign_bracket_to_table(bracket_key, table_num)
+
+        # Create fight rows now that this bracket has a mat (idempotent if already created)
+        bracket_data = self.brackets[bracket_key]
+        self.db_service.create_fights_for_bracket(
+            bracket_key,
+            fight_pairs=bracket_data.get('bracket', []),
+            bracket_type=self.bracket_generation_methods.get(bracket_key, 'ko'),
+            fighters=bracket_data.get('fighters', []),
+            pool_size=bracket_data.get('pool_size'),
+        )
+
         self.update_bracket_list()
         self.update_table_panels()
         self.logger.info(f"Assigned '{bracket_key}' to Matte {table_num}")
@@ -829,6 +861,7 @@ class BracketViewerApp(tk.Tk):
         # Unassign it
         old_table = self.bracket_table_assignment[bracket_key]
         self.bracket_table_assignment[bracket_key] = None
+        self.db_service.unassign_bracket_from_table(bracket_key)
         self.update_bracket_list()
         self.update_table_panels()
         self.logger.info(f"Unassigned '{bracket_key}' from Matte {old_table}")
@@ -857,10 +890,22 @@ class BracketViewerApp(tk.Tk):
                     break
                 table = table % 4 + 1
 
-        # Persist all auto-assignments to DB in one pass
+        # Persist mat assignments to DB for all assigned brackets
         for bracket_key, table_num in self.bracket_table_assignment.items():
             if table_num:
                 self.db_service.assign_bracket_to_table(bracket_key, table_num)
+
+        # Create fight rows only for the brackets just assigned (idempotent for any repeats)
+        for bracket_key in unassigned:
+            if self.bracket_table_assignment.get(bracket_key):
+                bracket_data = self.brackets[bracket_key]
+                self.db_service.create_fights_for_bracket(
+                    bracket_key,
+                    fight_pairs=bracket_data.get('bracket', []),
+                    bracket_type=self.bracket_generation_methods.get(bracket_key, 'ko'),
+                    fighters=bracket_data.get('fighters', []),
+                    pool_size=bracket_data.get('pool_size'),
+                )
 
         self.update_bracket_list()
         self.update_table_panels()

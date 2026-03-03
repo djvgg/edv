@@ -12,6 +12,13 @@ from ..data.repositories.group_repository import GroupRepository
 from ..data.repositories.bracket_repository import BracketRepository
 from ..data.repositories.fight_repository import FightRepository
 
+import os
+import sys
+_edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if _edv_backend_path not in sys.path:
+    sys.path.insert(0, _edv_backend_path)
+from utils.logging import get_logger  # noqa: E402
+
 
 def _parse_bracket_key(bracket_key: str):
     """Parse 'M | U13 | -50kg' → ('M', 'U13', '-50kg')."""
@@ -53,6 +60,7 @@ class TournamentService:
 
     def __init__(self, db):
         self.db = db
+        self.logger = get_logger('tournament_service')
         self.participants = ParticipantRepository(db)
         self.groups       = GroupRepository(db)
         self.brackets     = BracketRepository(db)
@@ -255,19 +263,18 @@ class TournamentService:
     def save_brackets(self, brackets_dict: dict, generation_methods: dict) -> None:
         """
         Write brackets table only. Groups and group_participants must already exist.
-        Clears fights and brackets first (FK order), then re-inserts.
+        Upserts: creates new bracket rows or updates bracket_type if the row already exists.
+        Skips brackets that have no assigned method yet.
         """
-        self.db.execute(text(
-            "TRUNCATE TABLE fights, brackets RESTART IDENTITY CASCADE"
-        ))
-        self.db.commit()
-
         for bracket_key, bracket_data in brackets_dict.items():
             group = self.groups.get_by_name(bracket_key)
             if not group:
                 continue
 
-            method = generation_methods.get(bracket_key, 'ko')
+            method = generation_methods.get(bracket_key)
+            if not method:
+                continue  # skip unassigned brackets
+
             existing_bracket = self.brackets.get_by_group(group.id)
             if existing_bracket:
                 self.brackets.update_type(existing_bracket.id, method)
@@ -297,12 +304,28 @@ class TournamentService:
 
     def assign_mat(self, bracket_key: str, mat_number: int) -> None:
         """Called when a bracket is assigned to a mat."""
-        gender, age_group, weight_class = _parse_bracket_key(bracket_key)
-        group = self.groups.get_or_create(gender, age_group, weight_class)
+        group = self.groups.get_by_name(bracket_key)
+        if not group:
+            self.logger.warning(f"assign_mat: No group found for '{bracket_key}'")
+            return
         bracket = self.brackets.get_by_group(group.id)
         if bracket:
             mat = self.brackets.get_or_create_mat(mat_number)
             self.brackets.assign_mat(bracket.id, mat.id)
+            self.logger.info(f"assign_mat: '{bracket_key}' (bracket {bracket.id}) → mat {mat.id} (number {mat_number})")
+        else:
+            self.logger.warning(f"assign_mat: No bracket for group '{bracket_key}' (group {group.id})")
+
+    def unassign_mat(self, bracket_key: str) -> None:
+        """Called when a bracket is removed from its mat."""
+        group = self.groups.get_by_name(bracket_key)
+        if not group:
+            self.logger.warning(f"unassign_mat: No group found for '{bracket_key}'")
+            return
+        bracket = self.brackets.get_by_group(group.id)
+        if bracket:
+            self.brackets.unassign_mat(bracket.id)
+            self.logger.info(f"unassign_mat: '{bracket_key}' (bracket {bracket.id}) → mat removed")
 
     # ------------------------------------------------------------------
     # Monitoring Window — opened per bracket
@@ -312,16 +335,23 @@ class TournamentService:
         self,
         bracket_key: str,
         fight_pairs: List[tuple],
+        bracket_type: str = 'ko',
+        fighters: List[dict] = None,
+        pool_size: int = None,
     ) -> list:
         """
         Called when the monitoring window opens for a bracket.
         Inserts fight rows for the first time and returns Fight objects.
 
-        fight_pairs: list of (fighter1_name, fighter2_name) strings
-                     taken from brackets_dict[bracket_key]['bracket']
+        fight_pairs: list of (fighter1_name, fighter2_name) — WB round-0 pairs for KO brackets.
+                     Ignored for pool/double brackets (pairs are generated from fighters list).
+        bracket_type: 'pools' | 'double' | 'ko' | 'special'
+        fighters:     full fighters list (needed for pool pair generation)
+        pool_size:    max fighters per pool (for U9/U11 multi-pool splits)
         """
-        gender, age_group, weight_class = _parse_bracket_key(bracket_key)
-        group = self.groups.get_or_create(gender, age_group, weight_class)
+        group = self.groups.get_by_name(bracket_key)
+        if not group:
+            raise ValueError(f"No group in DB for key: {bracket_key!r}")
         bracket = self.brackets.get_by_group(group.id)
         if not bracket:
             raise ValueError(f"No bracket in DB for key: {bracket_key!r}")
@@ -329,18 +359,376 @@ class TournamentService:
         # Return existing fights if monitoring was already opened for this bracket
         existing = self.fights.get_by_bracket(bracket.id)
         if existing:
+            self.logger.info(f"Bracket {bracket_key} (ID {bracket.id}): Found {len(existing)} existing fights, returning them")
             return existing
 
-        # Map fighter names → GroupParticipant IDs
-        gp_pairs = []
-        for name1, name2 in fight_pairs:
-            gp1 = self._find_group_participant(group.id, name1)
-            gp2 = self._find_group_participant(group.id, name2)
-            if gp1 and gp2:
-                gp_pairs.append((gp1.id, gp2.id))
+        self.logger.info(f"Bracket {bracket_key} (ID {bracket.id}): No existing fights, will create new ones")
+
+        if bracket_type in ('pools', 'double'):
+            enriched = self._build_pool_pairs(group.id, fighters or [], pool_size, bracket_type)
+        else:
+            # KO / special: fight_pairs are round-0 WB name pairs.
+            # IMPORTANT: We store ALL positions (including byes) so that DB
+            # pos_in_round always matches the rendering position indices.
+            # Bye matches get status='bye' and are auto-completed.
+            enriched = []
+            seen_pairs = set()
+
+            for i, (name1, name2) in enumerate(fight_pairs):
+                is_bye = (name1 == 'Freilos' or name2 == 'Freilos')
+                is_phantom = (name1 == 'Freilos' and name2 == 'Freilos')
+
+                gp1 = self._find_group_participant(group.id, name1)
+                gp2 = self._find_group_participant(group.id, name2)
+
+                if is_phantom:
+                    self.logger.debug(f"  pos {i}: Phantom match (Freilos vs Freilos) — skipped")
+                    continue
+
+                if is_bye:
+                    # Bye match: one real fighter, one Freilos
+                    real_gp = gp1 or gp2
+                    real_name = name1 if gp1 else name2
+                    if not real_gp:
+                        self.logger.warning(f"  pos {i}: Bye match but no real fighter found ({name1} vs {name2})")
+                        continue
+                    # Store bye: both participant slots point to the real fighter
+                    # (Freilos has no DB entry). winner_id set immediately.
+                    enriched.append({
+                        'p1': real_gp.id,
+                        'p2': real_gp.id,
+                        'bracket_phase': 'wb',
+                        'round': 0,
+                        'pos_in_round': i,
+                        'pool_index': None,
+                        'status': 'bye',
+                        'winner_id': real_gp.id,
+                    })
+                    self.logger.info(f"  pos {i}: BYE — {real_name} advances automatically")
+                    continue
+
+                if not gp1 or not gp2:
+                    self.logger.warning(f"  pos {i}: Missing participant — {name1} (gp={gp1}) vs {name2} (gp={gp2})")
+                    continue
+
+                # Duplicate check
+                canonical = tuple(sorted([gp1.id, gp2.id]))
+                if canonical in seen_pairs:
+                    self.logger.warning(f"  pos {i}: Duplicate pairing {name1} vs {name2} — skipped")
+                    continue
+                seen_pairs.add(canonical)
+
+                enriched.append({
+                    'p1': gp1.id,
+                    'p2': gp2.id,
+                    'bracket_phase': 'wb',
+                    'round': 0,
+                    'pos_in_round': i,
+                    'pool_index': None,
+                })
+                self.logger.info(f"  pos {i}: {name1} vs {name2}")
+
+            self.logger.info(f"Bracket {bracket_key}: {len(enriched)} fight rows from {len(fight_pairs)} pairs (including byes)")
 
         self.brackets.set_status(bracket.id, 'in_progress')
-        return self.fights.create_fights(bracket.id, gp_pairs)
+        return self.fights.create_fights(bracket.id, enriched)
+
+    # ------------------------------------------------------------------
+    # Monitoring — result persistence
+    # ------------------------------------------------------------------
+
+    def record_ko_result(
+        self,
+        bracket_key: str,
+        phase: str,          # 'wb' or 'lb'
+        round_num: int,
+        pos: int,
+        winner_name: str,
+        p1_name: str = None,
+        p2_name: str = None,
+    ) -> bool:
+        """
+        Persist the result of a KO or LB fight.
+
+        Looks up the fight by position.  If no row exists yet (rounds 1+ are
+        created lazily, not upfront) it creates one from p1_name / p2_name —
+        both are required for lazy creation to succeed.
+
+        Returns True if the fight was found / created and the winner recorded.
+        """
+        self.logger.info(
+            f"record_ko_result: '{bracket_key}' {phase} R{round_num} pos{pos} "
+            f"winner='{winner_name}' p1='{p1_name}' p2='{p2_name}'"
+        )
+
+        group = self.groups.get_by_name(bracket_key)
+        if not group:
+            self.logger.warning(f"  → No group for '{bracket_key}'")
+            return False
+        bracket = self.brackets.get_by_group(group.id)
+        if not bracket:
+            self.logger.warning(f"  → No bracket for group {group.id}")
+            return False
+
+        fight = self.fights.get_by_position(bracket.id, phase, round_num, pos)
+        if fight:
+            self.logger.info(
+                f"  → Found existing fight #{fight.id} "
+                f"(gp{fight.participant1_id} vs gp{fight.participant2_id}, "
+                f"status={fight.status})"
+            )
+            # Don't overwrite a bye match
+            if fight.status == 'bye':
+                self.logger.info(f"  → Fight #{fight.id} is a bye, skipping result update")
+                return True
+        else:
+            self.logger.info(f"  → No fight at {phase} R{round_num} pos{pos}, will lazy-create")
+            # Lazy creation — participants only known when the fight is reachable
+            if not p1_name or not p2_name:
+                self.logger.warning(f"  → Cannot lazy-create: p1_name or p2_name missing")
+                return False
+            gp1 = self._find_group_participant(group.id, p1_name)
+            gp2 = self._find_group_participant(group.id, p2_name)
+            if not gp1 or not gp2:
+                self.logger.warning(f"  → Cannot lazy-create: gp1={gp1}, gp2={gp2}")
+                return False
+            created = self.fights.create_fights(bracket.id, [{
+                'p1': gp1.id, 'p2': gp2.id,
+                'bracket_phase': phase, 'round': round_num, 'pos_in_round': pos,
+            }])
+            fight = created[0]
+            self.logger.info(f"  → Lazy-created fight #{fight.id} (gp{gp1.id} vs gp{gp2.id})")
+
+        winner_gp = self._find_group_participant(group.id, winner_name)
+        if not winner_gp:
+            self.logger.warning(f"  → Winner '{winner_name}' not found in group {group.id}")
+            return False
+
+        self.fights.set_result(fight.id, winner_gp.id)
+        self.logger.info(f"  → Fight #{fight.id}: winner set to gp{winner_gp.id} ('{winner_name}')")
+
+        # Write win/loss indicator: winner gets 1, loser gets 0
+        if fight.participant1_id == winner_gp.id:
+            self.fights.set_score(fight.id, '1', '0')
+        else:
+            self.fights.set_score(fight.id, '0', '1')
+
+        return True
+
+    def reset_ko_result(
+        self,
+        bracket_key: str,
+        phase: str,
+        round_num: int,
+        pos: int,
+    ) -> bool:
+        """Clear the result of a KO or LB fight (user de-selected the winner)."""
+        group = self.groups.get_by_name(bracket_key)
+        if not group:
+            return False
+        bracket = self.brackets.get_by_group(group.id)
+        if not bracket:
+            return False
+
+        fight = self.fights.get_by_position(bracket.id, phase, round_num, pos)
+        if not fight:
+            return True  # Nothing to reset — that is fine
+
+        self.fights.reset_result(fight.id)
+        return True
+
+    def delete_ko_fight(
+        self,
+        bracket_key: str,
+        phase: str,
+        round_num: int,
+        pos: int,
+    ) -> None:
+        """
+        Delete a lazily-created fight row so it can be re-created with the
+        correct participants when an upstream result is changed or undone.
+        """
+        group = self.groups.get_by_name(bracket_key)
+        if not group:
+            return
+        bracket = self.brackets.get_by_group(group.id)
+        if not bracket:
+            return
+        self.fights.delete_by_position(bracket.id, phase, round_num, pos)
+
+    def compute_and_store_placements(self, bracket_key: str) -> dict:
+        """
+        Compute final placements for a KO bracket and store them.
+
+        Returns dict with keys: first, second, third_1, third_2
+        (each is a GroupParticipant ID or None).
+        """
+        group = self.groups.get_by_name(bracket_key)
+        if not group:
+            self.logger.warning(f"compute_placements: No group for '{bracket_key}'")
+            return {}
+        bracket = self.brackets.get_by_group(group.id)
+        if not bracket:
+            self.logger.warning(f"compute_placements: No bracket for '{bracket_key}'")
+            return {}
+
+        fights = self.fights.get_by_bracket(bracket.id)
+        if not fights:
+            return {}
+
+        # Find the WB final (highest round number in 'wb' phase)
+        wb_fights = [f for f in fights if f.bracket_phase == 'wb']
+        if not wb_fights:
+            return {}
+
+        max_wb_round = max(f.round for f in wb_fights if f.round is not None)
+        wb_final = [f for f in wb_fights if f.round == max_wb_round]
+
+        first_gp = None
+        second_gp = None
+        if wb_final and wb_final[0].winner_id:
+            final = wb_final[0]
+            first_gp = final.winner_id
+            # Loser of the final = 2nd place
+            second_gp = (final.participant2_id
+                         if final.winner_id == final.participant1_id
+                         else final.participant1_id)
+
+        # 3rd place: last LB round survivors
+        lb_fights = [f for f in fights if f.bracket_phase == 'lb']
+        third_1 = None
+        third_2 = None
+        if lb_fights:
+            max_lb_round = max(f.round for f in lb_fights if f.round is not None)
+            last_lb = [f for f in lb_fights if f.round == max_lb_round]
+            # In Judo: both last-LB-round survivors are 3rd place (no 3rd-place fight)
+            third_place_gps = set()
+            for f in last_lb:
+                if f.winner_id:
+                    third_place_gps.add(f.winner_id)
+                else:
+                    # If not decided yet, both are candidates
+                    third_place_gps.add(f.participant1_id)
+                    third_place_gps.add(f.participant2_id)
+            # Remove byes (where p1==p2) and already-placed people
+            third_place_gps -= {first_gp, second_gp}
+            third_list = sorted(third_place_gps)
+            third_1 = third_list[0] if len(third_list) > 0 else None
+            third_2 = third_list[1] if len(third_list) > 1 else None
+
+        result = {
+            'first': first_gp,
+            'second': second_gp,
+            'third_1': third_1,
+            'third_2': third_2,
+        }
+
+        self.logger.info(
+            f"Placements for '{bracket_key}': "
+            f"1st=gp{first_gp}, 2nd=gp{second_gp}, "
+            f"3rd=gp{third_1} & gp{third_2}"
+        )
+
+        # Store in DB
+        self.brackets.set_placements(
+            bracket.id,
+            first=first_gp,
+            second=second_gp,
+            third_1=third_1,
+            third_2=third_2,
+        )
+
+        # Mark bracket completed if we have at least 1st place
+        if first_gp:
+            self.brackets.set_status(bracket.id, 'completed')
+
+        return result
+
+    def record_pool_score(
+        self,
+        bracket_key: str,
+        fighter1_name: str,
+        fighter2_name: str,
+        score1: str,
+        score2: str,
+        winner_name: Optional[str] = None,
+    ) -> bool:
+        """
+        Persist a pool fight score.
+        Looks up the fight by participant IDs (order-insensitive).
+        score1 corresponds to fighter1, score2 to fighter2.
+        """
+        group = self.groups.get_by_name(bracket_key)
+        if not group:
+            return False
+        bracket = self.brackets.get_by_group(group.id)
+        if not bracket:
+            return False
+
+        gp1 = self._find_group_participant(group.id, fighter1_name)
+        gp2 = self._find_group_participant(group.id, fighter2_name)
+        if not gp1 or not gp2:
+            return False
+
+        fight = self.fights.get_by_participants(bracket.id, gp1.id, gp2.id)
+        if not fight:
+            return False
+
+        # Align score1/score2 with the DB slot order (participant1/participant2)
+        if fight.participant1_id == gp1.id:
+            self.fights.set_score(fight.id, score1, score2)
+        else:
+            self.fights.set_score(fight.id, score2, score1)
+
+        if winner_name:
+            winner_gp = gp1 if winner_name == fighter1_name else gp2
+            self.fights.set_result(fight.id, winner_gp.id)
+
+        return True
+
+    def _build_pool_pairs(
+        self,
+        group_id: int,
+        fighters: List[dict],
+        pool_size: Optional[int],
+        method: str,
+    ) -> List[dict]:
+        """
+        Generate all round-robin fight pairs for pool and double-pool brackets,
+        look up GroupParticipant IDs, and attach bracket position metadata.
+
+        Pool split rules:
+            'double'         → always 2 pools, split in half
+            'pools' + size   → split into groups of pool_size
+            'pools' no size  → single pool (all fighters together)
+        """
+        from itertools import combinations
+
+        names = [f.get('Name', '') for f in fighters]
+
+        if method == 'double':
+            mid = len(names) // 2
+            pools = [names[:mid], names[mid:]]
+        elif pool_size and len(names) > pool_size:
+            pools = [names[i:i + pool_size] for i in range(0, len(names), pool_size)]
+        else:
+            pools = [names]
+
+        enriched = []
+        for pool_idx, pool in enumerate(pools):
+            for pos, (n1, n2) in enumerate(combinations(pool, 2)):
+                gp1 = self._find_group_participant(group_id, n1)
+                gp2 = self._find_group_participant(group_id, n2)
+                if gp1 and gp2:
+                    enriched.append({
+                        'p1': gp1.id,
+                        'p2': gp2.id,
+                        'bracket_phase': 'pool',
+                        'round': None,
+                        'pos_in_round': pos,
+                        'pool_index': pool_idx,
+                    })
+        return enriched
 
     # ------------------------------------------------------------------
     # Internal helpers
