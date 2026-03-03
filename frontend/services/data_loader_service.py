@@ -66,24 +66,17 @@ class DataLoaderService:
                 unpaid_entry['rejection_reason'] = 'unpaid'
                 unpaid_participants.append(unpaid_entry)
         
-        # Show popup if there are unpaid participants
         if unpaid_participants:
             unpaid_names = ['{} {}'.format(
                 p.get('Firstname', p.get('Vorname', '')),
                 p.get('Lastname', p.get('Nachname', ''))
             ).strip() or p.get('Name', 'Unknown') for p in unpaid_participants]
-            
-            unpaid_text = "\n".join(f"• {name}" for name in unpaid_names)
-            
-            message = f"The following {len(unpaid_participants)} participant(s) have not paid and will NOT be sorted into brackets:\n\n{unpaid_text}"
-            
-            messagebox.showwarning("Unpaid Participants", message)
             self.logger.info(f"Filtered out {len(unpaid_participants)} unpaid participant(s): {', '.join(unpaid_names)}")
         
         return paid_participants, unpaid_participants
 
     def filter_invalid_ages(self, all_participants, min_age=6, max_age=120):
-        """Filter out participants with invalid ages and show popups for each rejection reason.
+        """Filter out participants with invalid ages.
         
         Uses unified validate_age_from_birthyear() for consistent validation across the app.
         
@@ -118,23 +111,49 @@ class DataLoaderService:
                 invalid_entry['age_group'] = age_group
                 invalid_participants.append(invalid_entry)
         
-        # Show popup if there are invalid ages
         if invalid_participants:
-            invalid_text_lines = []
-            for p in invalid_participants:
-                name = '{} {}'.format(
-                    p.get('Firstname', p.get('Vorname', '')),
-                    p.get('Lastname', p.get('Nachname', ''))
-                ).strip() or p.get('Name', 'Unknown')
-                reason = p.get('rejection_reason', 'Unknown reason')
-                invalid_text_lines.append(f"• {name} ({reason})")
-            
-            invalid_text = "\n".join(invalid_text_lines)
-            
-            message = f"The following {len(invalid_participants)} participant(s) have invalid ages and will NOT be sorted into brackets:\n\n{invalid_text}"
-            
-            messagebox.showwarning("Invalid Ages", message)
+            invalid_names = ['{} {}'.format(
+                p.get('Firstname', p.get('Vorname', '')),
+                p.get('Lastname', p.get('Nachname', ''))
+            ).strip() or p.get('Name', 'Unknown') for p in invalid_participants]
             self.logger.info(f"Filtered out {len(invalid_participants)} participants with invalid ages")
+        
+        return valid_participants, invalid_participants
+
+    def filter_invalid_valid(self, all_participants):
+        """Filter out participants with Valid field set to False.
+        
+        Some data sources (JSON) include a Valid field that marks whether
+        a participant should be included. This filters based on that field.
+        
+        Args:
+            all_participants: List of participant dicts with optional 'Valid' field
+        
+        Returns:
+            Tuple of (valid_participants, invalid_list) where invalid_list contains dicts
+            with participants that have Valid=False
+        """
+        valid_participants = []
+        invalid_participants = []
+        
+        for p in all_participants:
+            # Check Valid field (default to True if not present)
+            is_valid = p.get('Valid', True)
+            
+            if is_valid:
+                valid_participants.append(p)
+            else:
+                # Add rejection info
+                invalid_entry = dict(p)
+                invalid_entry['rejection_reason'] = 'marked_invalid'
+                invalid_participants.append(invalid_entry)
+        
+        if invalid_participants:
+            invalid_names = ['{} {}'.format(
+                p.get('Firstname', p.get('Vorname', '')),
+                p.get('Lastname', p.get('Nachname', ''))
+            ).strip() or p.get('Name', 'Unknown') for p in invalid_participants]
+            self.logger.info(f"Filtered out {len(invalid_participants)} participant(s) marked as invalid")
         
         return valid_participants, invalid_participants
 
@@ -184,11 +203,14 @@ class DataLoaderService:
             # Filter out unpaid participants
             participants, unpaid = self.filter_unpaid_participants(participants)
 
+            # Filter out participants marked as invalid (Valid field)
+            participants, invalid_valid = self.filter_invalid_valid(participants)
+
             # Filter out participants with invalid ages
             participants, invalid_ages = self.filter_invalid_ages(participants)
             
             # Create QUARANTINE bracket with all rejected participants
-            all_rejected = unpaid + invalid_ages
+            all_rejected = unpaid + invalid_valid + invalid_ages
             brackets = {}
             if all_rejected and self.quarantine_service:
                 self.quarantine_service.create_quarantine_bracket(brackets, all_rejected)
@@ -215,9 +237,12 @@ class DataLoaderService:
                 self.ui_feedback.update_progress(100)
                 self.ui_feedback.hide_loading_progress()
 
-            # Call success callback
+            # Call success callback with brackets and rejection info
             if 'on_success' in callbacks and callable(callbacks['on_success']):
-                callbacks['on_success'](brackets)
+                callbacks['on_success'](
+                    brackets=brackets,
+                    rejected_participants=all_rejected
+                )
 
         except Exception as e:
             self.logger.error(f"Error during load and generate: {e}")
@@ -268,11 +293,14 @@ class DataLoaderService:
             # Filter out unpaid participants
             participants, unpaid = self.filter_unpaid_participants(participants)
 
+            # Filter out participants marked as invalid (Valid field)
+            participants, invalid_valid = self.filter_invalid_valid(participants)
+
             # Filter out participants with invalid ages
             participants, invalid_ages = self.filter_invalid_ages(participants)
             
             # Create QUARANTINE bracket with all rejected participants
-            all_rejected = unpaid + invalid_ages
+            all_rejected = unpaid + invalid_valid + invalid_ages
             brackets = {}
             if all_rejected and self.quarantine_service:
                 self.quarantine_service.create_quarantine_bracket(brackets, all_rejected)
@@ -300,9 +328,12 @@ class DataLoaderService:
                 self.ui_feedback.update_progress(100)
                 self.ui_feedback.hide_loading_progress()
 
-            # Call success callback
+            # Call success callback with brackets and rejection info
             if 'on_success' in callbacks and callable(callbacks['on_success']):
-                callbacks['on_success'](brackets)
+                callbacks['on_success'](
+                    brackets=brackets,
+                    rejected_participants=all_rejected
+                )
 
         except Exception as e:
             self.logger.error(f"Database error during load: {e}")
@@ -457,6 +488,12 @@ class DataLoaderService:
             if self.ui_feedback:
                 self.ui_feedback.update_progress(70)
 
+            # Filter out participants marked as invalid (Valid field)
+            all_participants, invalid_valid = self.filter_invalid_valid(all_participants)
+
+            if self.ui_feedback:
+                self.ui_feedback.update_progress(72)
+
             # Filter out participants with invalid ages
             all_participants, invalid_ages = self.filter_invalid_ages(all_participants)
             
@@ -464,7 +501,7 @@ class DataLoaderService:
                 self.ui_feedback.update_progress(75)
 
             # Create QUARANTINE bracket with all rejected participants
-            all_rejected = unpaid + invalid_ages
+            all_rejected = unpaid + invalid_valid + invalid_ages
             brackets = {}
             if all_rejected and self.quarantine_service:
                 self.quarantine_service.create_quarantine_bracket(brackets, all_rejected)
@@ -495,9 +532,12 @@ class DataLoaderService:
                 self.ui_feedback.update_progress(100)
                 self.ui_feedback.hide_loading_progress()
 
-            # Call success callback
+            # Call success callback with brackets and rejection info
             if 'on_success' in callbacks and callable(callbacks['on_success']):
-                callbacks['on_success'](brackets)
+                callbacks['on_success'](
+                    brackets=brackets,
+                    rejected_participants=all_rejected
+                )
 
         except json.JSONDecodeError as e:
             error_msg = f"JSON Parse Error: {e}"
