@@ -52,26 +52,26 @@ COLORS = {
 # ============================================================================
 
 FONTS = {
-    'heading_xl': ('Consolas', 18, 'bold'),
-    'heading_lg': ('Consolas', 16, 'bold'),
-    'heading_md': ('Arial', 12, 'bold'),
-    'heading_sm': ('Arial', 10, 'bold'),
+    'heading_xl': ('Rubik', 18, 'bold'),
+    'heading_lg': ('Rubik', 16, 'bold'),
+    'heading_md': ('Rubik', 12, 'bold'),
+    'heading_sm': ('Rubik', 10, 'bold'),
 
-    'body_lg': ('Consolas', 12),
-    'body_md': ('Consolas', 11),
-    'body_sm': ('Consolas', 10),
-    'body_xs': ('Consolas', 9),
+    'body_lg': ('Rubik', 12),
+    'body_md': ('Rubik', 11),
+    'body_sm': ('Rubik', 10),
+    'body_xs': ('Rubik', 9),
 
-    'mono_md': ('Consolas', 10),
-    'mono_sm': ('Consolas', 9),
+    'mono_md': ('Rubik Mono', 10),
+    'mono_sm': ('Rubik Mono', 9),
     
     # Custom fonts for Group Preview Screen and Editor
-    'preview_title': ('Arial', 14, 'bold'),
-    'preview_label': ('Arial', 9, 'bold'),
-    'preview_text': ('Arial', 11),
-    'preview_small': ('Arial', 9),
-    'preview_info': ('Arial', 10),
-    'preview_hint': ('Arial', 8),
+    'preview_title': ('Rubik', 14, 'bold'),
+    'preview_label': ('Rubik', 9, 'bold'),
+    'preview_text': ('Rubik', 11),
+    'preview_small': ('Rubik', 9),
+    'preview_info': ('Rubik', 10),
+    'preview_hint': ('Rubik', 8),
     
     # Custom lists
     'list_mono': ('Courier', 10),

@@ -459,8 +459,6 @@ class DataLoaderService:
                     # Ensure Age field exists (use Birthyear)
                     if 'Age' not in participant:
                         participant['Age'] = participant.get('Birthyear')
-
-                    self.logger.debug(f"[File {file_idx}] Participant {idx}: {participant['Name']} (Age: {participant.get('Birthyear')}, Weight: {participant.get('Weight', 0.0)}kg, Gender: {gender})")
                     
                     valid_count += 1
                     all_participants.append(participant)

@@ -1107,6 +1107,7 @@ class BracketViewerApp(tk.Tk):
         """Handle window closing - cleanup resources."""
         self.logger.info("Application closing, shutting down task runner...")
         self.task_runner.shutdown(wait=False)  # Don't block UI, let tasks finish in background
+        self.logger.close()  # Close file handlers for proper cleanup
         self.destroy()
 
     def update_bracket_list(self, *args):

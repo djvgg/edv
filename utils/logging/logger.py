@@ -76,6 +76,14 @@ class Logger:
 
     def debug(self, message):
         self._write('debug', message)
+    
+    def close(self):
+        """Close all file handlers."""
+        self.info_handler.close()
+        self.error_handler.close()
+        self.warning_handler.close()
+        self.debug_handler.close()
+        self.all_handler.close()
 
 
 # Simple factory / singleton accessor for easy use across projects

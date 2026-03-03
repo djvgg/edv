@@ -16,7 +16,12 @@ class ConsoleHandler:
 class FileHandler:
     def __init__(self, file_path):
         self.file_path = file_path
+        self.file = open(file_path, 'a', encoding='utf-8', buffering=1)  # Line-buffered
+    
     def emit(self, log_entry):
-        with open(self.file_path, 'a', encoding='utf-8') as f:
-            f.write(log_entry)
+        self.file.write(log_entry)
+    
+    def close(self):
+        if self.file and not self.file.closed:
+            self.file.close()
 
