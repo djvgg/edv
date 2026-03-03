@@ -21,7 +21,6 @@ from backend.services.bracket_service import (  # noqa: E402
     export_all_brackets,
     make_bracket,
     set_bracket_config,
-    get_age_group,
 )
 from backend.services.database_service import get_database_service  # noqa: E402
 
@@ -290,126 +289,6 @@ class BracketViewerApp(tk.Tk):
 
         # Set up callback for when generation methods are selected
         gen_screen.on_generation_complete = self.on_generation_methods_selected
-
-    def filter_unpaid_participants(self, all_participants):
-        """Filter out unpaid participants and show a popup if any are found.
-        
-        Args:
-            all_participants: List of participant dicts with 'Paid' field
-        
-        Returns:
-            Tuple of (paid_participants, unpaid_list) where unpaid_list contains full
-            participant dicts with 'rejection_reason' field added
-        """
-        paid_participants = []
-        unpaid_participants = []
-        
-        for p in all_participants:
-            # Check if paid field exists and is truthy
-            is_paid = p.get('Paid', False)
-            
-            if is_paid:
-                paid_participants.append(p)
-            else:
-                # Add full participant data with rejection reason
-                unpaid_entry = dict(p)
-                unpaid_entry['rejection_reason'] = 'unpaid'
-                unpaid_participants.append(unpaid_entry)
-        
-        # Show popup if there are unpaid participants
-        if unpaid_participants:
-            unpaid_names = ['{} {}'.format(
-                p.get('Firstname', p.get('Vorname', '')),
-                p.get('Lastname', p.get('Nachname', ''))
-            ).strip() or p.get('Name', 'Unknown') for p in unpaid_participants]
-            
-            unpaid_text = "\n".join(f"• {name}" for name in unpaid_names)
-            
-            message = f"The following {len(unpaid_participants)} participant(s) have not paid and will NOT be sorted into brackets:\n\n{unpaid_text}"
-            
-            messagebox.showwarning("Unpaid Participants", message)
-            self.logger.info(f"Filtered out {len(unpaid_participants)} unpaid participant(s): {', '.join(unpaid_names)}")
-        
-        return paid_participants, unpaid_participants
-
-    def filter_invalid_ages(self, all_participants, min_age=6, max_age=120):
-        """Filter out participants with invalid ages and show popups for each rejection reason.
-        
-        Args:
-            all_participants: List of participant dicts with 'Age' or birthyear fields
-            min_age: Minimum valid age (configurable, default 6)
-            max_age: Maximum valid age (configurable, default 120)
-        
-        Returns:
-            Tuple of (valid_participants, invalid_list) where invalid_list contains dicts 
-            with name, age, and rejection reason
-        """
-        valid_participants = []
-        invalid_participants = []
-        current_year = datetime.datetime.now().year
-        
-        for p in all_participants:
-            age = None
-            
-            # Get age value from 'Age' field
-            age_value = p.get('Age')
-            
-            try:
-                if age_value is not None:
-                    age_value = int(age_value)
-                    # Age field contains birthyear, convert to actual age
-                    age = current_year - age_value
-            except (ValueError, TypeError):
-                pass
-            
-            # Fall back to Birthyear field if Age didn't work
-            if age is None and 'Birthyear' in p:
-                try:
-                    birthyear = int(p.get('Birthyear'))
-                    age = current_year - birthyear
-                except (ValueError, TypeError):
-                    pass
-            
-            # Rejection reasons
-            rejection_reason = None
-            
-            if age is None:
-                rejection_reason = "missing birth year/age"
-            elif age < min_age:
-                rejection_reason = f"too young ({age} years, minimum {min_age})"
-            elif age > max_age:
-                rejection_reason = f"too old ({age} years, maximum {max_age})"
-            else:
-                # Check if age maps to a valid age group
-                try:
-                    age_group = get_age_group(age)
-                    if age_group is None:
-                        rejection_reason = f"no valid age group for age {age}"
-                except Exception as e:
-                    rejection_reason = f"age validation error: {e}"
-            
-            if rejection_reason:
-                # Include full participant data + rejection reason
-                invalid_entry = dict(p)  # Copy original participant
-                invalid_entry['rejection_reason'] = rejection_reason
-                invalid_entry['calculated_age'] = age
-                invalid_participants.append(invalid_entry)
-            else:
-                valid_participants.append(p)
-        
-        # Show popup if there are invalid ages
-        if invalid_participants:
-            invalid_text = "\n".join(
-                f"• {p.get('Name', 'Unknown')} (age {p.get('calculated_age', '?')}) — {p.get('rejection_reason', 'unknown')}"
-                for p in invalid_participants
-            )
-            
-            message = f"The following {len(invalid_participants)} participant(s) have invalid ages and will NOT be sorted into brackets:\n\n{invalid_text}"
-            
-            messagebox.showwarning("Invalid Ages", message)
-            self.logger.info(f"Filtered out {len(invalid_participants)} participant(s) with invalid ages:\n{invalid_text}")
-        
-        return valid_participants, invalid_participants
 
     def _log_bracket_summary(self):
         """Log a detailed summary of generated brackets."""

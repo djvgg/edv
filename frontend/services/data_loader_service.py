@@ -18,7 +18,7 @@ import traceback
 from tkinter import filedialog, messagebox
 
 from utils.logging import get_logger
-from backend.services.bracket_service import export_all_brackets
+from backend.services.bracket_service import export_all_brackets, validate_age_from_birthyear
 from frontend.utils import (
     load_participants_from_xlsx,
     normalize_participants,
@@ -85,8 +85,10 @@ class DataLoaderService:
     def filter_invalid_ages(self, all_participants, min_age=6, max_age=120):
         """Filter out participants with invalid ages and show popups for each rejection reason.
         
+        Uses unified validate_age_from_birthyear() for consistent validation across the app.
+        
         Args:
-            all_participants: List of participant dicts with 'Age' or birthyear fields
+            all_participants: List of participant dicts with Birthyear or Age fields
             min_age: Minimum valid age (configurable, default 6)
             max_age: Maximum valid age (configurable, default 120)
         
@@ -96,53 +98,25 @@ class DataLoaderService:
         """
         valid_participants = []
         invalid_participants = []
-        current_year = datetime.datetime.now().year
         
         for p in all_participants:
-            age = None
+            # Try Birthyear first, fall back to Age field (both can contain birthyear)
+            birthyear = p.get('Birthyear') or p.get('Age')
             
-            # Try Age field first (may contain birthyear as fallback)
-            age_value = p.get('Age')
-            try:
-                if age_value is not None:
-                    age_value = int(age_value)
-                    # Age field may contain birthyear, convert to actual age
-                    age = current_year - age_value
-            except (ValueError, TypeError):
-                pass
+            # Use unified validation function (SINGLE SOURCE OF TRUTH)
+            age_group, calculated_age, is_valid, rejection_reason = validate_age_from_birthyear(
+                birthyear, min_age=min_age, max_age=max_age
+            )
             
-            # Fall back to Birthyear field if Age didn't work
-            if age is None and 'Birthyear' in p:
-                try:
-                    birthyear = int(p.get('Birthyear'))
-                    age = current_year - birthyear
-                except (ValueError, TypeError):
-                    pass
-            
-            # Rejection reasons
-            rejection_reason = None
-            
-            if age is None:
-                rejection_reason = "missing age/birthyear"
-                invalid_entry = dict(p)
-                invalid_entry['rejection_reason'] = rejection_reason
-                invalid_entry['age'] = None
-                invalid_participants.append(invalid_entry)
-            elif age < min_age:
-                rejection_reason = f"too young ({age} years old, minimum {min_age})"
-                invalid_entry = dict(p)
-                invalid_entry['rejection_reason'] = rejection_reason
-                invalid_entry['age'] = age
-                invalid_participants.append(invalid_entry)
-            elif age > max_age:
-                rejection_reason = f"too old ({age} years old, maximum {max_age})"
-                invalid_entry = dict(p)
-                invalid_entry['rejection_reason'] = rejection_reason
-                invalid_entry['age'] = age
-                invalid_participants.append(invalid_entry)
-            else:
-                # Valid age
+            if is_valid:
                 valid_participants.append(p)
+            else:
+                # Add rejection info to participant data
+                invalid_entry = dict(p)
+                invalid_entry['rejection_reason'] = rejection_reason
+                invalid_entry['age'] = calculated_age
+                invalid_entry['age_group'] = age_group
+                invalid_participants.append(invalid_entry)
         
         # Show popup if there are invalid ages
         if invalid_participants:

@@ -9,10 +9,12 @@ from tkinter import messagebox
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-from backend.services.bracket_service import get_age_group as get_age_group_with_fallback  # noqa: E402
+from backend.services.bracket_service import (  # noqa: E402
+    get_age_group as get_age_group_with_fallback,
+    validate_age_from_birthyear,
+)
 
 from ..styles import COLORS, FONTS
-
 class Edit_Participants(tk.Toplevel):
     def __init__(self, parent, bracket_key, fighter_idx):
         # We need parent.master as the master for Toplevel so it stays within the app context
@@ -441,33 +443,22 @@ class Edit_Participants(tk.Toplevel):
             
             # Auto-detect age group from birth year on focus out
             def _on_birth_year_changed(e):
-                """Auto-detect age group when birth year is entered (uses bracket_service.get_age_group WITH fallback)."""
+                """Auto-detect age group when birth year is entered (uses unified validate_age_from_birthyear)."""
                 birth_year_str = birth_year_entry.get().strip()
                 if birth_year_str and len(birth_year_str) == 4 and birth_year_str.isdigit():
                     try:
                         birth_year_int = int(birth_year_str)
-                        current_year = datetime.datetime.now().year
-                        calculated_age = current_year - birth_year_int
                         
-                        # Use bracket_service.get_age_group which has fallback for out-of-bounds years
-                        auto_age_group = get_age_group_with_fallback(calculated_age)
-                        
-                        # Also try config_repo for config-defined eligibility if available
-                        config_age_group = None
-                        all_eligible = []
-                        if self.parent.config_repo:
-                            config_age_group = self.parent.config_repo.get_age_group(birth_year_int)
-                            all_eligible = self.parent.config_repo.get_all_eligible_age_groups(birth_year_int)
+                        # Use unified validation function (SINGLE SOURCE OF TRUTH)
+                        age_group, calculated_age, is_valid, rejection_reason = validate_age_from_birthyear(birth_year_int)
                         
                         self.parent.logger.debug(
                             f"EDIT_DIALOG: Birth year {birth_year_int} (age {calculated_age}) → "
-                            f"auto_age_group (with fallback) = {auto_age_group}, "
-                            f"config_age_group = {config_age_group}, eligible = {all_eligible}"
+                            f"age_group={age_group}, valid={is_valid}, reason={rejection_reason}"
                         )
                         
-                        if auto_age_group and auto_age_group != age_group and not is_young_category:
-                            self.parent.logger.debug(f"EDIT_DIALOG: Birth year {birth_year_int} detected age group: {auto_age_group}")
-                            # Could auto-update age_group_var here if implementing auto-upgrade feature
+                        if age_group and age_group != age_group and not is_young_category:
+                            self.parent.logger.debug(f"EDIT_DIALOG: Birth year {birth_year_int} detected age group: {age_group}")
                             
                         # Re-calculate weight class hint based on new age group
                         _on_weight_changed()
@@ -475,7 +466,6 @@ class Edit_Participants(tk.Toplevel):
                         self.parent.logger.debug(f"EDIT_DIALOG: Birth year auto-detect failed: {ex}")
             
             birth_year_entry.bind("<FocusOut>", _on_birth_year_changed)
-            
             # Club and Association fields in a row
             club_row = tk.Frame(container, bg=COLORS['bg_dark'])
             club_row.pack(fill=tk.X)

@@ -5,7 +5,8 @@
 
 import datetime
 from utils.logging import get_logger
-from backend.services.bracket_service import get_age_group, export_all_brackets
+from backend.services.bracket_service import get_age_group, export_all_brackets, validate_age_from_birthyear
+
 
 
 class QuarantineService:
@@ -172,61 +173,18 @@ class QuarantineService:
                 invalid_reason = "unpaid"
                 self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
             else:
-                # Check age validity
-                # Try Birthyear first, fall back to Age field (which also stores birthyear as a fallback)
-                age = None
+                # Check age validity using unified validation function (SINGLE SOURCE OF TRUTH)
+                birthyear = fighter.get('Birthyear') or fighter.get('Age')
+                age_group, calculated_age, age_is_valid, age_rejection_reason = validate_age_from_birthyear(birthyear)
                 
-                # PRIMARY: Try Birthyear field
-                if 'Birthyear' in fighter:
-                    try:
-                        birthyear = int(fighter.get('Birthyear'))
-                        age = current_year - birthyear
-                        self.logger.debug(f"RESORT:   Age (from Birthyear): {age} (Birthyear={birthyear}, current_year={current_year})")
-                    except (ValueError, TypeError):
-                        self.logger.debug(f"RESORT:   Birthyear parse failed: {fighter.get('Birthyear')}")
-                        pass
+                self.logger.debug(f"RESORT:   Age validation: birthyear={birthyear}, calculated_age={calculated_age}, valid={age_is_valid}, reason={age_rejection_reason}")
                 
-                # FALLBACK: Try Age field only if Birthyear not available (Age field can contain birthyear as fallback)
-                if age is None:
-                    age_field_value = fighter.get('Age')
-                    try:
-                        if age_field_value is not None:
-                            # Treat Age field as a birthyear too (it's a fallback source for birthyear, not an actual age)
-                            birthyear = int(age_field_value)
-                            age = current_year - birthyear
-                            self.logger.debug(f"RESORT:   Age (from Age field as birthyear fallback): {age} (Age={birthyear}, current_year={current_year})")
-                    except (ValueError, TypeError):
-                        self.logger.debug(f"RESORT:   Age field parse failed: {age_field_value}")
-                        pass
-                
-                # Check age bounds
-                if age is None:
+                if not age_is_valid:
                     is_valid = False
-                    invalid_reason = "no age/birthyear"
-                    self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
-                elif age < 6:
-                    is_valid = False
-                    invalid_reason = f"too young ({age} years)"
-                    self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
-                elif age > 120:
-                    is_valid = False
-                    invalid_reason = f"too old ({age} years)"
+                    invalid_reason = age_rejection_reason
                     self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
                 else:
-                    # Check age group mapping
-                    try:
-                        age_group = get_age_group(age)
-                        self.logger.debug(f"RESORT:   Age group for age {age}: {age_group}")
-                        if age_group is None:
-                            is_valid = False
-                            invalid_reason = f"no age group for age {age}"
-                            self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
-                        else:
-                            self.logger.debug(f"RESORT:   Age bounds OK, age group {age_group} - VALID")
-                    except Exception as e:
-                        is_valid = False
-                        invalid_reason = f"age validation error: {e}"
-                        self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
+                    self.logger.debug(f"RESORT:   Age bounds OK, age group {age_group} - VALID")
             
             if is_valid:
                 valid_from_quarantine.append(fighter)
