@@ -20,6 +20,7 @@
 # logger.error('An error occurred')
 
 import os
+import threading
 import datetime
 from .handlers import FileHandler, ConsoleHandler
 
@@ -29,6 +30,7 @@ class Logger:
     LOG_LEVELS_STR = ', '.join(LOG_LEVELS)
 
     def __init__(self, log_dir='logs', debug_verbose=False):
+        self._lock = threading.Lock()  # Thread-safe logging
         self.log_dir = log_dir
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir)
@@ -46,23 +48,24 @@ class Logger:
         self.debug_verbose = debug_verbose  # Optional, defaults to False
 
     def _write(self, level, message):
-        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        log_entry = f'[{timestamp}] [{level.upper()}] {message}\n'
-        # Write to all-level log
-        self.all_handler.emit(log_entry)
-        # Write to level-specific log
-        if level == 'info':
-            self.info_handler.emit(log_entry)
-        elif level == 'error':
-            self.error_handler.emit(log_entry)
-            self.console_handler.emit(log_entry)
-        elif level == 'warning':
-            self.warning_handler.emit(log_entry)
-            self.console_handler.emit(log_entry)
-        elif level == 'debug':
-            self.debug_handler.emit(log_entry)
-            if self.debug_verbose:
+        with self._lock:  # Thread-safe write
+            timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            log_entry = f'[{timestamp}] [{level.upper()}] {message}\n'
+            # Write to all-level log
+            self.all_handler.emit(log_entry)
+            # Write to level-specific log
+            if level == 'info':
+                self.info_handler.emit(log_entry)
+            elif level == 'error':
+                self.error_handler.emit(log_entry)
                 self.console_handler.emit(log_entry)
+            elif level == 'warning':
+                self.warning_handler.emit(log_entry)
+                self.console_handler.emit(log_entry)
+            elif level == 'debug':
+                self.debug_handler.emit(log_entry)
+                if self.debug_verbose:
+                    self.console_handler.emit(log_entry)
 
 
     def info(self, message):
@@ -76,6 +79,15 @@ class Logger:
 
     def debug(self, message):
         self._write('debug', message)
+    
+    def close(self):
+        """Close all file handlers."""
+        with self._lock:  # Thread-safe close
+            self.info_handler.close()
+            self.error_handler.close()
+            self.warning_handler.close()
+            self.debug_handler.close()
+            self.all_handler.close()
 
 
 # Simple factory / singleton accessor for easy use across projects

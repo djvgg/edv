@@ -31,6 +31,7 @@ from utils.bracket_utils import (  # noqa: E402
     get_weight_class as _get_weight_class,
     get_pool_size as _get_pool_size,
     make_bracket as _make_bracket,
+    validate_age_from_birthyear as _validate_age_from_birthyear,
 )
 
 # module logger
@@ -68,6 +69,61 @@ def get_age_group(age, event_year=None):
     """
     ensure_config_loaded()
     return _get_age_group(age, event_year)
+
+
+def get_age_group_from_birthyear(birthyear, event_year=None):
+    """
+    Returns the age group for a given birthyear (single source of truth for age calculation).
+    
+    Handles calculation: age = current_year - birthyear
+    Then determines age group with fallback for out-of-bounds ages.
+    
+    Args:
+        birthyear: Birth year as integer (e.g., 2018)
+        event_year: Event year (uses config default if None)
+    
+    Returns:
+        Tuple: (age_group_str, calculated_age) or (None, None) if calculation fails
+        Examples:
+            (2018, None) → ('U13', 8)
+            (2001, None) → ('18+', 25)
+            (2026, None) → ('18+', 0)  # Fallback for out-of-bounds
+            (2000, None) → ('18+', 26)
+    """
+    import datetime
+    try:
+        current_year = event_year or datetime.datetime.now().year
+        calculated_age = current_year - int(birthyear)
+        age_group = get_age_group(calculated_age, event_year)
+        return age_group, calculated_age
+    except (ValueError, TypeError):
+        return None, None
+
+
+def validate_age_from_birthyear(birthyear, min_age=6, max_age=120, event_year=None):
+    """
+    Validates age from birthyear with bounds checking.
+    
+    SINGLE SOURCE OF TRUTH for age validation across the app.
+    Consolidates all age checking and bounds validation logic.
+    
+    Args:
+        birthyear: Birth year as integer (e.g., 2018)
+        min_age: Minimum valid age (default 6)
+        max_age: Maximum valid age (default 120)
+        event_year: Event year for calculation (uses config default if None)
+    
+    Returns:
+        Tuple: (age_group, calculated_age, is_valid, rejection_reason)
+        Examples:
+            (2018, None, ...) → ('U13', 8, True, None)
+            (2001, None, ...) → ('18+', 25, True, None)
+            (2026, None, ...) → ('18+', 0, True, None)
+            (1900, None, ...) → (None, 126, False, 'too old (126 years)')
+            (None, None, ...) → (None, None, False, 'no age/birthyear')
+    """
+    ensure_config_loaded()
+    return _validate_age_from_birthyear(birthyear, min_age, max_age, event_year)
 
 
 def get_weight_class(weight, gender, age_group=None):
