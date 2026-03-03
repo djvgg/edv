@@ -11,6 +11,9 @@ from backend.services.bracket_service import get_age_group, export_all_brackets
 class QuarantineService:
     """Handles creation and management of quarantine brackets for rejected participants."""
     
+    MIN_PARTICIPANT_AGE = 6
+    MAX_PARTICIPANT_AGE = 120
+    
     def __init__(self):
         """Initialize the quarantine service."""
         self.logger = get_logger(__name__, debug_verbose=True)
@@ -204,11 +207,11 @@ class QuarantineService:
                     is_valid = False
                     invalid_reason = "no age/birthyear"
                     self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
-                elif age < 6:
+                elif age < self.MIN_PARTICIPANT_AGE:
                     is_valid = False
                     invalid_reason = f"too young ({age} years)"
                     self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
-                elif age > 120:
+                elif age > self.MAX_PARTICIPANT_AGE:
                     is_valid = False
                     invalid_reason = f"too old ({age} years)"
                     self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
