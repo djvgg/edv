@@ -498,6 +498,41 @@ class GroupPreviewScreen(tk.Frame):
         # Use the separate Edit_Participants class to handle the dialog
         Edit_Participants(self, bracket_key, fighter_idx)
 
+    def flash_bracket(self, bracket_key):
+        """Visually flash a bracket in the listbox to indicate a participant was moved there."""
+        if not hasattr(self, 'group_listbox') or not self.group_listbox.winfo_exists():
+            return
+            
+        lst = self.group_listbox.get(0, tk.END)
+        target_idx = -1
+        
+        # Find the index of the bracket in the current listbox
+        for i, display_text in enumerate(lst):
+            if self.group_listbox_map.get(display_text, display_text) == bracket_key:
+                target_idx = i
+                break
+                
+        if target_idx != -1:
+            # Scroll to make sure it's visible
+            self.group_listbox.see(target_idx)
+            
+            # Apply glow
+            self.group_listbox.itemconfig(target_idx, background=COLORS['accent_green'], foreground=COLORS['bg_dark'])
+            
+            # Schedule revert after 3 seconds
+            def revert():
+                if hasattr(self, 'group_listbox') and self.group_listbox.winfo_exists():
+                    try:
+                        # Safety check: ensure the item at target_idx is still the same bracket
+                        current_text = self.group_listbox.get(target_idx)
+                        if self.group_listbox_map.get(current_text, current_text) == bracket_key:
+                            # Reverting to default listbox styling from COLORS
+                            self.group_listbox.itemconfig(target_idx, background='', foreground='')
+                    except tk.TclError:
+                        pass
+                        
+            self.after(3000, revert)
+
     def _move_participant_to_bracket(self, old_bracket_key, fighter_idx, new_gender, new_age_group, new_weight_class):
         """Move a participant from one bracket to another when weight class or age class changes."""
         old_fighters = self.brackets[old_bracket_key].get('fighters', [])

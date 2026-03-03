@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 TOP Team Combat Control
+SPDX-License-Identifier: CC0-1.0 -->
+
 # EDV Backend — Session Memory
 
 ## Project Overview

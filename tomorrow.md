@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 TOP Team Combat Control
+SPDX-License-Identifier: CC0-1.0 -->
+
 # TODO — Next Session
 
 ## Priority 1 — Fight Score Write-Through (WP12)

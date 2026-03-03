@@ -351,9 +351,17 @@ class Edit_Participants(tk.Toplevel):
                                           fg=COLORS['text_muted'], font=FONTS['preview_hint'])
                     hint_label.pack(anchor=tk.W, pady=(3, 0))
 
+                if not hasattr(self, '_all_borders'):
+                    self._all_borders = []
+                self._all_borders.append(border_frame)
+
                 # Highlight on focus
                 def on_focus_in(e, b=border_frame):
                     if not is_readonly:
+                        # Fallback-Fix: Setze alle anderen Rahmen rigoros auf Grau zurück,
+                        # um den Tkinter-Bug zu umgehen, bei dem <FocusOut> verschluckt wird.
+                        for ob in getattr(self, '_all_borders', []):
+                            ob.config(bg=COLORS['border'])
                         b.config(bg=COLORS['accent_blue'])
 
                 def on_focus_out(e, b=border_frame):
@@ -396,13 +404,18 @@ class Edit_Participants(tk.Toplevel):
                                          hint_text=HINT_WEIGHT)
             insert_value(weight_entry, weight_str)
             
-            # Show detected weight class as user types
-            weight_class_hint = tk.Label(weight_col, text="", bg=COLORS['bg_dark'],
-                                         fg=COLORS['text_muted'], font=FONTS['preview_hint'])
+            # Floating popup for detected weight class
+            weight_popup = tk.Label(weight_col, text="", bg=COLORS['accent_green'],
+                                         fg=COLORS['bg_panel'], font=FONTS['preview_hint'], padx=5, pady=2, bd=1, relief=tk.RAISED)
+            weight_popup_timer = [None]
             
             def _on_weight_changed(e=None):
                 """Show auto-detected weight class as user types (uses ConfigRepository.get_weight_class).
                 Uses current age_group or fallback age_group if birth year is out of bounds."""
+                if weight_popup_timer[0]:
+                    self.after_cancel(weight_popup_timer[0])
+                weight_popup.place_forget()
+                    
                 weight_str_input = weight_entry.get().strip().replace(',', '.')
                 birth_year_str = birth_year_entry.get().strip()
                 
@@ -425,15 +438,16 @@ class Edit_Participants(tk.Toplevel):
                             
                             detected = self.parent.config_repo.get_weight_class(weight_val, gender, effective_age_group)
                             if detected and detected != 'unknown':
-                                weight_class_hint.config(text=f"→ Auto-class: {detected}")
+                                weight_popup.config(text=f"Auto-class: {detected}")
+                                # Place right below the input box inside the col frame
+                                weight_popup.place(rely=1.0, relx=0.0, y=-22) 
+                                weight_popup.lift()
+                                weight_popup_timer[0] = self.after(2500, weight_popup.place_forget)
                                 self.parent.logger.debug(f"EDIT_DIALOG: Weight {weight_val}kg detected as {detected} (age_group={effective_age_group})")
-                            else:
-                                weight_class_hint.config(text="")
                     except (ValueError, Exception):
-                        weight_class_hint.config(text="")
+                        pass
             
             weight_entry.bind("<KeyRelease>", _on_weight_changed)
-            weight_entry.bind("<FocusOut>", lambda e: weight_class_hint.pack(anchor=tk.W, pady=(3, 0)) if weight_class_hint.cget("text") else None)
             
             age_col = tk.Frame(row_frame, bg=COLORS['bg_dark'])
             age_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
@@ -807,6 +821,7 @@ class Edit_Participants(tk.Toplevel):
                     
                     # Track which bracket to display after save
                     display_bracket_key = bracket_key
+                    target_bracket_key = None
                     
                     if is_quarantine:
                         self.parent.logger.debug("QUARANTINE: Using quarantine service for re-sorting")
@@ -820,21 +835,21 @@ class Edit_Participants(tk.Toplevel):
                             self.parent.logger.error("quarantine_service not available")
                             return
                         
-                        # Unless QUARANTINE is now empty, stay in the QUARANTINE view
-                        if 'QUARANTINE' in self.parent.brackets:
-                            display_bracket_key = 'QUARANTINE'
-                        else:
-                            # If QUARANTINE is completely empty now, find where this fighter ended up
-                            display_bracket_key = None
-                            for bracket_key_check, bracket_data in self.parent.brackets.items():
-                                if bracket_key_check == 'QUARANTINE':
-                                    continue
-                                for f in bracket_data.get('fighters', []):
-                                    if f.get('ID') == fighter.get('ID'):
-                                        display_bracket_key = bracket_key_check
-                                        break
-                                if display_bracket_key:
+                        # Find where this fighter ended up
+                        for bracket_key_check, bracket_data in self.parent.brackets.items():
+                            if bracket_key_check == 'QUARANTINE':
+                                continue
+                            for f in bracket_data.get('fighters', []):
+                                if f.get('ID') == fighter.get('ID'):
+                                    target_bracket_key = bracket_key_check
                                     break
+                            if target_bracket_key:
+                                break
+                        
+                        # Unless QUARANTINE is completely empty, stay in the QUARANTINE view
+                        display_bracket_key = 'QUARANTINE'
+                        if 'QUARANTINE' not in self.parent.brackets or not self.parent.brackets['QUARANTINE'].get('fighters', []):
+                            display_bracket_key = target_bracket_key if target_bracket_key else 'QUARANTINE'
                     
                     elif not is_free_match and not is_young_category:
                         new_weight = float(weight_entry.get().replace(',', '.'))
@@ -866,7 +881,6 @@ class Edit_Participants(tk.Toplevel):
                             if new_weight_class != current_weight_class:
                                 effective_weight_class = new_weight_class
                         
-                        # Auto-detect weight class from new weight (overrides manual if weight changed)
                         if self.parent.config_repo and new_weight != weight:
                             detected_weight_class = self.parent.config_repo.get_weight_class(new_weight, gender, effective_age)
                             if detected_weight_class and detected_weight_class != 'unknown':
@@ -881,10 +895,15 @@ class Edit_Participants(tk.Toplevel):
                             display_bracket_key = self.parent._move_participant_to_bracket(
                                 bracket_key, fighter_idx, gender, effective_age, effective_weight_class
                             )
+                            target_bracket_key = display_bracket_key
                     
                     self.parent.logger.info(f"EDIT_DIALOG: Save completed for {first_name_val} {last_name_val}, displaying bracket {display_bracket_key}")
                     self.parent.logger.debug("EDIT_DIALOG: Integrations used - QuarantineService, ConfigRepository, movement logic")
                     self.parent._display_participants(display_bracket_key)
+                    if hasattr(self.parent, 'flash_bracket'):
+                        flash_key = target_bracket_key if target_bracket_key else display_bracket_key
+                        if flash_key:
+                            self.parent.flash_bracket(flash_key)
                     self.destroy()
                 except ValueError:
                     messagebox.showerror("Error", "Invalid weight or age. Please enter numbers.", parent=self)
