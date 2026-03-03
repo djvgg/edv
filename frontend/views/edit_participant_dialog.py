@@ -349,9 +349,17 @@ class Edit_Participants(tk.Toplevel):
                                           fg=COLORS['text_muted'], font=FONTS['preview_hint'])
                     hint_label.pack(anchor=tk.W, pady=(3, 0))
 
+                if not hasattr(self, '_all_borders'):
+                    self._all_borders = []
+                self._all_borders.append(border_frame)
+
                 # Highlight on focus
                 def on_focus_in(e, b=border_frame):
                     if not is_readonly:
+                        # Fallback-Fix: Setze alle anderen Rahmen rigoros auf Grau zurück,
+                        # um den Tkinter-Bug zu umgehen, bei dem <FocusOut> verschluckt wird.
+                        for ob in getattr(self, '_all_borders', []):
+                            ob.config(bg=COLORS['border'])
                         b.config(bg=COLORS['accent_blue'])
 
                 def on_focus_out(e, b=border_frame):
@@ -478,14 +486,9 @@ class Edit_Participants(tk.Toplevel):
                             age_popup.place(rely=1.0, relx=0.0, y=-22)
                             age_popup.lift()
                             age_popup_timer[0] = self.after(2500, age_popup.place_forget)
-                            
-                        # Re-calculate weight class hint based on new age group
-                        _on_weight_changed()
                     except (ValueError, Exception) as ex:
                         self.parent.logger.debug(f"EDIT_DIALOG: Birth year auto-detect failed: {ex}")
-            
             birth_year_entry.bind("<KeyRelease>", _on_birth_year_changed)
-            birth_year_entry.bind("<FocusOut>", _on_birth_year_changed)
             
             # Club and Association fields in a row
             club_row = tk.Frame(container, bg=COLORS['bg_dark'])
