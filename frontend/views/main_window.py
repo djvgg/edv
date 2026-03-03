@@ -59,6 +59,7 @@ from .fight_monitoring_window import FightMonitoringScreen  # noqa: E402
 from ..search_utils import filter_items  # noqa: E402
 from ..services.quarantine_service import QuarantineService  # noqa: E402
 from ..services.ui_feedback_service import UIFeedbackService  # noqa: E402
+from ..services.data_loader_service import DataLoaderService  # noqa: E402
 
 # ====================================================================
 # !!!!! CLAUDE: REFACTORING INSTRUCTIONS !!!!!
@@ -144,6 +145,13 @@ class BracketViewerApp(tk.Tk):
 
         # Initialize UI feedback service (handles progress dialogs, status messages)
         self.ui_feedback = UIFeedbackService(self)
+
+        # Initialize data loader service (handles participant loading and filtering)
+        self.data_loader = DataLoaderService(
+            ui_feedback=self.ui_feedback,
+            quarantine_service=self.quarantine_service,
+            db_service=self.db_service
+        )
 
         # Data
         self.brackets = {}  # {bracket_key: Bracket data}
@@ -936,178 +944,37 @@ class BracketViewerApp(tk.Tk):
             self.show_bracket_view(bracket_key)
 
     def load_and_generate(self):
-        """Load participants from XLSX file and generate brackets."""
-        filepath = filedialog.askopenfilename(
-            title="Select Participant XLSX File",
-            filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")]
-        )
-        if not filepath:
-            return
+        """Load participants from XLSX file and generate brackets (wrapper to DataLoaderService)."""
+        self.data_loader.load_and_generate(callbacks={
+            'on_success': self._on_brackets_loaded
+        })
 
-        # Show loading progress dialog
-        self.ui_feedback.show_loading_progress("Loading and generating brackets...")
+    def _on_brackets_loaded(self, brackets):
+        """Callback when brackets are successfully loaded."""
+        # Save QUARANTINE bracket if it exists (it gets overwritten by export_all_brackets)
+        quarantine_bracket = brackets.pop('QUARANTINE', None)
         
-        # Run loading in background thread
-        thread = threading.Thread(target=self._load_and_generate_thread, args=(filepath,), daemon=True)
-        thread.start()
-
-    def _load_and_generate_thread(self, filepath):
-        """Background thread for loading XLSX and generating brackets."""
-        try:
-            self.ui_feedback.set_status("Reading XLSX file...", COLORS['text_secondary'])
-            self.ui_feedback.update_progress(10)
-
-            # Load and normalize participants from XLSX using utility function
-            raw_participants = load_participants_from_xlsx(filepath)
-            self.ui_feedback.update_progress(30)
-            
-            participants = normalize_participants(raw_participants)
-            self.ui_feedback.update_progress(40)
-            self.db_service.save_participants(participants)
-
-            # Filter out unpaid participants
-            participants, unpaid = self.filter_unpaid_participants(participants)
-
-            # Filter out participants with invalid ages
-            participants, invalid_ages = self.filter_invalid_ages(participants)
-            
-            # Create QUARANTINE bracket with all rejected participants (unpaid + invalid ages)
-            all_rejected = unpaid + invalid_ages
-            if all_rejected:
-                self.quarantine_service.create_quarantine_bracket(self.brackets, all_rejected)
-
-            if not participants:
-                self.ui_feedback.set_status("Error: No valid participants found.", COLORS['accent_red'])
-                self.ui_feedback.hide_loading_progress()
-                return
-
-            total_fighters = len(participants)
-            self.ui_feedback.set_info_text(f"✓ {total_fighters} participants loaded")
-            self.ui_feedback.update_progress(50)
-
-            self.ui_feedback.set_status("Generating brackets...", COLORS['text_secondary'])
-
-            # Save QUARANTINE bracket if it exists (it gets overwritten by export_all_brackets)
-            quarantine_bracket = self.brackets.pop('QUARANTINE', None)
-            
-            # Generate brackets using backend service
-            self.brackets = export_all_brackets(participants)
-            self.ui_feedback.update_progress(80)
-            
-            # Restore QUARANTINE bracket if it existed
-            if quarantine_bracket is not None:
-                self.brackets['QUARANTINE'] = quarantine_bracket
-            
-            # Log bracket generation summary
-            self._log_bracket_summary()
-
-            self.ui_feedback.set_status(f"Success! Generated {len(self.brackets)} brackets.", COLORS['accent_green'])
-            self.ui_feedback.update_progress(100)
-
-            # Hide progress and show group preview window
-            self.ui_feedback.hide_loading_progress()
-            self.after(500, self.show_group_preview_window)
-
-        except Exception as e:
-            self.logger.error(f"Error during load and generate: {e}")
-            self.ui_feedback.set_status(f"Error: {e}", COLORS['accent_red'])
-            self.ui_feedback.hide_loading_progress()
+        # The brackets are already generated by the service
+        self.brackets = brackets
+        
+        # Restore QUARANTINE bracket if it existed
+        if quarantine_bracket is not None:
+            self.brackets['QUARANTINE'] = quarantine_bracket
+        
+        # Log bracket generation summary
+        self._log_bracket_summary()
+        
+        # Show group preview window after brackets are loaded
+        self.after(500, self.show_group_preview_window)
 
     def load_from_database(self):
-        """Load participants from PostgreSQL database and generate brackets."""
-        # Show loading progress dialog
-        self.ui_feedback.show_loading_progress("Loading from database...")
-        
-        # Run loading in background thread
-        thread = threading.Thread(target=self._load_from_database_thread, daemon=True)
-        thread.start()
-
-    def _load_from_database_thread(self):
-        """Background thread for loading from database and generating brackets."""
-        try:
-            self.ui_feedback.set_status("Connecting to database...", COLORS['text_secondary'])
-            self.ui_feedback.update_progress(10)
-
-            # Fetch participants from database
-            participants = self.db_service.fetch_participants()
-            self.ui_feedback.update_progress(30)
-
-            if not participants:
-                self.ui_feedback.set_status("Error: No participants found in database.", COLORS['accent_red'])
-                self.ui_feedback.hide_loading_progress()
-                self.after(500, lambda: messagebox.showwarning("No Data", "No participants found in database."))
-                return
-
-            # Filter out unpaid participants
-            participants, unpaid = self.filter_unpaid_participants(participants)
-
-            # Filter out participants with invalid ages
-            participants, invalid_ages = self.filter_invalid_ages(participants)
-            
-            # Create QUARANTINE bracket with all rejected participants (unpaid + invalid ages)
-            all_rejected = unpaid + invalid_ages
-            if all_rejected:
-                self.quarantine_service.create_quarantine_bracket(self.brackets, all_rejected)
-
-            if not participants:
-                self.ui_feedback.set_status("Error: No valid participants found in database.", COLORS['accent_red'])
-                self.ui_feedback.hide_loading_progress()
-                self.after(500, lambda: messagebox.showwarning("No Data", "No valid participants found in database."))
-                return
-
-            total_fighters = len(participants)
-            self.ui_feedback.set_info_text(f"✓ {total_fighters} participants loaded from database")
-            self.ui_feedback.update_progress(50)
-
-            self.ui_feedback.set_status("Generating brackets...", COLORS['text_secondary'])
-
-            # Save QUARANTINE bracket if it exists (it gets overwritten by export_all_brackets)
-            quarantine_bracket = self.brackets.pop('QUARANTINE', None)
-            
-            # Generate brackets using backend service
-            self.brackets = export_all_brackets(participants)
-            self.ui_feedback.update_progress(80)
-            
-            # Restore QUARANTINE bracket if it existed
-            if quarantine_bracket is not None:
-                self.brackets['QUARANTINE'] = quarantine_bracket
-            
-            # Log bracket generation summary
-            self._log_bracket_summary()
-
-            self.ui_feedback.set_status(f"Success! Generated {len(self.brackets)} brackets from database.", COLORS['accent_green'])
-            self.ui_feedback.update_progress(100)
-
-            # Hide progress and show group preview window
-            self.ui_feedback.hide_loading_progress()
-            self.after(500, self.show_group_preview_window)
-
-        except Exception as e:
-            self.logger.error(f"Database error during load: {e}")
-            self.ui_feedback.set_status(f"Database Error: {e}", COLORS['accent_red'])
-            self.ui_feedback.hide_loading_progress()
-            self.after(500, lambda err=e: messagebox.showerror("Database Error", f"Failed to load from database:\n{str(err)}"))
+        """Load participants from PostgreSQL database and generate brackets (wrapper to DataLoaderService)."""
+        self.data_loader.load_from_database(callbacks={
+            'on_success': self._on_brackets_loaded
+        })
 
     def load_json_and_generate(self):
-        """Load 2 JSON files (male/female), merge them, and generate brackets.
-        
-        Expected JSON structure:
-        [
-          {
-            "ID": 1,
-            "Firstname": "Leon",
-            "Lastname": "Müller",
-            "Birthyear": 2018,
-            "Club": "JC Sakura Berlin",
-            "Association": "JV Berlin",
-            "Weight": 28.5,
-            "Valid": true,
-            "Gender": "male",
-            "Paid": true
-          },
-          ...
-        ]
-        """
+        """Load 2 JSON files (male/female), merge them, and generate brackets (wrapper to DataLoaderService)."""
         # Select 2 JSON files
         filepaths = filedialog.askopenfilenames(
             title="Select 2 JSON Files (Male & Female)",
@@ -1122,209 +989,10 @@ class BracketViewerApp(tk.Tk):
                                f"Please select exactly 2 JSON files.\nYou selected {len(filepaths)} file(s).")
             return
 
-        # Show loading progress dialog
-        self.ui_feedback.show_loading_progress("Loading and generating brackets from JSON...")
-        
-        # Run loading in background thread
-        thread = threading.Thread(target=self._load_json_and_generate_thread, args=(filepaths,), daemon=True)
-        thread.start()
-
-    def _load_json_and_generate_thread(self, filepaths):
-        """Background thread for loading JSON files and generating brackets."""
-        try:
-            self.ui_feedback.set_status("Reading JSON files...", COLORS['text_secondary'])
-            self.ui_feedback.update_progress(10)
-            self.logger.info(f"Loading {len(filepaths)} JSON files")
-
-            all_participants = []
-            
-            # Define expected fields
-            required_core_fields = ['Firstname', 'Lastname', 'Birthyear', 'Weight', 'Gender']
-
-            # Load both JSON files
-            for file_idx, filepath in enumerate(filepaths, 1):
-                filename = os.path.basename(filepath)
-                self.logger.info(f"[File {file_idx}] Loading: {filename}")
-                
-                # Update progress (20% for first file, 50% for second file)
-                progress = 20 + (file_idx - 1) * 30
-                self.ui_feedback.update_progress(progress)
-                
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-
-                # Validate that data is a list
-                if not isinstance(data, list):
-                    error_msg = f"File must contain a JSON array.\nFile: {filename}\nGot: {type(data).__name__}"
-                    self.logger.error(error_msg)
-                    self.ui_feedback.hide_loading_progress()
-                    self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
-                    self.after(500, lambda msg=error_msg: messagebox.showerror("Invalid JSON Format", msg))
-                    return
-
-                self.logger.debug(f"[File {file_idx}] Found {len(data)} entries")
-                
-                valid_count = 0
-
-                # Validate each participant
-                for idx, participant in enumerate(data, 1):
-                    if not isinstance(participant, dict):
-                        error_msg = f"Participant {idx} is not a valid object (got {type(participant).__name__}).\nFile: {filename}"
-                        self.logger.error(error_msg)
-                        self.ui_feedback.hide_loading_progress()
-                        self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
-                        self.after(500, lambda msg=error_msg: messagebox.showerror("Invalid Participant", msg))
-                        return
-
-                    # Check for required core fields
-                    missing_fields = [field for field in required_core_fields if field not in participant]
-
-                    if missing_fields:
-                        error_msg = f"Participant {idx} is missing required fields: {', '.join(missing_fields)}\nFile: {filename}"
-                        self.logger.error(error_msg)
-                        self.ui_feedback.hide_loading_progress()
-                        self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
-                        self.after(500, lambda msg=error_msg: messagebox.showerror("Missing Required Fields", msg))
-                        return
-
-                    # Validate field types and values
-                    validation_errors = []
-                    
-                    # Check Firstname/Lastname are strings
-                    if not isinstance(participant.get('Firstname'), str) or not participant.get('Firstname', '').strip():
-                        validation_errors.append("Firstname must be non-empty string")
-                    if not isinstance(participant.get('Lastname'), str) or not participant.get('Lastname', '').strip():
-                        validation_errors.append("Lastname must be non-empty string")
-                    
-                    # Check Birthyear is integer or null
-                    birthyear = participant.get('Birthyear')
-                    if birthyear is not None and not isinstance(birthyear, int):
-                        try:
-                            participant['Birthyear'] = int(birthyear)
-                        except (ValueError, TypeError):
-                            validation_errors.append(f"Birthyear must be integer, got: {birthyear}")
-                    
-                    # Check Weight is number
-                    weight = participant.get('Weight')
-                    if weight is not None:
-                        try:
-                            participant['Weight'] = float(weight)
-                        except (ValueError, TypeError):
-                            validation_errors.append(f"Weight must be number, got: {weight}")
-                    
-                    # Check and normalize Gender
-                    gender = str(participant.get('Gender', '')).strip().lower()
-                    if gender in ['m', 'male', 'maennlich', 'männlich']:
-                        participant['Gender'] = 'male'
-                    elif gender in ['w', 'f', 'female', 'weiblich', 'frau']:
-                        participant['Gender'] = 'female'
-                    else:
-                        validation_errors.append(f"Gender must be male/female/männlich/weiblich, got: {gender}")
-                    
-                    if validation_errors:
-                        error_msg = f"Participant {idx} validation failed:\n" + "\n".join(f"  • {err}" for err in validation_errors) + f"\nFile: {filename}"
-                        self.logger.error(error_msg)
-                        self.ui_feedback.hide_loading_progress()
-                        self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
-                        self.after(500, lambda msg=error_msg: messagebox.showerror("Validation Error", msg))
-                        return
-
-                    # Construct Name field from Firstname + Lastname if not present
-                    if 'Name' not in participant:
-                        participant['Name'] = f"{participant['Firstname']} {participant['Lastname']}".strip()
-                    
-                    # Ensure Age field exists (use Birthyear)
-                    if 'Age' not in participant:
-                        participant['Age'] = participant.get('Birthyear')
-
-                    self.logger.debug(f"[File {file_idx}] Participant {idx}: {participant['Name']} (Age: {participant.get('Birthyear')}, Weight: {participant.get('Weight', 0.0)}kg, Gender: {gender})")
-                    
-                    valid_count += 1
-                    all_participants.append(participant)
-
-                self.logger.info(f"[File {file_idx}] Successfully validated {valid_count} participants")
-
-            self.ui_feedback.update_progress(60)
-
-            if not all_participants:
-                error_msg = "No valid participants found in JSON files."
-                self.logger.error(error_msg)
-                self.ui_feedback.hide_loading_progress()
-                self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
-                return
-
-            self.ui_feedback.set_status("Filtering participants...", COLORS['text_secondary'])
-            self.ui_feedback.update_progress(65)
-
-            # Filter out unpaid participants
-            all_participants, unpaid = self.filter_unpaid_participants(all_participants)
-
-            self.ui_feedback.update_progress(70)
-
-            # Filter out participants with invalid ages
-            all_participants, invalid_ages = self.filter_invalid_ages(all_participants)
-            
-            self.ui_feedback.update_progress(75)
-
-            # Create QUARANTINE bracket with all rejected participants (unpaid + invalid ages)
-            all_rejected = unpaid + invalid_ages
-            if all_rejected:
-                self.quarantine_service.create_quarantine_bracket(self.brackets, all_rejected)
-
-            if not all_participants:
-                error_msg = "No valid participants found in JSON files."
-                self.logger.error(error_msg)
-                self.ui_feedback.hide_loading_progress()
-                self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
-                return
-
-            total_fighters = len(all_participants)
-            self.logger.info(f"Total valid participants loaded: {total_fighters}")
-            self.ui_feedback.set_info_text(f"✓ {total_fighters} valid participants loaded from JSON files")
-
-            self.ui_feedback.set_status("Generating brackets...", COLORS['text_secondary'])
-            self.ui_feedback.update_progress(85)
-            self.logger.info("Starting bracket generation...")
-
-            # Save QUARANTINE bracket if it exists (it gets overwritten by export_all_brackets)
-            quarantine_bracket = self.brackets.pop('QUARANTINE', None)
-            
-            # Generate brackets using backend service
-            self.brackets = export_all_brackets(all_participants)
-            self.ui_feedback.update_progress(95)
-            
-            # Restore QUARANTINE bracket if it existed
-            if quarantine_bracket is not None:
-                self.brackets['QUARANTINE'] = quarantine_bracket
-            
-            # Log bracket generation summary
-            self._log_bracket_summary()
-
-            self.ui_feedback.set_status(f"Success! Generated {len(self.brackets)} brackets from JSON files.", COLORS['accent_green'])
-            self.ui_feedback.update_progress(100)
-
-            # Hide progress and show group preview window
-            self.ui_feedback.hide_loading_progress()
-            self.after(500, self.show_group_preview_window)
-
-        except json.JSONDecodeError as e:
-            error_msg = f"JSON Parse Error: {e}"
-            self.logger.error(error_msg)
-            self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
-            self.ui_feedback.hide_loading_progress()
-            self.after(500, lambda err=e: messagebox.showerror("JSON Error", f"Failed to parse JSON file:\n{str(err)}"))
-        except FileNotFoundError as e:
-            error_msg = f"File not found: {e}"
-            self.logger.error(error_msg)
-            self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
-            self.ui_feedback.hide_loading_progress()
-            self.after(500, lambda err=e: messagebox.showerror("File Error", f"Could not find file:\n{str(err)}"))
-        except Exception as e:
-            error_msg = f"Unexpected error: {e}"
-            self.logger.error(error_msg, exc_info=True)
-            self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
-            self.ui_feedback.hide_loading_progress()
-            self.after(500, lambda err=e: messagebox.showerror("Error", f"Failed to load JSON files:\n{str(err)}"))
+        # Delegate to DataLoaderService
+        self.data_loader.load_json_and_generate(filepaths=filepaths, callbacks={
+            'on_success': self._on_brackets_loaded
+        })
 
     def split_gender_to_json(self):
         """Split contestants by gender (M/W) and save to separate JSON files with English field names.

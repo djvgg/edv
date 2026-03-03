@@ -70,6 +70,35 @@ def get_age_group(age, event_year=None):
     return _get_age_group(age, event_year)
 
 
+def get_age_group_from_birthyear(birthyear, event_year=None):
+    """
+    Returns the age group for a given birthyear (single source of truth for age calculation).
+    
+    Handles calculation: age = current_year - birthyear
+    Then determines age group with fallback for out-of-bounds ages.
+    
+    Args:
+        birthyear: Birth year as integer (e.g., 2018)
+        event_year: Event year (uses config default if None)
+    
+    Returns:
+        Tuple: (age_group_str, calculated_age) or (None, None) if calculation fails
+        Examples:
+            (2018, None) → ('U13', 8)
+            (2001, None) → ('18+', 25)
+            (2026, None) → ('18+', 0)  # Fallback for out-of-bounds
+            (2000, None) → ('18+', 26)
+    """
+    import datetime
+    try:
+        current_year = event_year or datetime.datetime.now().year
+        calculated_age = current_year - int(birthyear)
+        age_group = get_age_group(calculated_age, event_year)
+        return age_group, calculated_age
+    except (ValueError, TypeError):
+        return None, None
+
+
 def get_weight_class(weight, gender, age_group=None):
     """
     Returns the weight class for a given weight, gender, and age group.
