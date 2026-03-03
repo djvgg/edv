@@ -12,6 +12,9 @@ from backend.services.bracket_service import get_age_group, export_all_brackets,
 class QuarantineService:
     """Handles creation and management of quarantine brackets for rejected participants."""
     
+    MIN_PARTICIPANT_AGE = 6
+    MAX_PARTICIPANT_AGE = 120
+    
     def __init__(self):
         """Initialize the quarantine service."""
         self.logger = get_logger(__name__, debug_verbose=True)
