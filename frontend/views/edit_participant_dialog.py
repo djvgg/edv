@@ -9,11 +9,12 @@ from tkinter import messagebox
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-from backend.services.bracket_service import get_age_group as get_age_group_with_fallback  # noqa: E402
-from frontend.services.quarantine_service import QuarantineService  # noqa: E402
+from backend.services.bracket_service import (  # noqa: E402
+    get_age_group as get_age_group_with_fallback,
+    validate_age_from_birthyear,
+)
 
 from ..styles import COLORS, FONTS
-
 class Edit_Participants(tk.Toplevel):
     def __init__(self, parent, bracket_key, fighter_idx):
         # We need parent.master as the master for Toplevel so it stays within the app context
@@ -468,66 +469,31 @@ class Edit_Participants(tk.Toplevel):
                                              hint_text=HINT_BIRTHYEAR)
             insert_value(birth_year_entry, str(birth_year))
             
-            # Floating popup for detected age group
-            age_popup = tk.Label(age_col, text="", bg=COLORS['accent_green'],
-                                         fg=COLORS['bg_panel'], font=FONTS['preview_hint'], padx=5, pady=2, bd=1, relief=tk.RAISED)
-            age_popup_timer = [None]
-
-            # Auto-detect age group from birth year
-            def _on_birth_year_changed(e=None):
-                """Auto-detect age group when birth year is entered (uses bracket_service.get_age_group WITH fallback)."""
-                if age_popup_timer[0]:
-                    self.after_cancel(age_popup_timer[0])
-                age_popup.place_forget()
-                    
+            # Auto-detect age group from birth year on focus out
+            def _on_birth_year_changed(e):
+                """Auto-detect age group when birth year is entered (uses unified validate_age_from_birthyear)."""
                 birth_year_str = birth_year_entry.get().strip()
                 if birth_year_str and len(birth_year_str) == 4 and birth_year_str.isdigit():
                     try:
                         birth_year_int = int(birth_year_str)
-                        current_year = datetime.datetime.now().year
-                        calculated_age = current_year - birth_year_int
                         
-                        # Use bracket_service.get_age_group which has fallback for out-of-bounds years
-                        auto_age_group = get_age_group_with_fallback(calculated_age)
+                        # Use unified validation function (SINGLE SOURCE OF TRUTH)
+                        age_group, calculated_age, is_valid, rejection_reason = validate_age_from_birthyear(birth_year_int)
                         
                         self.parent.logger.debug(
                             f"EDIT_DIALOG: Birth year {birth_year_int} (age {calculated_age}) → "
-                            f"auto_age_group (with fallback) = {auto_age_group}"
+                            f"age_group={age_group}, valid={is_valid}, reason={rejection_reason}"
                         )
                         
-                        if auto_age_group:
-                            # Only show popup if it's not the same as the free_match category etc
-                            age_popup.config(text=f"Auto-class: {auto_age_group}")
-                            age_popup.place(rely=1.0, relx=0.0, y=-22)
-                            age_popup.lift()
-                            age_popup_timer[0] = self.after(2500, age_popup.place_forget)
+                        if age_group and age_group != age_group and not is_young_category:
+                            self.parent.logger.debug(f"EDIT_DIALOG: Birth year {birth_year_int} detected age group: {age_group}")
                             
-                            # Show/hide weight class section based on age group
-                            if not is_free_match and not is_young_category and not is_quarantine:
-                                if auto_age_group == '18+':
-                                    # Re-enable dropdown
-                                    dropdown_enabled[0] = True
-                                    if dropdown_info_label:
-                                        dropdown_info_label.pack_forget()
-                                    dropdown_btn.config(cursor='hand2')
-                                    text_label.config(fg=COLORS['text_primary'])
-                                    arrow_label.config(fg=COLORS['accent_blue'])
-                                else:
-                                    # Disable dropdown + show info
-                                    dropdown_enabled[0] = False
-                                    dropdown_btn.config(cursor='')
-                                    text_label.config(fg=COLORS['text_muted'])
-                                    arrow_label.config(fg=COLORS['text_muted'])
-                                    if dropdown_info_label:
-                                        dropdown_info_label.config(text=f"→ Person is now {auto_age_group} (Only 18+ have weight classes)")
-                                        dropdown_info_label.pack(anchor=tk.W, pady=(4, 0))
-                            
-                            # Also update the weight class hint for the new age group
-                            _on_weight_changed()
+                        # Re-calculate weight class hint based on new age group
+                        _on_weight_changed()
                     except (ValueError, Exception) as ex:
                         self.parent.logger.debug(f"EDIT_DIALOG: Birth year auto-detect failed: {ex}")
-            birth_year_entry.bind("<KeyRelease>", _on_birth_year_changed)
             
+            birth_year_entry.bind("<FocusOut>", _on_birth_year_changed)
             # Club and Association fields in a row
             club_row = tk.Frame(container, bg=COLORS['bg_dark'])
             club_row.pack(fill=tk.X)

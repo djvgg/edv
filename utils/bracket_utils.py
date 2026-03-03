@@ -94,7 +94,63 @@ def get_age_group(age, event_year=None):
     return group
 
 
+def validate_age_from_birthyear(birthyear, min_age=6, max_age=120, event_year=None):
+    """
+    Validates a participant's age based on birthyear and returns detailed validation info.
+    
+    SINGLE SOURCE OF TRUTH for age validation across the app.
+    
+    Args:
+        birthyear: Birth year as integer (e.g., 2018)
+        min_age: Minimum valid age (default 6)
+        max_age: Maximum valid age (default 120)
+        event_year: Event year for age calculation (uses config default if None)
+    
+    Returns:
+        Tuple: (age_group, calculated_age, is_valid, rejection_reason)
+        Examples:
+            (2018, None, ...) → ('U13', 8, True, None)
+            (2001, None, ...) → ('18+', 25, True, None)
+            (2026, None, ...) → ('18+', 0, True, None)  # Fallback for future births
+            (1900, None, ...) → (None, 126, False, 'too old (126 years)')
+            (None, None, ...) → (None, None, False, 'no age/birthyear')
+    """
+    ensure_config_loaded()
+    
+    # Step 1: Validate birthyear exists
+    if birthyear is None or birthyear == '':
+        return None, None, False, "no age/birthyear"
+    
+    # Step 2: Parse birthyear
+    try:
+        birthyear_int = int(birthyear)
+    except (ValueError, TypeError):
+        return None, None, False, f"invalid birthyear: {birthyear}"
+    
+    # Step 3: Get event year for calculation
+    if event_year is None:
+        event_year = bracket_config.get_event_year()
+    if event_year is None:
+        return None, None, False, "event year not configured"
+    
+    # Step 4: Calculate age
+    calculated_age = event_year - birthyear_int
+    
+    # Step 5: Check hard bounds (6-120 years old)
+    if calculated_age < min_age:
+        return None, calculated_age, False, f"too young ({calculated_age} years, minimum {min_age})"
+    if calculated_age > max_age:
+        return None, calculated_age, False, f"too old ({calculated_age} years, maximum {max_age})"
+    
+    # Step 6: Get age group (with fallback)
+    age_group = get_age_group(calculated_age, event_year)
+    
+    # Step 7: Return success (age_group may still be None in edge cases, but valid within bounds)
+    return age_group, calculated_age, True, None
+
+
 def make_bracket(participants):
+
     """Generate a balanced tournament bracket using the 3-layer system.
     
     This implementation:
