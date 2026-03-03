@@ -184,7 +184,15 @@ class QuarantineService:
                 
                 if not age_is_valid:
                     is_valid = False
-                    invalid_reason = age_rejection_reason
+                    invalid_reason = "no age/birthyear"
+                    self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
+                elif age < self.MIN_PARTICIPANT_AGE:
+                    is_valid = False
+                    invalid_reason = f"too young ({age} years)"
+                    self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
+                elif age > self.MAX_PARTICIPANT_AGE:
+                    is_valid = False
+                    invalid_reason = f"too old ({age} years)"
                     self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
                 else:
                     self.logger.debug(f"RESORT:   Age bounds OK, age group {age_group} - VALID")

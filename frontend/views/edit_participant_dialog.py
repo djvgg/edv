@@ -9,10 +9,8 @@ from tkinter import messagebox
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-from backend.services.bracket_service import (  # noqa: E402
-    get_age_group as get_age_group_with_fallback,
-    validate_age_from_birthyear,
-)
+from backend.services.bracket_service import get_age_group as get_age_group_with_fallback  # noqa: E402
+from frontend.services.quarantine_service import QuarantineService  # noqa: E402
 
 from ..styles import COLORS, FONTS
 class Edit_Participants(tk.Toplevel):
@@ -485,11 +483,35 @@ class Edit_Participants(tk.Toplevel):
                             f"age_group={age_group}, valid={is_valid}, reason={rejection_reason}"
                         )
                         
-                        if age_group and age_group != age_group and not is_young_category:
-                            self.parent.logger.debug(f"EDIT_DIALOG: Birth year {birth_year_int} detected age group: {age_group}")
+                        if auto_age_group:
+                            # Only show popup if it's not the same as the free_match category etc
+                            age_popup.config(text=f"Auto-class: {auto_age_group}")
+                            age_popup.place(rely=1.0, relx=0.0, y=-22)
+                            age_popup.lift()
+                            age_popup_timer[0] = self.after(2500, age_popup.place_forget)
                             
-                        # Re-calculate weight class hint based on new age group
-                        _on_weight_changed()
+                            # Show/hide weight class section based on age group
+                            if not is_free_match and not is_young_category and not is_quarantine:
+                                if auto_age_group == '18+':
+                                    # Re-enable dropdown
+                                    dropdown_enabled[0] = True
+                                    if dropdown_info_label:
+                                        dropdown_info_label.pack_forget()
+                                    dropdown_btn.config(cursor='hand2')
+                                    text_label.config(fg=COLORS['text_primary'])
+                                    arrow_label.config(fg=COLORS['accent_blue'])
+                                else:
+                                    # Disable dropdown + show info
+                                    dropdown_enabled[0] = False
+                                    dropdown_btn.config(cursor='')
+                                    text_label.config(fg=COLORS['text_muted'])
+                                    arrow_label.config(fg=COLORS['text_muted'])
+                                    if dropdown_info_label:
+                                        dropdown_info_label.config(text=f"→ Person is now {auto_age_group} (Only 18+ have weight classes)")
+                                        dropdown_info_label.pack(anchor=tk.W, pady=(4, 0))
+                            
+                            # Also update the weight class hint for the new age group
+                            _on_weight_changed()
                     except (ValueError, Exception) as ex:
                         self.parent.logger.debug(f"EDIT_DIALOG: Birth year auto-detect failed: {ex}")
             
