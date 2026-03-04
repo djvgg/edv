@@ -69,6 +69,7 @@ class GroupPreviewScreen(tk.Frame):
         self.brackets = {}  # {bracket_key: bracket_data} - Dictionary of weight classes
         self.group_listbox_map = {}  # Headings of the left sidebar
         self.current_bracket_key = None  # Which group is being edited/selected in the left sidebar
+        self.tolerances = {}  # {(gender, age_group): float} — per-group clothing tolerance in kg
 
         # UI References
         self.group_listbox = None # left listbox
@@ -220,6 +221,203 @@ class GroupPreviewScreen(tk.Frame):
         apply_label_style(placeholder, 'info')
         placeholder.pack(expand=True)
 
+    def _fmt_tolerance(self, val):
+        """Format tolerance to maintain 3 decimal places internally but show cleanly (e.g. 0.0 or 0.05)."""
+        formatted = f"{float(val):.3f}".rstrip('0')
+        if formatted.endswith('.'):
+            formatted += '0'
+        return formatted
+
+    def _create_custom_spinbox(self, parent, var, callback=None):
+        """Create a custom spinbox replacement using an Entry and two up/down buttons."""
+        frame = tk.Frame(parent, bg=COLORS['bg_input'], highlightthickness=1, highlightbackground=COLORS['border'])
+        
+        def validate_float(P):
+            if P == "":
+                return True
+            try:
+                float(P)
+                return True
+            except ValueError:
+                return False
+        vcmd = (parent.register(validate_float), '%P')
+        
+        entry = tk.Entry(
+            frame, textvariable=var, width=6, bg=COLORS['bg_input'], 
+            fg=COLORS['text_primary'], font=FONTS['list_mono'], bd=0,
+            validate="key", validatecommand=vcmd, insertbackground=COLORS['text_primary']
+        )
+        entry.pack(side=tk.LEFT, fill=tk.Y, ipady=2, padx=4)
+        
+        btn_frame = tk.Frame(frame, bg=COLORS['bg_panel'])
+        btn_frame.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        def increment(amount):
+            try:
+                val = float(var.get() or 0)
+            except ValueError:
+                val = 0.0
+            val += amount
+            val = max(0.0, min(2.0, round(val, 3)))
+            var.set(self._fmt_tolerance(val))
+            if callback:
+                callback()
+                
+        btn_up = tk.Button(btn_frame, text="▲", font=("Arial", 6), bg=COLORS['bg_panel'], fg=COLORS['text_primary'], bd=0, padx=2, pady=0, command=lambda: increment(0.1))
+        btn_up.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        btn_down = tk.Button(btn_frame, text="▼", font=("Arial", 6), bg=COLORS['bg_panel'], fg=COLORS['text_primary'], bd=0, padx=2, pady=0, command=lambda: increment(-0.1))
+        btn_down.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True)
+        return frame
+
+    def _create_tolerance_bar(self, parent, gender=None, age_group=None):
+        """Create the tolerance control bar above the participant table."""
+        bar = create_dark_frame(parent)
+        bar.pack(fill=tk.X, pady=(0, 5))
+
+        # Context-aware label
+        if gender and age_group:
+            label_text = f'⚖ Tolerance for {gender} {age_group}:'
+        else:
+            label_text = '⚖ Tolerance:'
+
+        lbl = tk.Label(bar, text=label_text)
+        apply_label_style(lbl, 'info')
+        lbl.pack(side=tk.LEFT)
+
+        # Load current tolerance for this group
+        group_key = (gender, age_group) if gender and age_group else None
+        current_val = self.tolerances.get(group_key, 0.0) if group_key else 0.0
+
+        self._tolerance_var = tk.StringVar(value=self._fmt_tolerance(current_val))
+        self._tolerance_group_key = group_key
+        spinbox = self._create_custom_spinbox(bar, self._tolerance_var, self._on_tolerance_changed)
+        spinbox.pack(side=tk.LEFT, padx=5, pady=2)
+
+        kg_lbl = tk.Label(bar, text='kg')
+        apply_label_style(kg_lbl, 'info')
+        kg_lbl.pack(side=tk.LEFT)
+
+        apply_btn = tk.Button(bar, text='Apply', command=self._on_tolerance_changed)
+        apply_button_style(apply_btn, 'secondary')
+        apply_btn.pack(side=tk.LEFT, padx=(10, 0))
+
+        # Configure All button
+        config_all_btn = tk.Button(bar, text='⚙ Configure All', command=self._open_tolerance_config_dialog)
+        apply_button_style(config_all_btn, 'secondary')
+        config_all_btn.pack(side=tk.LEFT, padx=(10, 0))
+
+    def _on_tolerance_changed(self):
+        """Save tolerance for the current group and re-render."""
+        try:
+            new_val = round(float(self._tolerance_var.get()), 3)
+            new_val = max(0.0, min(2.0, new_val))
+        except (ValueError, TypeError):
+            new_val = 0.0
+
+        if self._tolerance_group_key:
+            self.tolerances[self._tolerance_group_key] = new_val
+            self.logger.debug(f"Tolerance for {self._tolerance_group_key} set to {new_val} kg")
+        if self.current_bracket_key:
+            self._display_participants(self.current_bracket_key)
+
+    def _open_tolerance_config_dialog(self):
+        """Open dialog to configure tolerances for all age-group/gender combos."""
+        dialog = tk.Toplevel(self.winfo_toplevel())
+        dialog.title("Configure Weight Tolerances")
+        dialog.geometry("450x400")
+        dialog.configure(bg=COLORS['bg_dark'])
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+
+        title_lbl = tk.Label(dialog, text="Weight Tolerances per Group",
+                             bg=COLORS['bg_dark'], fg=COLORS['text_primary'],
+                             font=FONTS['preview_title'])
+        title_lbl.pack(pady=10)
+
+        info_lbl = tk.Label(dialog, text="Set clothing tolerance (0.0–2.0 kg, 100g steps) for each group:",
+                            bg=COLORS['bg_dark'], fg=COLORS['text_secondary'],
+                            font=FONTS['preview_info'])
+        info_lbl.pack(pady=(0, 10))
+
+        # Scrollable frame for the table
+        scroll_container = tk.Frame(dialog, bg=COLORS['bg_dark'])
+        scroll_container.pack(fill=tk.BOTH, expand=True, padx=20)
+
+        canvas = tk.Canvas(scroll_container, bg=COLORS['bg_dark'], highlightthickness=0)
+        scrollbar = ttk.Scrollbar(scroll_container, orient=tk.VERTICAL, command=canvas.yview,
+                                  style='Dark.Vertical.TScrollbar')
+        table_frame = tk.Frame(canvas, bg=COLORS['bg_dark'])
+
+        table_frame.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.create_window((0, 0), window=table_frame, anchor='nw')
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Collect unique (gender, age_group) combos from brackets
+        group_keys = set()
+        for bk in self.brackets.keys():
+            g, ag, _ = self._parse_bracket_key(bk)
+            if g and ag:
+                group_keys.add((g, ag))
+
+        # Sort: gender then age_group
+        sorted_groups = sorted(group_keys, key=lambda x: (x[0], x[1]))
+
+        # Header
+        hdr_group = tk.Label(table_frame, text="Group", width=20, anchor='w',
+                             bg=COLORS['bg_dark'], fg=COLORS['accent_blue'],
+                             font=FONTS['list_mono_bold'])
+        hdr_group.grid(row=0, column=0, padx=5, pady=2)
+        hdr_tol = tk.Label(table_frame, text="Tolerance (kg)", width=15, anchor='w',
+                           bg=COLORS['bg_dark'], fg=COLORS['accent_blue'],
+                           font=FONTS['list_mono_bold'])
+        hdr_tol.grid(row=0, column=1, padx=5, pady=2)
+
+        spinbox_vars = {}  # {(gender, age_group): StringVar}
+
+        for i, (g, ag) in enumerate(sorted_groups, 1):
+            current_val = self.tolerances.get((g, ag), 0.0)
+
+            lbl = tk.Label(table_frame, text=f"{g} | {ag}", anchor='w', width=20,
+                           bg=COLORS['bg_dark'], fg=COLORS['text_primary'],
+                           font=FONTS['list_mono'])
+            lbl.grid(row=i, column=0, padx=5, pady=2)
+
+            var = tk.StringVar(value=self._fmt_tolerance(current_val))
+            spinbox_vars[(g, ag)] = var
+            
+            sb = self._create_custom_spinbox(table_frame, var)
+            sb.grid(row=i, column=1, padx=5, pady=2)
+
+        # Buttons
+        btn_frame = tk.Frame(dialog, bg=COLORS['bg_dark'])
+        btn_frame.pack(fill=tk.X, padx=20, pady=15)
+
+        def save_all():
+            for key, var in spinbox_vars.items():
+                try:
+                    val = round(float(var.get()), 3)
+                    val = max(0.0, min(2.0, val))
+                except (ValueError, TypeError):
+                    val = 0.0
+                self.tolerances[key] = val
+            self.logger.info(f"Saved tolerances: {self.tolerances}")
+            dialog.destroy()
+            if self.current_bracket_key:
+                self._display_participants(self.current_bracket_key)
+
+        ok_btn = tk.Button(btn_frame, text='Save', command=save_all,
+                           bg=COLORS['accent_green'], fg=COLORS['text_primary'],
+                           font=('Arial', 11, 'bold'), bd=0, padx=15, pady=8, cursor='hand2')
+        ok_btn.pack(side=tk.RIGHT)
+
+        cancel_btn = tk.Button(btn_frame, text='Cancel', command=dialog.destroy,
+                               bg=COLORS['bg_panel'], fg=COLORS['text_secondary'],
+                               font=('Arial', 11, 'bold'), bd=0, padx=15, pady=8, cursor='hand2')
+        cancel_btn.pack(side=tk.RIGHT, padx=10)
+
     def _create_navigation_buttons(self, parent_frame):
         """Create bottom navigation buttons."""
         button_frame = create_dark_frame(parent_frame)
@@ -336,6 +534,8 @@ class GroupPreviewScreen(tk.Frame):
         for widget in self.participant_display_frame.winfo_children():
             widget.destroy()
 
+        self.current_bracket_key = bracket_key
+
         fighters = self.brackets[bracket_key].get('fighters', [])
         count = len(fighters)
 
@@ -346,6 +546,20 @@ class GroupPreviewScreen(tk.Frame):
 
         # Update title
         self.preview_title_var.set(f"{bracket_key} - {count} participants")
+
+        # Parse bracket key for tolerance and weight limit
+        gender, age_group, weight_class = self._parse_bracket_key(bracket_key)
+
+        # Tolerance control bar
+        self._create_tolerance_bar(self.participant_display_frame, gender, age_group)
+
+        # Determine weight class limit for highlighting
+        weight_limit = None
+        if gender and age_group and weight_class and self.config_repo:
+            weight_limit = self.config_repo.get_weight_class_limit(gender, age_group, weight_class)
+
+        # Get per-group tolerance
+        group_tolerance = self.tolerances.get((gender, age_group), 0.0) if gender and age_group else 0.0
 
         # Create scrollable text widget with auto-hiding styled scrollbars
         text_frame = create_dark_frame(self.participant_display_frame)
@@ -409,6 +623,10 @@ class GroupPreviewScreen(tk.Frame):
         text_widget.insert(tk.END, header, 'header')
         text_widget.insert(tk.END, "=" * SEPARATOR_LENGTH + "\n")
         
+        # Configure weight highlight tags
+        text_widget.tag_configure('weight_warn', foreground=COLORS['accent_orange'])   # within tolerance
+        text_widget.tag_configure('weight_over', foreground=COLORS['accent_red'])      # exceeds tolerance
+
         # Participant rows
         for idx, fighter in enumerate(fighters, 1): #begin with 1 instead of 0
             first = str(fighter.get('Firstname', fighter.get('name', 'N/A')))
@@ -416,17 +634,28 @@ class GroupPreviewScreen(tk.Frame):
             birth = str(fighter.get('Birthyear', fighter.get('BirthYear')))
             club = str(fighter.get('Club', fighter.get('Verein', fighter.get('club', 'N/A'))))
             association = str(fighter.get('Association', ''))
-            gender = str(fighter.get('Gender', ''))
+            gender_val = str(fighter.get('Gender', ''))
             weight = fighter.get('Weight', 'N/A')
 
             # Format weight
             if isinstance(weight, (int, float)):
-                weight_str = f"{weight:.1f}"
+                weight_str = f"{weight:.3f}".rstrip('0')
+                if weight_str.endswith('.'):
+                    weight_str += '0'
             else:
                 weight_str = str(weight)
 
-            row = f"{first:<{COL_FIRSTNAME}}{last:<{COL_LAST}}{birth:<{COL_BIRTH}}{club:<{COL_CLUB}}{association:<{COL_ASSOCIATION}}{weight_str:<{COL_WEIGHT}}{gender:<{COL_GENDER}}\n"
+            row = f"{first:<{COL_FIRSTNAME}}{last:<{COL_LAST}}{birth:<{COL_BIRTH}}{club:<{COL_CLUB}}{association:<{COL_ASSOCIATION}}{weight_str:<{COL_WEIGHT}}{gender_val:<{COL_GENDER}}\n"
             text_widget.insert(tk.END, row, f'row_{idx}')
+
+            # Apply weight tolerance highlighting
+            if weight_limit is not None and isinstance(weight, (int, float)) and group_tolerance > 0:
+                if weight > weight_limit + group_tolerance:
+                    # Exceeds tolerance — red
+                    text_widget.tag_add('weight_over', f'{idx+2}.0', f'{idx+2}.end')
+                elif weight > weight_limit:
+                    # Over limit but within tolerance — orange
+                    text_widget.tag_add('weight_warn', f'{idx+2}.0', f'{idx+2}.end')
 
         # Style header
         text_widget.tag_configure('header', font=FONTS['list_mono_bold'], foreground=COLORS['accent_blue'])
