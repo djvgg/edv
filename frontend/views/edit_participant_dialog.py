@@ -172,12 +172,21 @@ class Edit_Participants(tk.Toplevel):
                     self.parent.logger.debug(f"EDIT_DIALOG: Could not calculate age group from birth year: {e}")
             
             if isinstance(weight, (int, float)):
-                weight_str = f"{weight:.1f}"
+                weight_str = f"{weight:.3f}".rstrip('0')
+                if weight_str.endswith('.'):
+                    weight_str += '0'
             else:
                 weight_str = str(weight)
             
             available_weight_classes = self._get_available_weight_classes(gender, age_group)
             self.parent.logger.debug(f"EDIT_DIALOG: Available weight classes for {gender}|{age_group}: {available_weight_classes}")
+
+            # Look up per-group clothing tolerance
+            self._group_tolerance = 0.0
+            if hasattr(self.parent, 'tolerances') and gender and age_group:
+                self._group_tolerance = self.parent.tolerances.get((gender, age_group), 0.0)
+                if self._group_tolerance > 0:
+                    self.parent.logger.debug(f"EDIT_DIALOG: Using tolerance {self._group_tolerance} kg for {gender}|{age_group}")
             
             # Header with participant name
             header_frame = tk.Frame(self, bg=COLORS['bg_darker'], height=70)
@@ -232,14 +241,14 @@ class Edit_Participants(tk.Toplevel):
 
             # Field limits
             MAX_NAME_LENGTH = 30
-            MAX_WEIGHT_LENGTH = 6
+            MAX_WEIGHT_LENGTH = 7
             MAX_BIRTHYEAR_LENGTH = 4
             MAX_CLUB_LENGTH = 50
             MAX_ASSOCIATION_LENGTH = 30
 
             # Hint texts
             HINT_NAME = "Nur Buchstaben und -, max 30 Zeichen"
-            HINT_WEIGHT = "Nur Ziffern, 52.3 oder 52,3"
+            HINT_WEIGHT = "Nur Ziffern, z.B. 52.350 oder 52,3"
             HINT_BIRTHYEAR = "Genau 4 Ziffern"
             HINT_CLUB = "Maximal 50 Zeichen"
             HINT_ASSOCIATION = "Maximal 30 Zeichen"
@@ -260,7 +269,7 @@ class Edit_Participants(tk.Toplevel):
                 return True
 
             def _validate_weight(action, value_if_allowed):
-                """Allow digits and one decimal separator (. or ,). Max 6 chars, max 3 digits before sep, max 1 after."""
+                """Allow digits and one decimal separator (. or ,). Max 7 chars, max 3 digits before sep, max 3 after."""
                 if action == '0':
                     return True
                 if len(value_if_allowed) > MAX_WEIGHT_LENGTH:
@@ -276,9 +285,9 @@ class Edit_Participants(tk.Toplevel):
                     return False
                 if not all(c.isdigit() for c in parts[0] if c != ''):
                     return False
-                # After decimal (if present): max 1 digit
+                # After decimal (if present): max 3 digits
                 if len(parts) == 2:
-                    if len(parts[1]) > 1:
+                    if len(parts[1]) > 3:
                         return False
                     if parts[1] and not parts[1].isdigit():
                         return False
@@ -446,7 +455,7 @@ class Edit_Participants(tk.Toplevel):
                                 except (ValueError, Exception):
                                     pass
                             
-                            detected = self.parent.config_repo.get_weight_class(weight_val, gender, effective_age_group)
+                            detected = self.parent.config_repo.get_weight_class(weight_val - self._group_tolerance, gender, effective_age_group)
                             if detected and detected != 'unknown':
                                 if show_popup:
                                     weight_popup.config(text=f"Auto-class: {detected}")
@@ -624,7 +633,7 @@ class Edit_Participants(tk.Toplevel):
                     natural_weight_class = None
                     fighter_weight = fighter.get('Weight', 0)
                     if self.parent.config_repo and fighter_weight and fighter_weight > 0:
-                        natural_weight_class = self.parent.config_repo.get_weight_class(fighter_weight, gender, age_group)
+                        natural_weight_class = self.parent.config_repo.get_weight_class(fighter_weight - self._group_tolerance, gender, age_group)
                     
                     if natural_weight_class and natural_weight_class != 'unknown':
                         natural_key = get_weight_key(natural_weight_class)
@@ -992,7 +1001,7 @@ class Edit_Participants(tk.Toplevel):
                                     # Current weight class doesn't exist in new age group
                                     # Try auto-detect from weight first
                                     if self.parent.config_repo and new_weight and new_weight > 0:
-                                        detected_weight_class = self.parent.config_repo.get_weight_class(new_weight, gender, effective_age)
+                                        detected_weight_class = self.parent.config_repo.get_weight_class(new_weight - self._group_tolerance, gender, effective_age)
                                         if detected_weight_class and detected_weight_class != 'unknown':
                                             effective_weight_class = detected_weight_class
                                         elif new_age_weight_classes:
@@ -1007,7 +1016,7 @@ class Edit_Participants(tk.Toplevel):
                             # Detect what the weight would naturally map to
                             auto_detected_class = None
                             if self.parent.config_repo and new_weight > 0:
-                                auto_detected_class = self.parent.config_repo.get_weight_class(new_weight, gender, effective_age)
+                                auto_detected_class = self.parent.config_repo.get_weight_class(new_weight - self._group_tolerance, gender, effective_age)
                             # If dropdown differs from auto-detect or from original, the user chose intentionally
                             if auto_detected_class and dropdown_selection != auto_detected_class:
                                 effective_weight_class = dropdown_selection
@@ -1018,7 +1027,7 @@ class Edit_Participants(tk.Toplevel):
                         
                         # Auto-detect weight class from new weight ONLY if no manual override
                         if not manual_override and self.parent.config_repo and new_weight != weight:
-                            detected_weight_class = self.parent.config_repo.get_weight_class(new_weight, gender, effective_age)
+                            detected_weight_class = self.parent.config_repo.get_weight_class(new_weight - self._group_tolerance, gender, effective_age)
                             if detected_weight_class and detected_weight_class != 'unknown':
                                 effective_weight_class = detected_weight_class
                         
@@ -1034,7 +1043,7 @@ class Edit_Participants(tk.Toplevel):
                                 # ALWAYS re-detect weight class when age group changes via birth year
                                 # (manual dropdown selection may reference classes that don't exist in the new age group)
                                 if self.parent.config_repo and new_weight > 0:
-                                    detected_weight_class_for_age = self.parent.config_repo.get_weight_class(new_weight, gender, effective_age)
+                                    detected_weight_class_for_age = self.parent.config_repo.get_weight_class(new_weight - self._group_tolerance, gender, effective_age)
                                     if detected_weight_class_for_age and detected_weight_class_for_age != 'unknown':
                                         effective_weight_class = detected_weight_class_for_age
                         # Move if anything changed

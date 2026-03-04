@@ -128,6 +128,39 @@ class ConfigRepository:
                 return row['Label']
         return 'unknown'
     
+    def get_weight_class_limit(self, gender, age_group, weight_class_label):
+        """
+        Get the MaxWeight (upper limit) for a specific weight class.
+        
+        Args:
+            gender: 'm' or 'w'
+            age_group: e.g. 'U13', 'U15', 'U18', '18+'
+            weight_class_label: e.g. '-66kg', '+66kg'
+        
+        Returns:
+            MaxWeight as float, or None if not found / open class (+XXkg) / U9/U11
+        """
+        if age_group in ('U9', 'U11'):
+            return None
+        # Open classes have no meaningful upper limit
+        if weight_class_label and weight_class_label.startswith('+'):
+            return None
+        
+        gender_str = str(gender).lower().strip()
+        if gender_str in ('m', 'male', 'maennlich', 'männlich'):
+            gender = 'm'
+        elif gender_str in ('w', 'f', 'female', 'weiblich', 'frau'):
+            gender = 'w'
+
+        df = self.weight_classes[
+            (self.weight_classes['Gender'] == gender) &
+            (self.weight_classes['AgeGroup'] == age_group) &
+            (self.weight_classes['Label'] == weight_class_label)
+        ]
+        if not df.empty:
+            return float(df.iloc[0]['MaxWeight'])
+        return None
+
     def get_generation_methods(self):
         """
         Get the list of generation methods from config.
