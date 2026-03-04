@@ -153,7 +153,7 @@ class Edit_Participants(tk.Toplevel):
             club = fighter.get('Club', fighter.get('Verein', fighter.get('verein', fighter.get('club', ''))))
             association = fighter.get('Association', '')
             birth_year = fighter.get('Birthyear', fighter.get('BirthYear', fighter.get('birthyear', fighter.get('age', ''))))
-            is_valid = fighter.get('Valid', False)
+            is_valid = fighter.get('Valid', True)
             is_paid = fighter.get('Paid', False)
             
             self.parent.logger.debug(f"EDIT_DIALOG: Current state - Valid={is_valid}, Paid={is_paid}, Weight={weight}, BirthYear={birth_year}")
@@ -172,7 +172,7 @@ class Edit_Participants(tk.Toplevel):
                     self.parent.logger.debug(f"EDIT_DIALOG: Could not calculate age group from birth year: {e}")
             
             if isinstance(weight, (int, float)):
-                weight_str = f"{weight:.3f}".rstrip('0')
+                weight_str = f"{weight:.4f}".rstrip('0')
                 if weight_str.endswith('.'):
                     weight_str += '0'
             else:
@@ -240,27 +240,20 @@ class Edit_Participants(tk.Toplevel):
             NAME_PATTERN = re.compile(r'^[A-Za-zÄÖÜäöüß\- ]*$')
 
             # Field limits
-            MAX_NAME_LENGTH = 30
-            MAX_WEIGHT_LENGTH = 7
+            MAX_WEIGHT_LENGTH = 8
             MAX_BIRTHYEAR_LENGTH = 4
-            MAX_CLUB_LENGTH = 50
-            MAX_ASSOCIATION_LENGTH = 30
 
             # Hint texts
-            HINT_NAME = "Nur Buchstaben und -, max 30 Zeichen"
-            HINT_WEIGHT = "Nur Ziffern, z.B. 52.350 oder 52,3"
+            HINT_NAME = "Nur Buchstaben und -"
+            HINT_WEIGHT = "Nur Ziffern, z.B. 52.3500 oder 52,3"
             HINT_BIRTHYEAR = "Genau 4 Ziffern"
-            HINT_CLUB = "Maximal 50 Zeichen"
-            HINT_ASSOCIATION = "Maximal 30 Zeichen"
 
 
             def _validate_name(action, value_if_allowed):
-                """Allow only letters, hyphens, spaces, and umlauts. Max 30 chars.
+                """Allow only letters, hyphens, spaces, and umlauts.
                 Hyphens may not be consecutive, leading, or trailing."""
                 if action == '0':  # deletion is always ok
                     return True
-                if len(value_if_allowed) > MAX_NAME_LENGTH:
-                    return False
                 if not NAME_PATTERN.match(value_if_allowed):
                     return False
                 # Reject consecutive hyphens (--) and leading hyphen
@@ -269,7 +262,7 @@ class Edit_Participants(tk.Toplevel):
                 return True
 
             def _validate_weight(action, value_if_allowed):
-                """Allow digits and one decimal separator (. or ,). Max 7 chars, max 3 digits before sep, max 3 after."""
+                """Allow digits and one decimal separator (. or ,). Max 8 chars, max 3 digits before sep, max 4 after."""
                 if action == '0':
                     return True
                 if len(value_if_allowed) > MAX_WEIGHT_LENGTH:
@@ -285,9 +278,9 @@ class Edit_Participants(tk.Toplevel):
                     return False
                 if not all(c.isdigit() for c in parts[0] if c != ''):
                     return False
-                # After decimal (if present): max 3 digits
+                # After decimal (if present): max 4 digits
                 if len(parts) == 2:
-                    if len(parts[1]) > 3:
+                    if len(parts[1]) > 4:
                         return False
                     if parts[1] and not parts[1].isdigit():
                         return False
@@ -317,8 +310,6 @@ class Edit_Participants(tk.Toplevel):
             validation_command_name = (self.register(_validate_name), '%d', '%P')
             validation_command_weight = (self.register(_validate_weight), '%d', '%P')
             validation_command_birthyear = (self.register(_validate_birthyear), '%d', '%P')
-            validation_command_club = (self.register(_validate_max_length(MAX_CLUB_LENGTH)), '%d', '%P')
-            validation_command_association = (self.register(_validate_max_length(MAX_ASSOCIATION_LENGTH)), '%d', '%P')
 
             # Helper function to create form fields with subtle borders
             def create_field(parent_frame, label_text, entry_var=None, is_readonly=False,
@@ -577,14 +568,14 @@ class Edit_Participants(tk.Toplevel):
             
             club_col = tk.Frame(club_row, bg=COLORS['bg_dark'])
             club_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-            club_entry = create_field(club_col, "Club", validation_command=validation_command_club,
-                                       hint_text=HINT_CLUB)
+            club_entry = create_field(club_col, "Club", validation_command=None,
+                                       hint_text=None)
             insert_value(club_entry, club)
             
-            association_col = tk.Frame(club_row, bg=COLORS['bg_dark'])
-            association_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
-            association_entry = create_field(association_col, "Association", validation_command=validation_command_association,
-                                        hint_text=HINT_ASSOCIATION)
+            assoc_col = tk.Frame(club_row, bg=COLORS['bg_dark'])
+            assoc_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
+            association_entry = create_field(assoc_col, "Association", validation_command=None,
+                                        hint_text=None)
             insert_value(association_entry, association)
             
             # Weight Class / Age Class section
@@ -927,7 +918,7 @@ class Edit_Participants(tk.Toplevel):
                     fighter['Club'] = club_val
                     fighter['Association'] = association_val
                     fighter['Birthyear'] = int(birth_year_raw) if birth_year_raw else ''
-                    fighter['Age'] = fighter['Birthyear']  # TODO Sync Age property for export compatibility
+                    fighter['Age'] = fighter['Birthyear']
                     fighter['Valid'] = valid_var.get()
                     fighter['Paid'] = paid_var.get()
                     
@@ -939,11 +930,17 @@ class Edit_Participants(tk.Toplevel):
                     display_bracket_key = bracket_key
                     target_bracket_key = None
                     
+                    # Dependency to Quarantine Service: Check if participant belongs in QUARANTINE
+                    issues = []
+                    if self.parent.quarantine_service:
+                        issues = self.parent.quarantine_service.evaluate_participant(fighter)
+                    
+                    should_be_quarantined = len(issues) > 0
+                    
                     if is_quarantine:
                         self.parent.logger.debug("QUARANTINE: Using quarantine service for re-sorting")
                         if self.parent.quarantine_service:
-                            # 1. Inject a temporary tracking ID to ensure we find THIS exact person later,
-                            # even if there are multi-loaded JSON participants with identical numeric IDs!
+                            # 1. Inject a temporary tracking ID
                             import uuid
                             tracking_id = str(uuid.uuid4())
                             fighter['_tracking_id'] = tracking_id
@@ -967,14 +964,13 @@ class Edit_Participants(tk.Toplevel):
                                 if target_bracket_key:
                                     break
                             
-                            # Clean up the temporary tracking ID from all brackets to be safe
+                            # Clean up tracking ID
                             for b_key, b_data in self.parent.brackets.items():
                                 for f in b_data.get('fighters', []):
                                     if '_tracking_id' in f:
                                         del f['_tracking_id']
                             
                             # Stay on QUARANTINE view unless it's now empty.
-                            # Only follow the fighter to the new bracket if QUARANTINE has no fighters left.
                             if 'QUARANTINE' in self.parent.brackets and self.parent.brackets['QUARANTINE'].get('fighters', []):
                                 display_bracket_key = 'QUARANTINE'
                             elif target_bracket_key:
@@ -984,6 +980,24 @@ class Edit_Participants(tk.Toplevel):
                         else:
                             self.parent.logger.error("quarantine_service not available")
                             return
+
+                    elif should_be_quarantined:
+                        # Move from normal bracket to QUARANTINE
+                        self.parent.logger.info(f"EDIT_DIALOG: Moving {first_name_val} {last_name_val} to QUARANTINE due to issues: {issues}")
+                        
+                        # 1. Remove from old bracket
+                        old_fighters = self.parent.brackets[bracket_key].get('fighters', [])
+                        if 0 <= fighter_idx < len(old_fighters):
+                            moved_fighter = old_fighters.pop(fighter_idx)
+                            self.parent.brackets[bracket_key]['bracket'] = []
+                            
+                            # 2. Add to quarantine bracket
+                            if self.parent.quarantine_service:
+                                self.parent.quarantine_service.create_quarantine_bracket(self.parent.brackets, [moved_fighter])
+                        
+                        display_bracket_key = 'QUARANTINE'
+                        # Refresh group list counts
+                        self.parent._populate_group_list()
                     
                     elif not is_free_match and not is_young_category:
                         new_weight = float(weight_entry.get().replace(',', '.'))
@@ -1083,4 +1097,4 @@ class Edit_Participants(tk.Toplevel):
             btn_cancel.pack(side=tk.RIGHT, padx=10)
             
         except Exception as e:
-            self.parent.logger.error(f"EDIT_DIALOG: Fatal error - {e}", exc_info=True)
+            self.parent.logger.error(f"EDIT_DIALOG: Fatal error - {e}")
