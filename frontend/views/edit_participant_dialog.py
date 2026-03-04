@@ -11,7 +11,6 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from backend.services.bracket_service import get_age_group as get_age_group_with_fallback  # noqa: E402
 from backend.services.bracket_service import validate_age_from_birthyear  # noqa: E402
-from frontend.services.quarantine_service import QuarantineService  # noqa: E402
 
 from ..styles import COLORS, FONTS
 class Edit_Participants(tk.Toplevel):
@@ -545,7 +544,7 @@ class Edit_Participants(tk.Toplevel):
                                         arrow_label.config(fg=COLORS['text_muted'])
                                         age_class_var.set("N/A")
                                         if dropdown_info_label:
-                                            dropdown_info_label.config(text=f"→ Person is now 18+ (Please save and reopen to assign weight class)")
+                                            dropdown_info_label.config(text="→ Person is now 18+ (Please save and reopen to assign weight class)")
                                             dropdown_info_label.pack(anchor=tk.W, pady=(4, 0))
                                     else:
                                         # Re-enable dropdown
