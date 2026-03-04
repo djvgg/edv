@@ -258,7 +258,7 @@ class GroupPreviewScreen(tk.Frame):
             except ValueError:
                 val = 0.0
             val += amount
-            val = max(0.0, min(2.0, round(val, 3)))
+            val = max(0.0, round(val, 3))
             var.set(self._fmt_tolerance(val))
             if callback:
                 callback()
@@ -271,6 +271,9 @@ class GroupPreviewScreen(tk.Frame):
 
     def _create_tolerance_bar(self, parent, gender=None, age_group=None):
         """Create the tolerance control bar above the participant table."""
+        if not gender or not age_group:
+            return  # Hide the tolerance bar completely for QUARANTINE or Friendly Matches
+
         bar = create_dark_frame(parent)
         bar.pack(fill=tk.X, pady=(0, 5))
 
@@ -310,7 +313,7 @@ class GroupPreviewScreen(tk.Frame):
         """Save tolerance for the current group and re-render."""
         try:
             new_val = round(float(self._tolerance_var.get()), 3)
-            new_val = max(0.0, min(2.0, new_val))
+            new_val = max(0.0, new_val)
         except (ValueError, TypeError):
             new_val = 0.0
 
@@ -399,7 +402,7 @@ class GroupPreviewScreen(tk.Frame):
             for key, var in spinbox_vars.items():
                 try:
                     val = round(float(var.get()), 3)
-                    val = max(0.0, min(2.0, val))
+                    val = max(0.0, val)
                 except (ValueError, TypeError):
                     val = 0.0
                 self.tolerances[key] = val
@@ -623,9 +626,7 @@ class GroupPreviewScreen(tk.Frame):
         text_widget.insert(tk.END, header, 'header')
         text_widget.insert(tk.END, "=" * SEPARATOR_LENGTH + "\n")
         
-        # Configure weight highlight tags
-        text_widget.tag_configure('weight_warn', foreground=COLORS['accent_orange'])   # within tolerance
-        text_widget.tag_configure('weight_over', foreground=COLORS['accent_red'])      # exceeds tolerance
+        # Removed weight highlight tags (no colored text based on weight limits)
 
         # Participant rows
         for idx, fighter in enumerate(fighters, 1): #begin with 1 instead of 0
@@ -647,15 +648,6 @@ class GroupPreviewScreen(tk.Frame):
 
             row = f"{first:<{COL_FIRSTNAME}}{last:<{COL_LAST}}{birth:<{COL_BIRTH}}{club:<{COL_CLUB}}{association:<{COL_ASSOCIATION}}{weight_str:<{COL_WEIGHT}}{gender_val:<{COL_GENDER}}\n"
             text_widget.insert(tk.END, row, f'row_{idx}')
-
-            # Apply weight tolerance highlighting
-            if weight_limit is not None and isinstance(weight, (int, float)) and group_tolerance > 0:
-                if weight > weight_limit + group_tolerance:
-                    # Exceeds tolerance — red
-                    text_widget.tag_add('weight_over', f'{idx+2}.0', f'{idx+2}.end')
-                elif weight > weight_limit:
-                    # Over limit but within tolerance — orange
-                    text_widget.tag_add('weight_warn', f'{idx+2}.0', f'{idx+2}.end')
 
         # Style header
         text_widget.tag_configure('header', font=FONTS['list_mono_bold'], foreground=COLORS['accent_blue'])
