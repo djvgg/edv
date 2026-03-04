@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 TOP Team Combat Control
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Window to display detailed summary of rejected participants."""
 
 import tkinter as tk

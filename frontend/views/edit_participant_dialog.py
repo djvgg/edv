@@ -10,7 +10,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from backend.services.bracket_service import get_age_group as get_age_group_with_fallback  # noqa: E402
-from frontend.services.quarantine_service import QuarantineService  # noqa: E402
+from backend.services.bracket_service import validate_age_from_birthyear  # noqa: E402
 
 from ..styles import COLORS, FONTS
 class Edit_Participants(tk.Toplevel):
@@ -188,6 +188,18 @@ class Edit_Participants(tk.Toplevel):
             
             title_label = tk.Label(header_frame, text=f"Participant: {first_name} {last_name}".strip(), bg=COLORS['bg_darker'], fg=COLORS['text_primary'], font=FONTS['preview_title'])
             title_label.pack(side=tk.LEFT, padx=20, pady=20)
+            
+            # Show quarantine warnings if in QUARANTINE
+            warning_frame = None
+            if is_quarantine and self.parent.quarantine_service:
+                qs = self.parent.quarantine_service
+                if hasattr(qs, 'evaluate_participant'):
+                    issues = qs.evaluate_participant(fighter)
+                    if issues:
+                        warning_frame = tk.Frame(self, bg=COLORS['accent_orange'])
+                        warning_frame.pack(fill=tk.X)
+                        warning_text = "⚠️ " + " | ".join(issues)
+                        tk.Label(warning_frame, text=warning_text, bg=COLORS['accent_orange'], fg=COLORS['bg_darker'], font=FONTS['preview_label']).pack(pady=5)
             
             # Main container with better padding
             container = tk.Frame(self, bg=COLORS['bg_dark'])
@@ -407,7 +419,7 @@ class Edit_Participants(tk.Toplevel):
                                          fg=COLORS['bg_panel'], font=FONTS['preview_hint'], padx=5, pady=2, bd=1, relief=tk.RAISED)
             weight_popup_timer = [None]
             
-            def _on_weight_changed(e=None):
+            def _on_weight_changed(e=None, show_popup=True):
                 """Show auto-detected weight class as user types (uses ConfigRepository.get_weight_class).
                 Uses current age_group or fallback age_group if birth year is out of bounds."""
                 if weight_popup_timer[0]:
@@ -436,15 +448,16 @@ class Edit_Participants(tk.Toplevel):
                             
                             detected = self.parent.config_repo.get_weight_class(weight_val, gender, effective_age_group)
                             if detected and detected != 'unknown':
-                                weight_popup.config(text=f"Auto-class: {detected}")
-                                # Place right below the input box inside the col frame
-                                weight_popup.place(rely=1.0, relx=0.0, y=-22) 
-                                weight_popup.lift()
-                                weight_popup_timer[0] = self.after(2500, weight_popup.place_forget)
+                                if show_popup:
+                                    weight_popup.config(text=f"Auto-class: {detected}")
+                                    # Place right below the input box inside the col frame
+                                    weight_popup.place(rely=1.0, relx=0.0, y=-22) 
+                                    weight_popup.lift()
+                                    weight_popup_timer[0] = self.after(2500, weight_popup.place_forget)
                                 self.parent.logger.debug(f"EDIT_DIALOG: Weight {weight_val}kg detected as {detected} (age_group={effective_age_group})")
                                 
                                 # Live-update the weight class dropdown for 18+ adults
-                                if is_adult_category and not is_quarantine:
+                                if is_adult_category and not is_quarantine and effective_age_group == '18+':
                                     # Use weight classes for the EFFECTIVE age group (may differ if birth year changed)
                                     effective_weight_classes = self._get_available_weight_classes(gender, effective_age_group) if effective_age_group != age_group else available_weight_classes
                                     detected_natural_key = get_weight_key(detected)
@@ -467,55 +480,88 @@ class Edit_Participants(tk.Toplevel):
                                              hint_text=HINT_BIRTHYEAR)
             insert_value(birth_year_entry, str(birth_year))
             
+            # Floating popup for detected age class
+            age_popup = tk.Label(age_col, text="", bg=COLORS['accent_green'],
+                                         fg=COLORS['bg_panel'], font=FONTS['preview_hint'], padx=5, pady=2, bd=1, relief=tk.RAISED)
+            age_popup_timer = [None]
+            
             # Auto-detect age group from birth year on focus out
-            def _on_birth_year_changed(e):
+            def _on_birth_year_changed(e=None, show_popup=True):
                 """Auto-detect age group when birth year is entered (uses unified validate_age_from_birthyear)."""
+                if age_popup_timer[0]:
+                    self.after_cancel(age_popup_timer[0])
+                age_popup.place_forget()
+                
                 birth_year_str = birth_year_entry.get().strip()
                 if birth_year_str and len(birth_year_str) == 4 and birth_year_str.isdigit():
                     try:
                         birth_year_int = int(birth_year_str)
                         
                         # Use unified validation function (SINGLE SOURCE OF TRUTH)
-                        age_group, calculated_age, is_valid, rejection_reason = validate_age_from_birthyear(birth_year_int)
+                        auto_age_group, calculated_age, is_valid, rejection_reason = validate_age_from_birthyear(birth_year_int)
                         
                         self.parent.logger.debug(
                             f"EDIT_DIALOG: Birth year {birth_year_int} (age {calculated_age}) → "
-                            f"age_group={age_group}, valid={is_valid}, reason={rejection_reason}"
+                            f"auto_age_group={auto_age_group}, valid={is_valid}, reason={rejection_reason}"
                         )
                         
                         if auto_age_group:
                             # Only show popup if it's not the same as the free_match category etc
-                            age_popup.config(text=f"Auto-class: {auto_age_group}")
-                            age_popup.place(rely=1.0, relx=0.0, y=-22)
-                            age_popup.lift()
-                            age_popup_timer[0] = self.after(2500, age_popup.place_forget)
+                            if show_popup:
+                                age_popup.config(text=f"Auto-class: {auto_age_group}")
+                                age_popup.place(rely=1.0, relx=0.0, y=-22)
+                                age_popup.lift()
+                                age_popup_timer[0] = self.after(2500, age_popup.place_forget)
                             
                             # Show/hide weight class section based on age group
                             if not is_free_match and not is_young_category and not is_quarantine:
-                                if auto_age_group == '18+':
-                                    # Re-enable dropdown
-                                    dropdown_enabled[0] = True
-                                    if dropdown_info_label:
-                                        dropdown_info_label.pack_forget()
-                                    dropdown_btn.config(cursor='hand2')
-                                    text_label.config(fg=COLORS['text_primary'])
-                                    arrow_label.config(fg=COLORS['accent_blue'])
+                                if is_adult_category:
+                                    if auto_age_group == '18+':
+                                        # Re-enable dropdown
+                                        dropdown_enabled[0] = True
+                                        if dropdown_info_label:
+                                            dropdown_info_label.pack_forget()
+                                        dropdown_btn.config(cursor='hand2')
+                                        text_label.config(fg=COLORS['text_primary'])
+                                        arrow_label.config(fg=COLORS['accent_blue'])
+                                    else:
+                                        # Disable dropdown + show info
+                                        dropdown_enabled[0] = False
+                                        dropdown_btn.config(cursor='')
+                                        text_label.config(fg=COLORS['text_muted'])
+                                        arrow_label.config(fg=COLORS['text_muted'])
+                                        weight_class_var.set("N/A")  # Clear the selection explicitly since they aren't 18+ anymore
+                                        if dropdown_info_label:
+                                            dropdown_info_label.config(text=f"→ Person is now {auto_age_group} (Only 18+ have manual weight classes)")
+                                            dropdown_info_label.pack(anchor=tk.W, pady=(4, 0))
                                 else:
-                                    # Disable dropdown + show info
-                                    dropdown_enabled[0] = False
-                                    dropdown_btn.config(cursor='')
-                                    text_label.config(fg=COLORS['text_muted'])
-                                    arrow_label.config(fg=COLORS['text_muted'])
-                                    if dropdown_info_label:
-                                        dropdown_info_label.config(text=f"→ Person is now {auto_age_group} (Only 18+ have weight classes)")
-                                        dropdown_info_label.pack(anchor=tk.W, pady=(4, 0))
+                                    # It is an Age Class Upgrade dropdown originally
+                                    if auto_age_group == '18+':
+                                        # Adults don't get age upgrades, they get weight class selections (but that requires a reopen)
+                                        dropdown_enabled[0] = False
+                                        dropdown_btn.config(cursor='')
+                                        text_label.config(fg=COLORS['text_muted'])
+                                        arrow_label.config(fg=COLORS['text_muted'])
+                                        age_class_var.set("N/A")
+                                        if dropdown_info_label:
+                                            dropdown_info_label.config(text="→ Person is now 18+ (Please save and reopen to assign weight class)")
+                                            dropdown_info_label.pack(anchor=tk.W, pady=(4, 0))
+                                    else:
+                                        # Re-enable dropdown
+                                        dropdown_enabled[0] = True
+                                        if dropdown_info_label:
+                                            dropdown_info_label.pack_forget()
+                                        dropdown_btn.config(cursor='hand2')
+                                        text_label.config(fg=COLORS['text_primary'])
+                                        arrow_label.config(fg=COLORS['accent_blue'])
                             
                             # Also update the weight class hint for the new age group
-                            _on_weight_changed()
+                            _on_weight_changed(show_popup=False)
                     except (ValueError, Exception) as ex:
                         self.parent.logger.debug(f"EDIT_DIALOG: Birth year auto-detect failed: {ex}")
             
-            birth_year_entry.bind("<FocusOut>", _on_birth_year_changed)
+            birth_year_entry.bind("<KeyRelease>", _on_birth_year_changed)
+            birth_year_entry.bind("<FocusOut>", lambda e: _on_birth_year_changed(e, show_popup=False), add='+')
             # Club and Association fields in a row
             club_row = tk.Frame(container, bg=COLORS['bg_dark'])
             club_row.pack(fill=tk.X)
@@ -644,9 +690,12 @@ class Edit_Participants(tk.Toplevel):
                     )
                     arrow_label.pack(side=tk.RIGHT, fill=tk.Y)
                     
+                    popup_ref = [None]
+                    
                     def show_dropdown_menu():
                         # Create a custom popup for the dropdown
                         popup = tk.Toplevel(self)
+                        popup_ref[0] = popup
                         popup.withdraw()
                         popup.overrideredirect(True)
                         popup.configure(bg=COLORS['border'])
@@ -715,14 +764,17 @@ class Edit_Participants(tk.Toplevel):
                         popup.lift()
                         popup.focus_force()
                         
+                        def close_popup(e=None):
+                            if popup_ref[0]:
+                                popup_ref[0].destroy()
+                                popup_ref[0] = None
+                            on_leave(None)
+
                         def on_select(event):
                             selection = lb.curselection()
                             if selection:
                                 selected_var.set(options_to_show[selection[0]].strip())
-                                popup.destroy()
-                                dropdown_border.config(bg=COLORS['border'])
-                                # Ensure the arrow label stays on top when the button is redrawn
-                                arrow_label.lift()
+                                close_popup()
                         
                         def on_motion(event):
                             idx = lb.nearest(event.y)
@@ -732,8 +784,8 @@ class Edit_Participants(tk.Toplevel):
     
                         lb.bind("<ButtonRelease-1>", on_select)
                         lb.bind("<Motion>", on_motion)
-                        lb.bind("<FocusOut>", lambda e: popup.destroy())
-                        lb.bind("<Escape>", lambda e: popup.destroy())
+                        lb.bind("<FocusOut>", close_popup)
+                        lb.bind("<Escape>", close_popup)
                         
                         dropdown_border.config(bg=COLORS['accent_blue'])
                     
@@ -754,7 +806,10 @@ class Edit_Participants(tk.Toplevel):
                     
                     # Hover effects
                     def on_enter(e):
-                        if popup and popup.winfo_exists() and popup.winfo_viewable():
+                        if not dropdown_enabled[0]:
+                            return
+                        p = popup_ref[0]
+                        if p and p.winfo_exists() and p.winfo_viewable():
                             return
                         dropdown_border.config(bg=COLORS['accent_blue'])
                         dropdown_btn.config(bg=COLORS['bg_panel'])
@@ -765,13 +820,13 @@ class Edit_Participants(tk.Toplevel):
                         # Prevent flickering when moving between child widgets of the button
                         if e and e.widget != dropdown_btn and e.widget.winfo_containing(e.x_root, e.y_root) in (dropdown_btn, text_label, arrow_label):
                             return
+                        p = popup_ref[0]
+                        if p and p.winfo_exists() and p.winfo_viewable():
+                            return
                         dropdown_border.config(bg=COLORS['border'])
                         dropdown_btn.config(bg=COLORS['bg_input'])
                         text_label.config(bg=COLORS['bg_input'])
                         arrow_label.config(bg=COLORS['bg_input'])
-                    
-                    # Use a dummy popup variable reference so on_enter can check if menu is open
-                    popup = None
                     
                     for widget in (dropdown_btn, text_label, arrow_label):
                         widget.bind("<Enter>", on_enter)
@@ -849,11 +904,10 @@ class Edit_Participants(tk.Toplevel):
                     if birth_year_raw and (len(birth_year_raw) != 4 or not birth_year_raw.isdigit()):
                         errors.append("Birth Year must be exactly 4 digits.")
                     elif birth_year_raw and birth_year_raw.isdigit():
-                        participant_age = datetime.datetime.now().year - int(birth_year_raw)
-                        if participant_age < QuarantineService.MIN_PARTICIPANT_AGE:
-                            errors.append(f"Participant is too young ({participant_age} years). Minimum age is {QuarantineService.MIN_PARTICIPANT_AGE}.")
-                        elif participant_age > QuarantineService.MAX_PARTICIPANT_AGE:
-                            errors.append(f"Participant is too old ({participant_age} years). Maximum age is {QuarantineService.MAX_PARTICIPANT_AGE}.")
+                        _, _, age_is_valid, age_rejection_reason = validate_age_from_birthyear(birth_year_raw)
+                        if not age_is_valid:
+                            errors.append(f"Invalid Age: {age_rejection_reason}")
+                            
                     if errors:
                         messagebox.showwarning("Validation Error", "\n".join(errors), parent=self)
                         return
@@ -879,30 +933,48 @@ class Edit_Participants(tk.Toplevel):
                     if is_quarantine:
                         self.parent.logger.debug("QUARANTINE: Using quarantine service for re-sorting")
                         if self.parent.quarantine_service:
+                            # 1. Inject a temporary tracking ID to ensure we find THIS exact person later,
+                            # even if there are multi-loaded JSON participants with identical numeric IDs!
+                            import uuid
+                            tracking_id = str(uuid.uuid4())
+                            fighter['_tracking_id'] = tracking_id
+
+                            # 2. Resort brackets handles pulling valid participants out of QUARANTINE 
+                            # and inserting them into the correct destination bracket
                             self.parent.quarantine_service.resort_brackets(
                                 self.parent.brackets, 
                                 edited_fighter=fighter,
                                 group_preview_screen=self.parent
                             )
+                            
+                            # 3. Find exactly where this fighter ended up to display that bracket
+                            for bracket_key_check, bracket_data in self.parent.brackets.items():
+                                if bracket_key_check == 'QUARANTINE':
+                                    continue
+                                for f in bracket_data.get('fighters', []):
+                                    if f.get('_tracking_id') == tracking_id:
+                                        target_bracket_key = bracket_key_check
+                                        break
+                                if target_bracket_key:
+                                    break
+                            
+                            # Clean up the temporary tracking ID from all brackets to be safe
+                            for b_key, b_data in self.parent.brackets.items():
+                                for f in b_data.get('fighters', []):
+                                    if '_tracking_id' in f:
+                                        del f['_tracking_id']
+                            
+                            # Stay on QUARANTINE view unless it's now empty.
+                            # Only follow the fighter to the new bracket if QUARANTINE has no fighters left.
+                            if 'QUARANTINE' in self.parent.brackets and self.parent.brackets['QUARANTINE'].get('fighters', []):
+                                display_bracket_key = 'QUARANTINE'
+                            elif target_bracket_key:
+                                display_bracket_key = target_bracket_key
+                            else:
+                                display_bracket_key = None
                         else:
                             self.parent.logger.error("quarantine_service not available")
                             return
-                        
-                        # Find where this fighter ended up
-                        for bracket_key_check, bracket_data in self.parent.brackets.items():
-                            if bracket_key_check == 'QUARANTINE':
-                                continue
-                            for f in bracket_data.get('fighters', []):
-                                if f.get('ID') == fighter.get('ID'):
-                                    target_bracket_key = bracket_key_check
-                                    break
-                            if target_bracket_key:
-                                break
-                        
-                        # Unless QUARANTINE is completely empty, stay in the QUARANTINE view
-                        display_bracket_key = 'QUARANTINE'
-                        if 'QUARANTINE' not in self.parent.brackets or not self.parent.brackets['QUARANTINE'].get('fighters', []):
-                            display_bracket_key = target_bracket_key if target_bracket_key else 'QUARANTINE'
                     
                     elif not is_free_match and not is_young_category:
                         new_weight = float(weight_entry.get().replace(',', '.'))

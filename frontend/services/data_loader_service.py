@@ -10,11 +10,9 @@ Extracted from main_window.py:
 - Splitting participants by gender to JSON
 """
 
-import datetime
 import json
 import os
 import threading
-import traceback
 from tkinter import filedialog, messagebox
 
 from utils.logging import get_logger
@@ -112,10 +110,6 @@ class DataLoaderService:
                 invalid_participants.append(invalid_entry)
         
         if invalid_participants:
-            invalid_names = ['{} {}'.format(
-                p.get('Firstname', p.get('Vorname', '')),
-                p.get('Lastname', p.get('Nachname', ''))
-            ).strip() or p.get('Name', 'Unknown') for p in invalid_participants]
             self.logger.info(f"Filtered out {len(invalid_participants)} participants with invalid ages")
         
         return valid_participants, invalid_participants
@@ -149,10 +143,6 @@ class DataLoaderService:
                 invalid_participants.append(invalid_entry)
         
         if invalid_participants:
-            invalid_names = ['{} {}'.format(
-                p.get('Firstname', p.get('Vorname', '')),
-                p.get('Lastname', p.get('Nachname', ''))
-            ).strip() or p.get('Name', 'Unknown') for p in invalid_participants]
             self.logger.info(f"Filtered out {len(invalid_participants)} participant(s) marked as invalid")
         
         return valid_participants, invalid_participants
