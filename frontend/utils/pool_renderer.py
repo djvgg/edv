@@ -563,9 +563,6 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, box_width, box_
 
 def _draw_ko_match_box(canvas, x, y, bw, bh, p1, p2, lw, font, colors, winner=None):
     """Draw a single KO match box with winner/loser colouring."""
-    # Color assignments for easy customization
-    border_color = colors['accent_blue']         # Soft periwinkle borders
-    text_color = colors['text_secondary']        # Light gray for text labels
     divider_color = colors['accent_blue']        # Soft periwinkle divider lines
     
     my = y + bh // 2
@@ -630,11 +627,8 @@ def draw_double_pool_ko_bracket(canvas, start_x, start_y, zoom_level, colors, fo
 
     Returns (width, height) of the drawn area.
     """
-    # Color assignments for easy customization
-    border_color = colors['accent_blue']         # Soft periwinkle borders
     text_color = colors['text_secondary']        # Light gray for text labels
     divider_color = colors['accent_blue']        # Soft periwinkle divider lines
-    value_color = colors['text_primary']         # Text for cell values (white)
     
     bw = int(160 * zoom_level)   # match box width
     bh = int(56 * zoom_level)    # match box height
@@ -754,13 +748,7 @@ def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_
     from utils.logging import get_logger
     logger = get_logger('pool_renderer')
     
-    # Color assignments for easy customization
-    border_color = colors['accent_blue']         # Soft periwinkle borders
-    header_bg_color = colors['bg_panel']         # Header background color
-    field_color = colors['text_secondary']       # Very light grey for editable fields
     text_color = colors['text_secondary']        # Light gray for text labels
-    divider_color = colors['accent_blue']        # Soft periwinkle divider lines
-    value_color = colors['text_primary']         # Text for cell values (white)
     
     num_participants = len(participants)
     

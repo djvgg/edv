@@ -3,7 +3,7 @@
 
 # Extracted GUI code from bracket_viewer.py
 
-import datetime
+
 import json
 import os
 import sys
@@ -18,7 +18,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from utils.logging import get_logger  # noqa: E402
 from backend.services.bracket_service import (  # noqa: E402
-    export_all_brackets,
     make_bracket,
     set_bracket_config,
 )
@@ -43,8 +42,6 @@ from ..styles import (  # noqa: E402
 # Import frontend utilities
 from ..utils import (  # noqa: E402
     calculate_box_size,
-    load_participants_from_xlsx,
-    normalize_participants,
     draw_pools_on_canvas,
     build_bracket_rounds,
     draw_bracket_on_canvas,

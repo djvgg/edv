@@ -3,9 +3,9 @@
 
 """Service for managing quarantine brackets (rejected participants for manual review)."""
 
-import datetime
+
 from utils.logging import get_logger
-from backend.services.bracket_service import get_age_group, export_all_brackets, validate_age_from_birthyear
+from backend.services.bracket_service import export_all_brackets, validate_age_from_birthyear
 
 
 
@@ -104,6 +104,34 @@ class QuarantineService:
         self.logger.info(f"Created QUARANTINE bracket with {len(fighters)} rejected participant(s)")
         return fighters
 
+    def evaluate_participant(self, fighter):
+        """Evaluate a single participant to determine why they might be in QUARANTINE.
+        
+        Args:
+            fighter (dict): The fighter dictionary to evaluate.
+            
+        Returns:
+            list: A list of issue strings (e.g., ["Unpaid", "Invalid Age: too young (4 years)"]).
+                  Returns an empty list if the participant is perfectly valid.
+        """
+        issues = []
+        
+        # 1. Payment check
+        if not fighter.get('Paid', False):
+            issues.append("Unpaid")
+            
+        # 2. Age check
+        birthyear = fighter.get('Birthyear') or fighter.get('Age')
+        _, calculated_age, age_is_valid, age_rejection_reason = validate_age_from_birthyear(birthyear)
+        
+        if not age_is_valid:
+            if birthyear in (None, ''):
+                issues.append("Missing Age/Birthyear")
+            else:
+                issues.append(f"Invalid Age: {age_rejection_reason}")
+                
+        return issues
+
     def resort_brackets(self, brackets, edited_fighter=None, group_preview_screen=None):
         """Re-sort brackets after changes in QUARANTINE.
         
@@ -135,33 +163,25 @@ class QuarantineService:
         
         # Determine which fighters to check
         if edited_fighter is not None:
-            fighters_to_check = [edited_fighter.get('ID')]
-            self.logger.debug(f"RESORT: Checking only the edited fighter ID: {edited_fighter.get('ID')}")
+            self.logger.debug(f"RESORT: Checking only the explicitly edited fighter object (ID: {edited_fighter.get('ID')})")
         else:
-            fighters_to_check = [f.get('ID') for f in quarantine_fighters]
             self.logger.debug(f"RESORT: Checking all {len(quarantine_fighters)} fighters in QUARANTINE")
         
         # Separate valid and still-invalid participants while PRESERVING original list order
         valid_from_quarantine = []
         still_invalid = []
         
-        current_year = datetime.datetime.now().year
         
         # We iterate over the ORIGINAL quarantine list, so anyone remaining invalid keeps their exact spot
         for base_fighter in quarantine_fighters:
-            fighter_id = base_fighter.get('ID')
             
-            # If we're only checking one edited fighter, use that new data. Otherwise, use base data
-            if edited_fighter is not None and fighter_id == edited_fighter.get('ID'):
-                fighter = edited_fighter
-            else:
-                fighter = base_fighter
-                
-            # If we're not checking this fighter, they automatically remain invalid in their current spot
-            if fighter_id not in fighters_to_check:
-                still_invalid.append(fighter)
+            # If we're only checking one edited fighter, skip all others
+            if edited_fighter is not None and base_fighter is not edited_fighter:
+                still_invalid.append(base_fighter)
                 continue
-            
+                
+            fighter = base_fighter
+            fighter_id = fighter.get('ID')
             fighter_name = fighter.get('Name', f"Unknown ({fighter_id})")
             is_valid = True
             invalid_reason = None
@@ -184,15 +204,7 @@ class QuarantineService:
                 
                 if not age_is_valid:
                     is_valid = False
-                    invalid_reason = "no age/birthyear"
-                    self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
-                elif age < self.MIN_PARTICIPANT_AGE:
-                    is_valid = False
-                    invalid_reason = f"too young ({age} years)"
-                    self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
-                elif age > self.MAX_PARTICIPANT_AGE:
-                    is_valid = False
-                    invalid_reason = f"too old ({age} years)"
+                    invalid_reason = age_rejection_reason
                     self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
                 else:
                     self.logger.debug(f"RESORT:   Age bounds OK, age group {age_group} - VALID")
