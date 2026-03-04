@@ -826,14 +826,12 @@ class BracketViewerApp(tk.Tk):
                                   f'Matte {table_num} already has 2 brackets assigned.')
             return
 
-        # Assign the bracket
+        # Assign the bracket and create fights in one operation
         self.bracket_table_assignment[bracket_key] = table_num
-        self.db_service.assign_bracket_to_table(bracket_key, table_num)
-
-        # Create fight rows now that this bracket has a mat (idempotent if already created)
         bracket_data = self.brackets[bracket_key]
-        self.db_service.create_fights_for_bracket(
+        self.db_service.assign_and_create_fights(
             bracket_key,
+            table_num=table_num,
             fight_pairs=bracket_data.get('bracket', []),
             bracket_type=self.bracket_generation_methods.get(bracket_key, 'ko'),
             fighters=bracket_data.get('fighters', []),
@@ -891,17 +889,14 @@ class BracketViewerApp(tk.Tk):
                     break
                 table = table % 4 + 1
 
-        # Persist mat assignments to DB for all assigned brackets
-        for bracket_key, table_num in self.bracket_table_assignment.items():
-            if table_num:
-                self.db_service.assign_bracket_to_table(bracket_key, table_num)
-
-        # Create fight rows only for the brackets just assigned (idempotent for any repeats)
+        # Assign and create fights for newly assigned brackets
         for bracket_key in unassigned:
-            if self.bracket_table_assignment.get(bracket_key):
+            table_num = self.bracket_table_assignment.get(bracket_key)
+            if table_num:
                 bracket_data = self.brackets[bracket_key]
-                self.db_service.create_fights_for_bracket(
+                self.db_service.assign_and_create_fights(
                     bracket_key,
+                    table_num=table_num,
                     fight_pairs=bracket_data.get('bracket', []),
                     bracket_type=self.bracket_generation_methods.get(bracket_key, 'ko'),
                     fighters=bracket_data.get('fighters', []),

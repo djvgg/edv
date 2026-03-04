@@ -45,7 +45,7 @@ def _split_name(full_name: str):
 def _normalize_gender(raw: str) -> str:
     """Normalize any gender string to 'm' or 'w'."""
     v = str(raw).lower().strip()
-    if v in ('m', 'male', 'maennlich', 'männlich'):
+    if v in ('m', 'male', 'maennlich', 'männlich','mann'):
         return 'm'
     if v in ('w', 'f', 'female', 'weiblich', 'frau'):
         return 'w'
