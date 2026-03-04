@@ -213,9 +213,8 @@ class GroupPreviewScreen(tk.Frame):
         self.participant_display_frame = create_dark_frame(right_frame)
         self.participant_display_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Placeholder, TODO: Symbole nutzen für mehr Eindeutigkeit und UX, UX bei Edit Participant, Code besser machen
-        placeholder = tk.Label( # machen, Neue Klasse auslagern Edit Participant, Window Springen bei Age oder Weigth  
-            self.participant_display_frame, # Update weg machen aber neues Blinken bei wieght Group einfügen, Tabsystem einfügen
+        placeholder = tk.Label( 
+            self.participant_display_frame, 
             text="Double-click a group to preview participants",
         )
         apply_label_style(placeholder, 'info')
@@ -555,14 +554,6 @@ class GroupPreviewScreen(tk.Frame):
 
         # Tolerance control bar
         self._create_tolerance_bar(self.participant_display_frame, gender, age_group)
-
-        # Determine weight class limit for highlighting
-        weight_limit = None
-        if gender and age_group and weight_class and self.config_repo:
-            weight_limit = self.config_repo.get_weight_class_limit(gender, age_group, weight_class)
-
-        # Get per-group tolerance
-        group_tolerance = self.tolerances.get((gender, age_group), 0.0) if gender and age_group else 0.0
 
         # Create scrollable text widget with auto-hiding styled scrollbars
         text_frame = create_dark_frame(self.participant_display_frame)
