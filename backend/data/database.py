@@ -63,6 +63,27 @@ def init_db():
                 with engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE fights ADD COLUMN {col_name} {col_def}"))
 
+        # Migration 4: unique constraint on fight positions (KO/LB only, pool excluded via NULL round)
+        constraints = inspector.get_unique_constraints('fights')
+        constraint_names = {c['name'] for c in constraints}
+        if 'uix_fight_position' not in constraint_names:
+            # Clean up duplicate fights before adding constraint
+            with engine.begin() as conn:
+                conn.execute(text("""
+                    DELETE FROM fights
+                    WHERE id NOT IN (
+                        SELECT MIN(id)
+                        FROM fights
+                        WHERE round IS NOT NULL
+                        GROUP BY bracket_id, bracket_phase, round, pos_in_round
+                    )
+                    AND round IS NOT NULL
+                """))
+                conn.execute(text(
+                    "ALTER TABLE fights ADD CONSTRAINT uix_fight_position"
+                    " UNIQUE (bracket_id, bracket_phase, round, pos_in_round)"
+                ))
+
 
 def get_db():
     db = SessionLocal()

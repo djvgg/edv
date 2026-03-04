@@ -78,6 +78,9 @@ class FightMonitoringScreen(tk.Frame):
         self._ko_match_boxes = {}
         # losers bracket box positions: {(lb_round, lb_match): (x1,y1,x2,y2,p1,p2)}
         self._loser_match_boxes = {}
+        # Tracks byes already synced to DB — prevents redundant DB calls on re-render
+        # {(bracket_key, phase, round, pos)}
+        self._bye_db_synced = set()
 
         self._setup_ttk_styles()
         self._build_ui()
@@ -730,8 +733,9 @@ class FightMonitoringScreen(tk.Frame):
             for m, match in enumerate(matches):
                 if (r, m) not in results and match['winner'] is not None:
                     results[(r, m)] = match['winner']
-                    # Also sync to DB if we have db_service
-                    if self.db_service and (match['p1'] == 'Freilos' or match['p2'] == 'Freilos'):
+                    # Also sync to DB if we have db_service (skip if already synced)
+                    bye_key = (bracket_key, 'wb', r, m)
+                    if self.db_service and bye_key not in self._bye_db_synced and (match['p1'] == 'Freilos' or match['p2'] == 'Freilos'):
                         p1, p2 = match['p1'], match['p2']
                         if p1 != 'Freilos' and p2 == 'Freilos':
                             p1_name = p1
@@ -742,6 +746,7 @@ class FightMonitoringScreen(tk.Frame):
                         self.db_service.record_fight_result(
                             bracket_key, 'wb', r, m, match['winner'],
                             p1_name=p1_name, p2_name=p2_name)
+                        self._bye_db_synced.add(bye_key)
         self.match_results[bracket_key] = results
 
         z = self.zoom_level
@@ -905,8 +910,9 @@ class FightMonitoringScreen(tk.Frame):
             for m, match in enumerate(matches):
                 if (r, m) not in lb_results and match['winner'] is not None:
                     lb_results[(r, m)] = match['winner']
-                    # Also sync to DB if we have db_service
-                    if self.db_service and (match['p1'] == 'Freilos' or match['p2'] == 'Freilos'):
+                    # Also sync to DB if we have db_service (skip if already synced)
+                    bye_key = (bracket_key, 'lb', r, m)
+                    if self.db_service and bye_key not in self._bye_db_synced and (match['p1'] == 'Freilos' or match['p2'] == 'Freilos'):
                         p1, p2 = match['p1'], match['p2']
                         if p1 != 'Freilos' and p2 == 'Freilos':
                             p1_name = p1
@@ -917,6 +923,7 @@ class FightMonitoringScreen(tk.Frame):
                         self.db_service.record_fight_result(
                             bracket_key, 'lb', r, m, match['winner'],
                             p1_name=p1_name, p2_name=p2_name)
+                        self._bye_db_synced.add(bye_key)
 
         # Auto-advance bye/TBD matches in final LB round (prevents infinite waiting)
         # Only if: last round has ≤2 matches (meaning no more opponents can come from WB)
@@ -930,14 +937,16 @@ class FightMonitoringScreen(tk.Frame):
                     match['winner'] is not None and
                     (match['p1'] in ('Freilos', 'TBD') or match['p2'] in ('Freilos', 'TBD'))):
                     lb_results[key] = match['winner']
-                    # Sync to DB
-                    if self.db_service:
+                    # Sync to DB (skip if already synced)
+                    bye_key = (bracket_key, 'lb', last_round_idx, m)
+                    if self.db_service and bye_key not in self._bye_db_synced:
                         p1, p2 = match['p1'], match['p2']
                         p1_name = p1 if p1 not in ('Freilos', 'TBD') else 'Freilos'
                         p2_name = p2 if p2 not in ('Freilos', 'TBD') else 'Freilos'
                         self.db_service.record_fight_result(
                             bracket_key, 'lb', last_round_idx, m,
                             match['winner'], p1_name=p1_name, p2_name=p2_name)
+                        self._bye_db_synced.add(bye_key)
 
         self.loser_match_results[bracket_key] = lb_results
 
@@ -1089,6 +1098,9 @@ class FightMonitoringScreen(tk.Frame):
                 if self.db_service:
                     self.db_service.record_fight_result(
                         bkey, 'lb', r, m, clicked, p1_name=p1, p2_name=p2)
+
+                    # Re-compute placements (3rd places come from LB)
+                    self._maybe_compute_placements(bkey)
 
             self._render(bkey)
             return

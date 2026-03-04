@@ -25,12 +25,14 @@ class FightRepository:
             status        — 'pending' | 'bye'       (default 'pending')
             winner_id     — int or None             (default None, set for byes)
         """
+        existing_count = self.db.query(Fight).filter(Fight.bracket_id == bracket_id).count()
+        start_num = existing_count + 1
         fights = [
             Fight(
                 bracket_id=bracket_id,
                 participant1_id=fp['p1'],
                 participant2_id=fp['p2'],
-                fight_number=i + 1,
+                fight_number=start_num + i,
                 bracket_phase=fp.get('bracket_phase', 'wb'),
                 round=fp.get('round'),
                 pos_in_round=fp.get('pos_in_round', i),
@@ -116,7 +118,7 @@ class FightRepository:
         return (
             self.db.query(Fight)
             .filter(Fight.bracket_id == bracket_id)
-            .order_by(Fight.fight_number)
+            .order_by(Fight.bracket_phase, Fight.round, Fight.pos_in_round)
             .all()
         )
 

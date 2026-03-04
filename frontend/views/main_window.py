@@ -137,6 +137,7 @@ class BracketViewerApp(tk.Tk):
 
         # Initialize background task runner (for loading, imports, etc.)
         self.task_runner = TaskRunner(num_workers=2)
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.logger.debug("TaskRunner initialized with 2 workers for parallel operations")
 
         # Initialize quarantine service (manages rejected participants)

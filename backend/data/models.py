@@ -91,6 +91,10 @@ class Bracket(Base):
 
 class Fight(Base):
     __tablename__ = 'fights'
+    __table_args__ = (
+        UniqueConstraint('bracket_id', 'bracket_phase', 'round', 'pos_in_round',
+                         name='uix_fight_position'),
+    )
 
     id              = Column(Integer, primary_key=True)
     bracket_id      = Column(Integer, ForeignKey('brackets.id'),          nullable=False)
