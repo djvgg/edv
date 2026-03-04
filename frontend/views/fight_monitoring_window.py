@@ -20,7 +20,14 @@ from ..styles import (
     apply_table_panel_style,
     create_dark_frame,
 )
-from ..utils import draw_pools_on_canvas
+from ..utils import (
+    draw_pools_on_canvas,
+    compute_bracket_rounds,
+    calculate_ko_positions,
+    draw_ko_connectors,
+    calculate_loser_positions,
+    draw_loser_connectors,
+)
 
 import os
 import sys
@@ -320,71 +327,13 @@ class FightMonitoringScreen(tk.Frame):
     def _compute_rounds(self, bracket_pairs, match_results):
         """
         Compute all rounds from first-round pairs, propagating winners forward.
-        Freilos (vs BYE) auto-advances immediately.
+        (Delegates to imported utility function)
 
         Returns:
             List of rounds; each = [{'p1', 'p2', 'winner'}, ...]
         """
-        if not bracket_pairs:
-            return []
-
         logger.debug(f"_compute_rounds: {len(bracket_pairs)} R0 pairs, {len(match_results)} existing results")
-
-        rounds = []
-
-        # Round 0
-        r0 = []
-        for i, (p1, p2) in enumerate(bracket_pairs):
-            winner = match_results.get((0, i))
-            if winner is None:
-                if p1 == 'Freilos' and p2 != 'Freilos':
-                    winner = p2
-                    match_results[(0, i)] = winner  # Persist auto-bye winner
-                    logger.debug(f"  R0 pos{i}: BYE — '{p2}' auto-advances")
-                elif p2 == 'Freilos' and p1 != 'Freilos':
-                    winner = p1
-                    match_results[(0, i)] = winner  # Persist auto-bye winner
-                    logger.debug(f"  R0 pos{i}: BYE — '{p1}' auto-advances")
-            else:
-                logger.debug(f"  R0 pos{i}: '{p1}' vs '{p2}' → winner='{winner}'")
-            r0.append({'p1': p1, 'p2': p2, 'winner': winner})
-        rounds.append(r0)
-
-        # Later rounds
-        while len(rounds[-1]) > 1:
-            prev = rounds[-1]
-            r_idx = len(rounds)
-            next_r = []
-
-            for i in range(0, len(prev), 2):
-                m1 = prev[i]
-                m2 = prev[i + 1] if i + 1 < len(prev) else None
-
-                def _slot(match):
-                    if match is None:
-                        return 'Freilos'
-                    if match['winner']:
-                        return match['winner']
-                    if match['p1'] == 'Freilos' and match['p2'] == 'Freilos':
-                        return 'Freilos'
-                    return 'TBD'
-
-                p1, p2 = _slot(m1), _slot(m2)
-                m_idx = len(next_r)
-                winner = match_results.get((r_idx, m_idx))
-                if winner is None:
-                    if p1 == 'Freilos' and p2 not in ('Freilos', 'TBD'):
-                        winner = p2
-                        match_results[(r_idx, m_idx)] = winner  # Persist auto-bye winner
-                    elif p2 == 'Freilos' and p1 not in ('Freilos', 'TBD'):
-                        winner = p1
-                        match_results[(r_idx, m_idx)] = winner  # Persist auto-bye winner
-
-                next_r.append({'p1': p1, 'p2': p2, 'winner': winner})
-
-            rounds.append(next_r)
-
-        return rounds
+        return compute_bracket_rounds(bracket_pairs, match_results)
 
     def _compute_loser_rounds(self, wb_rounds, lb_results):
         """
@@ -514,35 +463,8 @@ class FightMonitoringScreen(tk.Frame):
         font = ('Consolas', FS)
         label_font = ('Arial', max(8, int(11 * z)), 'bold')
 
-        # ── Compute positions ───────────────────────────────────────────
-        lb_pos = {}
-        lb_ymid = {}
-
-        # LB R0: stack vertically
-        for m in range(len(loser_rounds[0])):
-            x = SX
-            y = y_offset + m * (BH + YG)
-            lb_pos[(0, m)] = (x, y)
-            lb_ymid[(0, m)] = y + BH // 2
-
-        for r in range(1, len(loser_rounds)):
-            x = SX + r * (BW + XG)
-            prev_count = len(loser_rounds[r - 1])
-            curr_count = len(loser_rounds[r])
-
-            for m in range(curr_count):
-                if curr_count < prev_count:
-                    # Reduction: centre between the two source matches
-                    ya = lb_ymid.get((r - 1, m * 2), y_offset + BH // 2)
-                    yb = lb_ymid.get((r - 1, m * 2 + 1), ya)
-                    y = (ya + yb) // 2 - BH // 2
-                else:
-                    # Injection (or equal-count): same row as source match m
-                    ya = lb_ymid.get((r - 1, m), y_offset + BH // 2)
-                    y = ya - BH // 2
-
-                lb_pos[(r, m)] = (x, y)
-                lb_ymid[(r, m)] = y + BH // 2
+        # ── Compute positions using imported utility ───────────────────────
+        lb_pos, lb_ymid = calculate_loser_positions(loser_rounds, z, y_offset, SX)
 
         # ── Round labels ─────────────────────────────────────────────────
         nr = len(loser_rounds)
@@ -554,39 +476,8 @@ class FightMonitoringScreen(tk.Frame):
                 text=label, anchor='c',
                 fill=COLORS['accent_orange'], font=label_font)
 
-        # ── Connectors ───────────────────────────────────────────────────
-        for r in range(nr - 1):
-            prev_count = len(loser_rounds[r])
-            next_count = len(loser_rounds[r + 1])
-            is_reduction = next_count < prev_count
-
-            for m in range(prev_count):
-                if (r, m) not in lb_pos:
-                    continue
-                x, y = lb_pos[(r, m)]
-                xr = x + BW
-                yc = y + BH // 2
-                nm = m // 2 if is_reduction else m
-
-                if (r + 1, nm) not in lb_pos:
-                    continue
-                nx, ny = lb_pos[(r + 1, nm)]
-                xmid = xr + XG // 2
-
-                if is_reduction:
-                    ty = ny + BH // 4 if m % 2 == 0 else ny + 3 * BH // 4
-                else:
-                    ty = ny + BH // 4  # LB winner → top half (p1) of injection match
-
-                self._canvas.create_line(
-                    xr, yc, xmid, yc,
-                    fill=COLORS['accent_orange'], width=LW, dash=(4, 3))
-                self._canvas.create_line(
-                    xmid, yc, xmid, ty,
-                    fill=COLORS['accent_orange'], width=LW, dash=(4, 3))
-                self._canvas.create_line(
-                    xmid, ty, nx, ty,
-                    fill=COLORS['accent_orange'], width=LW, dash=(4, 3))
+        # ── Draw connectors using imported utility ──────────────────────────
+        draw_loser_connectors(self._canvas, lb_pos, loser_rounds, z, COLORS)
 
         # ── Match boxes ──────────────────────────────────────────────────
         for r, matches in enumerate(loser_rounds):
@@ -761,22 +652,8 @@ class FightMonitoringScreen(tk.Frame):
         font = ('Consolas', FS)
         label_font = ('Arial', max(8, int(11 * z)), 'bold')
 
-        # Positions
-        pos = {}
-        ymid = {}
-        for m in range(len(rounds[0])):
-            x, y = SX, SY + m * (BH + YG)
-            pos[(0, m)] = (x, y)
-            ymid[(0, m)] = y + BH // 2
-
-        for r in range(1, len(rounds)):
-            x = SX + r * (BW + XG)
-            for m in range(len(rounds[r])):
-                ya = ymid.get((r - 1, m * 2), SY + BH // 2)
-                yb = ymid.get((r - 1, m * 2 + 1), ya)
-                y = (ya + yb) // 2 - BH // 2
-                pos[(r, m)] = (x, y)
-                ymid[(r, m)] = y + BH // 2
+        # Calculate positions for all rounds (using imported utility)
+        pos, ymid = calculate_ko_positions(rounds, z, SX, SY)
 
         # Round labels
         nr = len(rounds)
@@ -794,27 +671,8 @@ class FightMonitoringScreen(tk.Frame):
                                      fill=COLORS['text_secondary'],
                                      font=label_font)
 
-        # Connectors (drawn behind boxes)
-        for r in range(nr - 1):
-            for m in range(len(rounds[r])):
-                if (r, m) not in pos:
-                    continue
-                x, y = pos[(r, m)]
-                xr = x + BW
-                yc = y + BH // 2
-                nm = m // 2
-                if (r + 1, nm) not in pos:
-                    continue
-                nx, ny = pos[(r + 1, nm)]
-                xmid = xr + XG // 2
-                ty = ny + BH // 4 if m % 2 == 0 else ny + 3 * BH // 4
-
-                self._canvas.create_line(xr, yc, xmid, yc,
-                                         fill=COLORS['border_light'], width=LW)
-                self._canvas.create_line(xmid, yc, xmid, ty,
-                                         fill=COLORS['border_light'], width=LW)
-                self._canvas.create_line(xmid, ty, nx, ty,
-                                         fill=COLORS['border_light'], width=LW)
+        # Draw connectors between rounds (using imported utility)
+        draw_ko_connectors(self._canvas, pos, rounds, z, COLORS)
 
         # Match boxes
         for r, matches in enumerate(rounds):

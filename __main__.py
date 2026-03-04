@@ -3,15 +3,26 @@
 
 """Entry point for running as module: python -m edv_backend"""
 
+import os
+import sys
+
+# Add edv_backend directory to path so utils imports work
+_edv_backend_path = os.path.dirname(__file__)
+if _edv_backend_path not in sys.path:
+    sys.path.insert(0, _edv_backend_path)
+
+from utils.logging import get_logger
 from .backend.services.database_service import get_database_service
 from .frontend.views.main_window import main
+
+logger = get_logger('main')
 
 if __name__ == '__main__':
     # Initialize database service (handles schema creation, connection errors)
     db_service = get_database_service()
     if db_service.is_available():
-        print("[INFO] Database initialized successfully")
+        logger.info("✓ Database initialized successfully")
     else:
-        print("[WARNING] Database unavailable, running in offline mode")
+        logger.warning("Database unavailable, running in offline mode")
     
     main()

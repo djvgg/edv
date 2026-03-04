@@ -25,6 +25,7 @@ if _edv_backend_path not in sys.path:
 from utils.logging import get_logger  # noqa: E402
 from ..data.database import SessionLocal, init_db as _init_db, Base, engine  # noqa: E402
 from .tournament_service import TournamentService  # noqa: E402
+from .bracket_reconstruction_service import BracketReconstructionService  # noqa: E402
 
 logger = get_logger('database_service')
 
@@ -63,6 +64,9 @@ class DatabaseService:
             else:
                 self.logger.error(f"Failed to initialize database: {e}")
                 DB_AVAILABLE = False
+        
+        # Initialize bracket reconstruction service
+        self.bracket_reconstruction = BracketReconstructionService(self)
 
     def is_available(self) -> bool:
         """Check if database is available."""
@@ -194,6 +198,42 @@ class DatabaseService:
         
         result = self._execute_with_session(_save)
         return result is True
+
+    def reconstruct_bracket_from_db(
+        self,
+        bracket_id: int,
+        bracket_key: str,
+        bracket_type: str = 'ko',
+        pool_size: int = None,
+    ) -> dict:
+        """
+        Reconstruct a bracket data structure from database Fight records.
+        
+        Uses the reverse mapping algorithm to recover original participant ordering
+        for pool brackets by analyzing the deterministic fight generation algorithm.
+        
+        Args:
+            bracket_id: Database bracket ID
+            bracket_key: Human-readable bracket key (for logging)
+            bracket_type: 'ko', 'pools', or 'double'
+            pool_size: Max fighters per pool (if applicable)
+        
+        Returns:
+            Dict matching self.brackets[bracket_key] format:
+            {
+                'fighters': [participant dicts with 'Name', 'Verein' keys],
+                'bracket': [(fighter1, fighter2), ...],  # KO pairs only
+                'bracket_phase': 'pool' or 'wb',
+                'pool_size': pool_size,
+                'is_quarantine': False
+            }
+        """
+        return self.bracket_reconstruction.reconstruct_bracket_from_db(
+            bracket_id=bracket_id,
+            bracket_key=bracket_key,
+            bracket_type=bracket_type,
+            pool_size=pool_size,
+        )
 
     # ===== TABLE ASSIGNMENT CRUD =====
     
