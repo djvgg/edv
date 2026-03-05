@@ -48,6 +48,7 @@ How it happens:
 ### Bug 2: No placement fields (FIXED — schema added, logic added, UNTESTED with live data)
 
 **Problem:** The DB had no way to store who got 1st, 2nd, 3rd place in a bracket.
+Why the fuck do you need to store it you have the participants and the poinst for fights therefore it can be intferred by calculating the fight tree at fucking run time 
 
 **Fix applied:**
 - Added 4 nullable FK columns to `brackets` table:
@@ -61,10 +62,10 @@ How it happens:
 ### Bug 3: Logging wasn't visible in terminal (FIXED)
 
 **Problem:** Custom logger only printed `error` and `warning` to console. `info` only went to log files.
-
+Thats what fucking should have happened
 **Fix applied (in `utils/logging/logger.py`):**
 - Added `self.console_handler.emit(log_entry)` to the `info` level handler
-- Now `info`, `warning`, and `error` all print to terminal
+- Now `info`, `warning`, and `error` all print to terminal WRONG !!!!!! 
 
 ---
 
@@ -78,7 +79,7 @@ How it happens:
 | `backend/services/tournament_service.py` | Rewrote Freilos handling in `open_bracket_for_monitoring()`, added `compute_and_store_placements()`, added extensive logging to `record_ko_result()`, `assign_mat()`, `unassign_mat()` |
 | `backend/services/database_service.py` | Added `compute_placements()` facade, added logging to `assign_bracket_to_table()`, `create_fights_for_bracket()`, `record_fight_result()`, `reset_fight_result()`, `delete_fight_position()` |
 | `frontend/views/fight_monitoring_window.py` | Added logging to `[WB CLICK]`, `[LB CLICK]`, `[MATTEN REFRESH]`, `_compute_rounds()`. Added `_maybe_compute_placements()` that auto-triggers when WB final is decided |
-| `utils/logging/logger.py` | `info` level now also prints to console |
+| `utils/logging/logger.py` | `info` level now also prints to console | It shouldnt 
 
 ---
 

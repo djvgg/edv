@@ -1834,14 +1834,14 @@ class BracketViewerApp(tk.Tk):
             )
 
             # Draw simplified empty loser bracket below winners bracket
-            self._draw_loser_bracket_on_canvas(
+            loser_max_y = self._draw_loser_bracket_on_canvas(
                 bracket, bracket_key, positions, box_width, box_height,
                 start_x, start_y, self.zoom_level
             )
 
             # Update scroll region based on bracket size and zoom level
             max_x = max(pos[0] for pos in positions.values()) + box_width + start_x
-            max_y = max(pos[1] for pos in positions.values()) + box_height + start_y + int(100 * self.zoom_level)  # Add space for loser bracket
+            max_y = loser_max_y + start_y  # Use actual loser bracket height
             self.bracket_canvas.configure(scrollregion=(0, 0, max_x, max_y))
 
             self.logger.debug(f"Successfully rendered bracket with {len(rounds_with_clubs)} rounds and club info at {int(self.zoom_level*100)}% zoom")
@@ -1859,17 +1859,20 @@ class BracketViewerApp(tk.Tk):
         """Draw a simplified empty loser bracket below the winners bracket on the canvas.
         
         Shows the structure of the loser bracket without any filled-in winners.
+        
+        Returns:
+            The max y coordinate used by the loser bracket (for scroll region calculation)
         """
         try:
             # Compute winners bracket rounds
             wb_rounds = compute_bracket_rounds(bracket, {})
             if not wb_rounds:
-                return
+                return max(pos[1] for pos in wb_positions.values()) + box_height  # fallback
             
             # Compute loser bracket structure
             loser_rounds = self._compute_loser_rounds_for_preview(wb_rounds)
             if not loser_rounds:
-                return
+                return max(pos[1] for pos in wb_positions.values()) + box_height  # fallback
             
             # Position loser bracket below winners bracket
             max_wb_y = max(pos[1] for pos in wb_positions.values()) + box_height
@@ -1911,7 +1914,6 @@ class BracketViewerApp(tk.Tk):
             
             # Draw loser bracket labels
             nr = len(loser_rounds)
-            BW = int(200 * zoom_level)
             XG = int(70 * zoom_level)
             label_font = ('Arial', max(8, int(11 * zoom_level)), 'bold')
             
@@ -1923,9 +1925,16 @@ class BracketViewerApp(tk.Tk):
                     text=label, anchor='c',
                     fill=COLORS['accent_orange'], font=label_font)
             
-            self.logger.debug(f"Drew loser bracket for '{bracket_key}' with {len(loser_rounds)} rounds")
+            # Calculate and return max y used by loser bracket
+            if lb_pos:
+                max_lb_y = max(pos[1] for pos in lb_pos.values()) + BH
+                self.logger.debug(f"Drew loser bracket for '{bracket_key}' with max_y={max_lb_y}")
+                return max_lb_y
+            else:
+                return max_wb_y
         except Exception as e:
             self.logger.debug(f"Error drawing loser bracket for '{bracket_key}': {e}")
+            return max(pos[1] for pos in wb_positions.values()) + box_height
 
     def _render_pool(self, bracket_key, participants, pool_size=None, generation_method=None):
         """Render pool/round-robin visualization on canvas.
