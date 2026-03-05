@@ -129,6 +129,10 @@ class QuarantineService:
                 issues.append("Missing Age/Birthyear")
             else:
                 issues.append(f"Invalid Age: {age_rejection_reason}")
+
+        # 3. Validation check (manual flag)
+        if not fighter.get('Valid', True):
+            issues.append("Invalid")
                 
         return issues
 
@@ -196,18 +200,26 @@ class QuarantineService:
                 invalid_reason = "unpaid"
                 self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
             else:
-                # Check age validity using unified validation function (SINGLE SOURCE OF TRUTH)
-                birthyear = fighter.get('Birthyear') or fighter.get('Age')
-                age_group, calculated_age, age_is_valid, age_rejection_reason = validate_age_from_birthyear(birthyear)
-                
-                self.logger.debug(f"RESORT:   Age validation: birthyear={birthyear}, calculated_age={calculated_age}, valid={age_is_valid}, reason={age_rejection_reason}")
-                
-                if not age_is_valid:
+                # Check manual valid flag
+                is_manually_valid = fighter.get('Valid', True)
+                self.logger.debug(f"RESORT:   Manual Valid Flag: {is_manually_valid}")
+                if not is_manually_valid:
                     is_valid = False
-                    invalid_reason = age_rejection_reason
+                    invalid_reason = "marked_invalid"
                     self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
                 else:
-                    self.logger.debug(f"RESORT:   Age bounds OK, age group {age_group} - VALID")
+                    # Check age validity using unified validation function (SINGLE SOURCE OF TRUTH)
+                    birthyear = fighter.get('Birthyear') or fighter.get('Age')
+                    age_group, calculated_age, age_is_valid, age_rejection_reason = validate_age_from_birthyear(birthyear)
+                    
+                    self.logger.debug(f"RESORT:   Age validation: birthyear={birthyear}, calculated_age={calculated_age}, valid={age_is_valid}, reason={age_rejection_reason}")
+                    
+                    if not age_is_valid:
+                        is_valid = False
+                        invalid_reason = age_rejection_reason
+                        self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
+                    else:
+                        self.logger.debug(f"RESORT:   Age bounds OK, age group {age_group} - VALID")
             
             if is_valid:
                 valid_from_quarantine.append(fighter)

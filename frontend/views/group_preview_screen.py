@@ -221,8 +221,8 @@ class GroupPreviewScreen(tk.Frame):
         placeholder.pack(expand=True)
 
     def _fmt_tolerance(self, val):
-        """Format tolerance to maintain 3 decimal places internally but show cleanly (e.g. 0.0 or 0.05)."""
-        formatted = f"{float(val):.3f}".rstrip('0')
+        """Format tolerance to maintain 4 decimal places internally but show cleanly (e.g. 0.0 or 0.05)."""
+        formatted = f"{float(val):.4f}".rstrip('0')
         if formatted.endswith('.'):
             formatted += '0'
         return formatted
@@ -257,7 +257,7 @@ class GroupPreviewScreen(tk.Frame):
             except ValueError:
                 val = 0.0
             val += amount
-            val = max(0.0, round(val, 3))
+            val = max(0.0, round(val, 4))
             var.set(self._fmt_tolerance(val))
             if callback:
                 callback()
@@ -311,7 +311,7 @@ class GroupPreviewScreen(tk.Frame):
     def _on_tolerance_changed(self):
         """Save tolerance for the current group and re-render."""
         try:
-            new_val = round(float(self._tolerance_var.get()), 3)
+            new_val = round(float(self._tolerance_var.get()), 4)
             new_val = max(0.0, new_val)
         except (ValueError, TypeError):
             new_val = 0.0
@@ -400,7 +400,7 @@ class GroupPreviewScreen(tk.Frame):
         def save_all():
             for key, var in spinbox_vars.items():
                 try:
-                    val = round(float(var.get()), 3)
+                    val = round(float(var.get()), 4)
                     val = max(0.0, val)
                 except (ValueError, TypeError):
                     val = 0.0
@@ -631,7 +631,7 @@ class GroupPreviewScreen(tk.Frame):
 
             # Format weight
             if isinstance(weight, (int, float)):
-                weight_str = f"{weight:.3f}".rstrip('0')
+                weight_str = f"{weight:.4f}".rstrip('0')
                 if weight_str.endswith('.'):
                     weight_str += '0'
             else:
