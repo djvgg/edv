@@ -120,7 +120,7 @@ class Edit_Participants(tk.Toplevel):
         bracket_key = self.bracket_key
         fighter_idx = self.fighter_idx
         
-        is_quarantine = bracket_key == 'QUARANTINE'
+        is_quarantine = bracket_key.startswith('QUARANTINE_')
         self.parent.logger.debug(f"EDIT_DIALOG: Opening dialog for bracket={bracket_key}, fighter_idx={fighter_idx}, is_quarantine={is_quarantine}")
         
         try:
@@ -955,7 +955,7 @@ class Edit_Participants(tk.Toplevel):
                             
                             # 3. Find exactly where this fighter ended up to display that bracket
                             for bracket_key_check, bracket_data in self.parent.brackets.items():
-                                if bracket_key_check == 'QUARANTINE':
+                                if bracket_key_check.startswith('QUARANTINE_'):
                                     continue
                                 for f in bracket_data.get('fighters', []):
                                     if f.get('_tracking_id') == tracking_id:
@@ -970,9 +970,9 @@ class Edit_Participants(tk.Toplevel):
                                     if '_tracking_id' in f:
                                         del f['_tracking_id']
                             
-                            # Stay on QUARANTINE view unless it's now empty.
-                            if 'QUARANTINE' in self.parent.brackets and self.parent.brackets['QUARANTINE'].get('fighters', []):
-                                display_bracket_key = 'QUARANTINE'
+                            # Stay on current QUARANTINE_* view unless it's now empty.
+                            if bracket_key in self.parent.brackets and self.parent.brackets[bracket_key].get('fighters', []):
+                                display_bracket_key = bracket_key
                             elif target_bracket_key:
                                 display_bracket_key = target_bracket_key
                             else:
@@ -991,11 +991,18 @@ class Edit_Participants(tk.Toplevel):
                             moved_fighter = old_fighters.pop(fighter_idx)
                             self.parent.brackets[bracket_key]['bracket'] = []
                             
-                            # 2. Add to quarantine bracket
+                            # 2. Add to quarantine bracket (returns dict of {reason: fighters})
                             if self.parent.quarantine_service:
-                                self.parent.quarantine_service.create_quarantine_bracket(self.parent.brackets, [moved_fighter])
+                                quarantine_result = self.parent.quarantine_service.create_quarantine_bracket(self.parent.brackets, [moved_fighter])
+                                # Use the first (and likely only) reason as the display key
+                                if quarantine_result:
+                                    first_reason = list(quarantine_result.keys())[0]
+                                    display_bracket_key = f'QUARANTINE_{first_reason}'
+                                else:
+                                    display_bracket_key = None
+                            else:
+                                display_bracket_key = None
                         
-                        display_bracket_key = 'QUARANTINE'
                         # Refresh group list counts
                         self.parent._populate_group_list()
                     
