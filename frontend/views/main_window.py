@@ -49,6 +49,9 @@ from ..utils import (  # noqa: E402
     draw_pools_on_canvas,
     build_bracket_rounds,
     draw_bracket_on_canvas,
+    compute_bracket_rounds,
+    calculate_loser_positions,
+    draw_loser_connectors,
 )
 
 # Import generation method screen
@@ -438,8 +441,9 @@ class BracketViewerApp(tk.Tk):
 
     def show_bracket_viewer(self):
         """Show bracket list and visualization (dark themed)."""
-        # Resize and reconfigure window
-        self.geometry('1000x600')
+        # Resize and reconfigure window - larger to accommodate loser brackets
+        self.geometry('1200x750')
+        self.minsize(1000, 600)  # Allow resizing smaller, but set reasonable minimum
         self.configure(bg=COLORS['bg_dark'])
         self.viewer_shown = True
 
@@ -827,14 +831,12 @@ class BracketViewerApp(tk.Tk):
                                   f'Matte {table_num} already has 2 brackets assigned.')
             return
 
-        # Assign the bracket
+        # Assign the bracket and create fights in one operation
         self.bracket_table_assignment[bracket_key] = table_num
-        self.db_service.assign_bracket_to_table(bracket_key, table_num)
-
-        # Create fight rows now that this bracket has a mat (idempotent if already created)
         bracket_data = self.brackets[bracket_key]
-        self.db_service.create_fights_for_bracket(
+        self.db_service.assign_and_create_fights(
             bracket_key,
+            table_num=table_num,
             fight_pairs=bracket_data.get('bracket', []),
             bracket_type=self.bracket_generation_methods.get(bracket_key, 'ko'),
             fighters=bracket_data.get('fighters', []),
@@ -892,17 +894,14 @@ class BracketViewerApp(tk.Tk):
                     break
                 table = table % 4 + 1
 
-        # Persist mat assignments to DB for all assigned brackets
-        for bracket_key, table_num in self.bracket_table_assignment.items():
-            if table_num:
-                self.db_service.assign_bracket_to_table(bracket_key, table_num)
-
-        # Create fight rows only for the brackets just assigned (idempotent for any repeats)
+        # Assign and create fights for newly assigned brackets
         for bracket_key in unassigned:
-            if self.bracket_table_assignment.get(bracket_key):
+            table_num = self.bracket_table_assignment.get(bracket_key)
+            if table_num:
                 bracket_data = self.brackets[bracket_key]
-                self.db_service.create_fights_for_bracket(
+                self.db_service.assign_and_create_fights(
                     bracket_key,
+                    table_num=table_num,
                     fight_pairs=bracket_data.get('bracket', []),
                     bracket_type=self.bracket_generation_methods.get(bracket_key, 'ko'),
                     fighters=bracket_data.get('fighters', []),
@@ -978,6 +977,68 @@ class BracketViewerApp(tk.Tk):
                                   bg=COLORS['bg_panel'], fg=COLORS['accent_orange'],
                                   font=FONTS['heading_sm'])
             total_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+
+    def _compute_loser_rounds_for_preview(self, wb_rounds):
+        """Compute loser bracket structure from winners bracket rounds (for preview).
+        
+        This is a simplified version that returns empty loser matches.
+        """
+        def get_loser(match):
+            """Extract the loser from a winner/loser match tuple."""
+            if match['winner'] and match['winner'] in ('Freilos', 'TBD'):
+                return 'TBD'
+            if match['winner'] and match['winner'] == match['p1']:
+                return match['p2'] if match['p2'] not in ('Freilos', 'TBD') else 'Freilos'
+            if match['winner'] and match['winner'] == match['p2']:
+                return match['p1'] if match['p1'] not in ('Freilos', 'TBD') else 'Freilos'
+            return 'TBD'
+        
+        loser_rounds = []
+        
+        # LB R0: pair consecutive losers from WB R0
+        wb_r0_losers = [get_loser(m) for m in wb_rounds[0]]
+        lb_r0_matches = []
+        for i in range(0, len(wb_r0_losers), 2):
+            p1 = wb_r0_losers[i]
+            p2 = wb_r0_losers[i + 1] if i + 1 < len(wb_r0_losers) else 'Freilos'
+            lb_r0_matches.append({'p1': p1, 'p2': p2, 'winner': None})
+        loser_rounds.append(lb_r0_matches)
+        
+        # Remaining LB rounds: add loser from each WB round
+        for r in range(1, len(wb_rounds)):
+            # Get losers from current WB round
+            wb_r_losers = [get_loser(m) for m in wb_rounds[r]]
+            # Get winners from previous LB round
+            lb_r1_winners = [m['winner'] if m['winner'] else 'TBD' for m in loser_rounds[r - 1]]
+            
+            if r == len(wb_rounds) - 1:
+                # Last round: LB winner vs WB finalist loser (for 3rd place)
+                p1 = lb_r1_winners[0] if lb_r1_winners else 'TBD'
+                p2 = wb_r_losers[0] if wb_r_losers else 'TBD'
+                loser_rounds.append([{'p1': p1, 'p2': p2, 'winner': None}])
+            else:
+                # Regular round: combine LB winners with WB losers
+                lb_matches = []
+                prev_count = len(loser_rounds[r - 1])
+                curr_wb_losers = len(wb_r_losers)
+                
+                if curr_wb_losers >= prev_count:
+                    # Injection: each LB winner gets matched with a WB loser
+                    for i in range(prev_count):
+                        p1 = lb_r1_winners[i] if i < len(lb_r1_winners) else 'TBD'
+                        p2 = wb_r_losers[i] if i < len(wb_r_losers) else 'Freilos'
+                        lb_matches.append({'p1': p1, 'p2': p2, 'winner': None})
+                else:
+                    # Reduction: LB winners play each other
+                    for i in range(0, len(lb_r1_winners), 2):
+                        p1 = lb_r1_winners[i] if i < len(lb_r1_winners) else 'TBD'
+                        p2 = lb_r1_winners[i + 1] if i + 1 < len(lb_r1_winners) else 'Freilos'
+                        lb_matches.append({'p1': p1, 'p2': p2, 'winner': None})
+                
+                loser_rounds.append(lb_matches)
+        
+        return loser_rounds
 
     def on_bracket_double_click(self, event):
         """Handle double-click on bracket - show visualization."""
@@ -1800,9 +1861,15 @@ class BracketViewerApp(tk.Tk):
                 FONTS
             )
 
+            # Draw simplified empty loser bracket below winners bracket
+            loser_max_y = self._draw_loser_bracket_on_canvas(
+                bracket, bracket_key, positions, box_width, box_height,
+                start_x, start_y, self.zoom_level
+            )
+
             # Update scroll region based on bracket size and zoom level
             max_x = max(pos[0] for pos in positions.values()) + box_width + start_x
-            max_y = max(pos[1] for pos in positions.values()) + box_height + start_y
+            max_y = loser_max_y + start_y  # Use actual loser bracket height
             self.bracket_canvas.configure(scrollregion=(0, 0, max_x, max_y))
 
             self.logger.debug(f"Successfully rendered bracket with {len(rounds_with_clubs)} rounds and club info at {int(self.zoom_level*100)}% zoom")
@@ -1814,6 +1881,88 @@ class BracketViewerApp(tk.Tk):
             self.bracket_canvas.create_text(400, 300,
                 text=f"Error rendering bracket:\n{str(e)}",
                 font=FONTS['body_md'], fill='red')
+
+    def _draw_loser_bracket_on_canvas(self, bracket, bracket_key, wb_positions, 
+                                     box_width, box_height, start_x, start_y, zoom_level):
+        """Draw a simplified empty loser bracket below the winners bracket on the canvas.
+        
+        Shows the structure of the loser bracket without any filled-in winners.
+        
+        Returns:
+            The max y coordinate used by the loser bracket (for scroll region calculation)
+        """
+        try:
+            # Compute winners bracket rounds
+            wb_rounds = compute_bracket_rounds(bracket, {})
+            if not wb_rounds:
+                return max(pos[1] for pos in wb_positions.values()) + box_height  # fallback
+            
+            # Compute loser bracket structure
+            loser_rounds = self._compute_loser_rounds_for_preview(wb_rounds)
+            if not loser_rounds:
+                return max(pos[1] for pos in wb_positions.values()) + box_height  # fallback
+            
+            # Position loser bracket below winners bracket
+            max_wb_y = max(pos[1] for pos in wb_positions.values()) + box_height
+            y_offset = max_wb_y + int(40 * zoom_level)  # Gap between brackets
+            
+            # Calculate positions for loser bracket using utility
+            lb_pos, _ = calculate_loser_positions(loser_rounds, zoom_level, y_offset, start_x)
+            
+            # Draw connectors using utility
+            draw_loser_connectors(self.bracket_canvas, lb_pos, loser_rounds, zoom_level, COLORS)
+            
+            # Draw match boxes (simplified empty boxes)
+            LW = max(1, int(2 * zoom_level))
+            BW = int(200 * zoom_level)
+            BH = int(64 * zoom_level)
+            
+            FS = max(7, int(10 * zoom_level))
+            font = ('Consolas', FS)
+            
+            for r, matches in enumerate(loser_rounds):
+                for m in range(len(matches)):
+                    if (r, m) not in lb_pos:
+                        continue
+                    
+                    x, y = lb_pos[(r, m)]
+                    x2, y2 = x + BW, y + BH
+                    my = y + BH // 2
+                    
+                    # Draw box outline in orange
+                    self.bracket_canvas.create_rectangle(
+                        x, y, x2, y2,
+                        fill=COLORS['bg_panel'],
+                        outline=COLORS['accent_orange'], width=LW)
+                    
+                    # Draw separator line for the two competitors
+                    self.bracket_canvas.create_line(
+                        x, my, x2, my,
+                        fill=COLORS['border'], width=1, dash=(4, 3))
+            
+            # Draw loser bracket labels
+            nr = len(loser_rounds)
+            XG = int(70 * zoom_level)
+            label_font = ('Arial', max(8, int(11 * zoom_level)), 'bold')
+            
+            for r in range(nr):
+                lx = start_x + r * (BW + XG) + BW // 2
+                label = '3rd Place' if r == nr - 1 else f'Loser R{r + 1}'
+                self.bracket_canvas.create_text(
+                    lx, y_offset - int(20 * zoom_level),
+                    text=label, anchor='c',
+                    fill=COLORS['accent_orange'], font=label_font)
+            
+            # Calculate and return max y used by loser bracket
+            if lb_pos:
+                max_lb_y = max(pos[1] for pos in lb_pos.values()) + BH
+                self.logger.debug(f"Drew loser bracket for '{bracket_key}' with max_y={max_lb_y}")
+                return max_lb_y
+            else:
+                return max_wb_y
+        except Exception as e:
+            self.logger.debug(f"Error drawing loser bracket for '{bracket_key}': {e}")
+            return max(pos[1] for pos in wb_positions.values()) + box_height
 
     def _render_pool(self, bracket_key, participants, pool_size=None, generation_method=None):
         """Render pool/round-robin visualization on canvas.

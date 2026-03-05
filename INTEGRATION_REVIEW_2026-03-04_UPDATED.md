@@ -143,15 +143,49 @@ def update_type(self, bracket_id: int, bracket_type: str) -> None:
 
 ---
 
+---
+
+## Commit Analysis: "Fixed KO Bracket DB Writes" (3e6999a)
+
+**What the commit addressed:** Issues 2 and 4 (duplicate fights, bye result spam)
+
+**Solutions applied (DUCT-TAPE):**
+
+| Issue | Band-Aid Applied | Root Cause (Still Unfixed) |
+|-------|-----------------|--------------------------|
+| **Duplicate fights** | Add `UNIQUE(bracket_id, bracket_phase, round, pos_in_round)` constraint at DB level + migration to clean up existing duplicates | 3 independent callers of `open_bracket_for_monitoring()` in main_window.py (lines 676, 834, 902) — should be 1 consolidated call |
+| **Bye result spam** | Add `_bye_db_synced` tracking set to skip already-synced byes | `record_fight_result()` called from `_render()` pipeline on every mouse move — should be in event handlers only |
+| **Fight numbering** | Count existing fights, start new at `existing_count + 1` | Dead field `fight_number` still exists; ordering uses `(bracket_phase, round, pos_in_round)` but legacy numbering creates confusion |
+
+**What was fixed properly:**
+- ✓ Fight order: Changed sorting from `fight_number` → `(bracket_phase, round, pos_in_round)` (correct)
+- ✓ Placement trigger: Added `_maybe_compute_placements()` call after LB fights (correct)
+- ✓ Window close: Added `on_closing()` handler (correct)
+
+**Assessment:**
+The commit prevented **symptoms** (duplicate data at DB) but did NOT fix **root causes** (architectural):
+- UNIQUE constraint acts as safety net for bad architecture
+- Bye tracking prevents spam but render pipeline still shouldn't call `record_fight_result()`
+- Numbering workaround masks fact that 3 callers exist
+
+**Result:** System now works but remains fragile. Any new code path that calls `open_bracket_for_monitoring()` will hit the UNIQUE constraint instead of being prevented architecturally.
+
+---
+
 ## Severity
 
 **These are foundational architectural issues — they prevent the integration from working correctly.**
 
-Most critical:
-1. Create BracketManagerService (consolidate fight assignment + creation + cascade)
-2. Create DataLoaderService (move file loading from main_window)
-3. Add missing DB constraints
-4. Remove duplicate `create_fights` calls
-5. Add bracket assignment validations
+**Status after "Fixed KO Bracket DB Writes":**
+- ✓ Data corruption prevented (workaround)
+- ✗ Root causes unfixed (3 callers still exist, render still calls DB)
+- ✗ Architectural debt increased (workarounds now in codebase)
 
-Without these fixes, the monitoring screen will produce silent failures and data corruption.
+Most critical items to fix properly:
+1. **Consolidate fight creation** (lines 676, 834, 902 → single entry point)
+2. **Move result recording** (out of `_render()` → into click handlers)
+3. **Create BracketManagerService** (centralize bracket + fight operations)
+4. **Create DataLoaderService** (move file loading from main_window)
+5. **Remove dead `fight_number` field** (now that we're using correct ordering)
+
+Without fixing root causes, the system will accumulate more workarounds and become unmaintainable.

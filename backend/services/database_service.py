@@ -25,6 +25,7 @@ if _edv_backend_path not in sys.path:
 from utils.logging import get_logger  # noqa: E402
 from ..data.database import SessionLocal, init_db as _init_db, Base, engine  # noqa: E402
 from .tournament_service import TournamentService  # noqa: E402
+from .bracket_reconstruction_service import BracketReconstructionService  # noqa: E402
 
 logger = get_logger('database_service')
 
@@ -63,6 +64,9 @@ class DatabaseService:
             else:
                 self.logger.error(f"Failed to initialize database: {e}")
                 DB_AVAILABLE = False
+        
+        # Initialize bracket reconstruction service
+        self.bracket_reconstruction = BracketReconstructionService(self)
 
     def is_available(self) -> bool:
         """Check if database is available."""
@@ -210,6 +214,42 @@ class DatabaseService:
         result = self._execute_with_session(_save)
         return result is True
 
+    def reconstruct_bracket_from_db(
+        self,
+        bracket_id: int,
+        bracket_key: str,
+        bracket_type: str = 'ko',
+        pool_size: int = None,
+    ) -> dict:
+        """
+        Reconstruct a bracket data structure from database Fight records.
+        
+        Uses the reverse mapping algorithm to recover original participant ordering
+        for pool brackets by analyzing the deterministic fight generation algorithm.
+        
+        Args:
+            bracket_id: Database bracket ID
+            bracket_key: Human-readable bracket key (for logging)
+            bracket_type: 'ko', 'pools', or 'double'
+            pool_size: Max fighters per pool (if applicable)
+        
+        Returns:
+            Dict matching self.brackets[bracket_key] format:
+            {
+                'fighters': [participant dicts with 'Name', 'Verein' keys],
+                'bracket': [(fighter1, fighter2), ...],  # KO pairs only
+                'bracket_phase': 'pool' or 'wb',
+                'pool_size': pool_size,
+                'is_quarantine': False
+            }
+        """
+        return self.bracket_reconstruction.reconstruct_bracket_from_db(
+            bracket_id=bracket_id,
+            bracket_key=bracket_key,
+            bracket_type=bracket_type,
+            pool_size=pool_size,
+        )
+
     # ===== TABLE ASSIGNMENT CRUD =====
     
     def assign_bracket_to_table(self, bracket_key: str, table_num: int) -> bool:
@@ -280,6 +320,57 @@ class DatabaseService:
                 return False
 
         result = self._execute_with_session(_create)
+        return result is True
+
+    def assign_and_create_fights(
+        self,
+        bracket_key: str,
+        table_num: int,
+        fight_pairs: list,
+        bracket_type: str = 'ko',
+        fighters: list = None,
+        pool_size: int = None,
+    ) -> bool:
+        """
+        Combined operation: Assign bracket to table AND create fights in one session.
+        
+        This is the preferred method when a bracket is being assigned to a mat
+        (consolidates repetitive assign + create pattern from GUI callers).
+
+        Args:
+            bracket_key:   Bracket identifier
+            table_num:     Table/mat number (1-4)
+            fight_pairs:   WB round-0 name pairs for KO/special brackets
+            bracket_type:  'pools' | 'double' | 'ko' | 'special'
+            fighters:      Full fighters list — required for pool/double brackets
+            pool_size:     Max fighters per pool (for U9/U11 multi-pool splits)
+
+        Returns:
+            True if both assign and create succeeded, False otherwise
+        """
+        self.logger.info(f"[ASSIGN+CREATE] '{bracket_key}' → Mat {table_num}, "
+                         f"type={bracket_type}, {len(fight_pairs)} pairs")
+
+        def _assign_and_create(svc: TournamentService):
+            try:
+                # 1. Assign bracket to table
+                svc.assign_mat(bracket_key, table_num)
+                self.logger.info(f"[ASSIGN+CREATE] Step 1/2: Assigned '{bracket_key}' → Mat {table_num}")
+
+                # 2. Create fight rows
+                fights = svc.open_bracket_for_monitoring(
+                    bracket_key, fight_pairs,
+                    bracket_type=bracket_type,
+                    fighters=fighters,
+                    pool_size=pool_size,
+                )
+                self.logger.info(f"[ASSIGN+CREATE] Step 2/2: Created {len(fights)} fight rows for '{bracket_key}'")
+                return True
+            except ValueError as e:
+                self.logger.debug(f"[ASSIGN+CREATE] Failed: Bracket '{bracket_key}' not yet in DB: {e}")
+                return False
+
+        result = self._execute_with_session(_assign_and_create)
         return result is True
 
     # ===== FIGHT RESULT PERSISTENCE =====
