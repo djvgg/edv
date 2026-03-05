@@ -515,7 +515,7 @@ class TournamentService:
             self.logger.info(f"  → No fight at {phase} R{round_num} pos{pos}, will lazy-create")
             # Lazy creation — participants only known when the fight is reachable
             if not p1_name or not p2_name:
-                self.logger.warning(f"  → Cannot lazy-create: p1_name or p2_name missing")
+                self.logger.warning("  → Cannot lazy-create: p1_name or p2_name missing")
                 return False
             gp1 = self._find_group_participant(group.id, p1_name)
             gp2 = self._find_group_participant(group.id, p2_name)

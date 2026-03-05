@@ -891,9 +891,14 @@ class BracketViewerApp(tk.Tk):
 
     def _compute_loser_rounds_for_preview(self, wb_rounds):
         """Compute loser bracket structure from winners bracket rounds (for preview).
-        
+
         This is a simplified version that returns empty loser matches.
         """
+        # Need at least 2 WB rounds for a loser bracket to make sense
+        # (1 round = only 1 or 2 real participants → no consolation bracket)
+        if len(wb_rounds) < 2:
+            return []
+
         def get_loser(match):
             """Extract the loser from a winner/loser match tuple."""
             if match['winner'] and match['winner'] in ('Freilos', 'TBD'):
@@ -1373,8 +1378,7 @@ class BracketViewerApp(tk.Tk):
             BH = int(64 * zoom_level)
             
             FS = max(7, int(10 * zoom_level))
-            font = ('Consolas', FS)
-            
+
             for r, matches in enumerate(loser_rounds):
                 for m in range(len(matches)):
                     if (r, m) not in lb_pos:
