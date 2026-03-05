@@ -262,9 +262,9 @@ class GroupPreviewScreen(tk.Frame):
             if callback:
                 callback()
                 
-        btn_up = tk.Button(btn_frame, text="▲", font=("Arial", 6), bg=COLORS['bg_panel'], fg=COLORS['text_primary'], bd=0, padx=2, pady=0, command=lambda: increment(0.1))
+        btn_up = tk.Button(btn_frame, text="▲", font=FONTS['preview_hint'], bg=COLORS['bg_panel'], fg=COLORS['text_primary'], bd=0, padx=2, pady=0, command=lambda: increment(0.1))
         btn_up.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-        btn_down = tk.Button(btn_frame, text="▼", font=("Arial", 6), bg=COLORS['bg_panel'], fg=COLORS['text_primary'], bd=0, padx=2, pady=0, command=lambda: increment(-0.1))
+        btn_down = tk.Button(btn_frame, text="▼", font=FONTS['preview_hint'], bg=COLORS['bg_panel'], fg=COLORS['text_primary'], bd=0, padx=2, pady=0, command=lambda: increment(-0.1))
         btn_down.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True)
         return frame
 
@@ -412,12 +412,12 @@ class GroupPreviewScreen(tk.Frame):
 
         ok_btn = tk.Button(btn_frame, text='Save', command=save_all,
                            bg=COLORS['accent_green'], fg=COLORS['text_primary'],
-                           font=('Arial', 11, 'bold'), bd=0, padx=15, pady=8, cursor='hand2')
+                           font=FONTS['body_md'], bd=0, padx=15, pady=8, cursor='hand2')
         ok_btn.pack(side=tk.RIGHT)
 
         cancel_btn = tk.Button(btn_frame, text='Cancel', command=dialog.destroy,
                                bg=COLORS['bg_panel'], fg=COLORS['text_secondary'],
-                               font=('Arial', 11, 'bold'), bd=0, padx=15, pady=8, cursor='hand2')
+                               font=FONTS['body_md'], bd=0, padx=15, pady=8, cursor='hand2')
         cancel_btn.pack(side=tk.RIGHT, padx=10)
 
     def _create_navigation_buttons(self, parent_frame):
@@ -877,10 +877,10 @@ class GroupPreviewScreen(tk.Frame):
             self._populate_group_list()
             fm_window.destroy()
 
-        pair_btn = tk.Button(btn_frame, text="Create Match", command=pair_fighters, bg=COLORS['accent_green'], fg=COLORS['text_primary'], font=('Arial', 11, 'bold'), bd=0, padx=15, pady=8, cursor='hand2')
+        pair_btn = tk.Button(btn_frame, text="Create Match", command=pair_fighters, bg=COLORS['accent_green'], fg=COLORS['text_primary'], font=FONTS['body_md'], bd=0, padx=15, pady=8, cursor='hand2')
         pair_btn.pack(side=tk.RIGHT)
 
-        cancel_btn = tk.Button(btn_frame, text="Cancel", command=fm_window.destroy, bg=COLORS['bg_panel'], fg=COLORS['text_secondary'], font=('Arial', 11, 'bold'), bd=0, padx=15, pady=8, cursor='hand2')
+        cancel_btn = tk.Button(btn_frame, text="Cancel", command=fm_window.destroy, bg=COLORS['bg_panel'], fg=COLORS['text_secondary'], font=FONTS['body_md'], bd=0, padx=15, pady=8, cursor='hand2')
         cancel_btn.pack(side=tk.RIGHT, padx=10)
 
     def _on_back(self):
