@@ -133,8 +133,9 @@ class RejectionSummaryWindow(tk.Toplevel):
             self.tree.insert('', 'end', text='', values=(name, age, reason), tags=(tag,))
         
         # Configure row colors with red text for emphasis on rejections
+        # All rows use the same darker grey color
         self.tree.tag_configure('oddrow', background=COLORS['bg_input'], foreground=COLORS['accent_red'])
-        self.tree.tag_configure('evenrow', background=COLORS['bg_darker'], foreground=COLORS['accent_red'])
+        self.tree.tag_configure('evenrow', background=COLORS['bg_input'], foreground=COLORS['accent_red'])
         
         self.tree.pack(fill=tk.BOTH, expand=True)
         

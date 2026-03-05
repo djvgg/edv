@@ -548,3 +548,196 @@ class DataLoaderService:
                 self.ui_feedback.set_status(error_msg, '#cc0000')
                 self.ui_feedback.hide_loading_progress()
             messagebox.showerror("Error", f"Failed to load JSON files:\n{str(e)}")
+    def split_gender_to_json_with_tolerances(self, input_file, save_dir, configured_tolerances=None):
+        """Split tournament registration XLSX by gender and save with tolerance configuration.
+        
+        Reads tournament registration XLSX, splits participants by gender (M/W),
+        and saves:
+        - contestants_male.json
+        - contestants_female.json
+        - tolerance_settings.json (if tolerances provided)
+        
+        Args:
+            input_file: Path to tournament registration XLSX file
+            save_dir: Directory to save the split JSON files
+            configured_tolerances: Dict mapping (gender, age_group) -> tolerance_value
+                                  Obtained from ToleranceConfigDialog.show() in main_window
+                                  If None, only contestant files are saved without tolerances
+        
+        Args:
+            input_file: Path to tournament registration XLSX file
+            save_dir: Directory to save the split JSON files
+            tolerance_dialog_class: ToleranceConfigDialog class from frontend.views
+        
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        try:
+            if self.ui_feedback:
+                self.ui_feedback.set_status("Reading tournament XLSX file...", '#999999')
+            
+            # Load participants using the tournament format parser
+            raw_participants = load_participants_from_xlsx(input_file)
+            
+            if not raw_participants:
+                return False, "No participants found in the file."
+            
+            self.logger.debug(f"Loaded {len(raw_participants)} raw participants from {input_file}")
+            
+            if self.ui_feedback:
+                self.ui_feedback.set_status("Splitting by gender and converting to English format...", '#999999')
+            
+            # Split by gender and convert to English field names
+            male_contestants = []
+            female_contestants = []
+            skipped_participants = []
+            
+            for idx, p in enumerate(raw_participants, 1):
+                # Extract gender
+                gender = str(p.get('Gender', '')).strip().lower()
+                
+                # Try alternative gender field names
+                if not gender:
+                    for gender_field in ['Geschlecht', 'gender']:
+                        if gender_field in p and p[gender_field]:
+                            gender = str(p[gender_field]).strip().lower()
+                            break
+                
+                # Normalize gender
+                if gender in ['m', 'male', 'männlich', 'maennlich']:
+                    gender_normalized = 'male'
+                elif gender in ['w', 'female', 'weiblich', 'f']:
+                    gender_normalized = 'female'
+                else:
+                    # Skip participants with missing gender
+                    participant_name = p.get('Name', f"ID {idx}")
+                    skipped_participants.append({
+                        'name': participant_name,
+                        'gender': gender if gender else '(empty)',
+                        'id': idx
+                    })
+                    self.logger.warning(f"Skipping participant with missing/invalid gender '{gender}': {participant_name}")
+                    continue
+                
+                # Split full name
+                full_name = p.get('Name', '')
+                name_parts = full_name.split(' ', 1)
+                firstname = name_parts[0] if len(name_parts) > 0 else ''
+                lastname = name_parts[1] if len(name_parts) > 1 else ''
+                
+                # Extract birthyear
+                birthyear = None
+                for year_field in ['BirthYear', 'Jahrgang', 'Age']:
+                    if year_field in p and p[year_field]:
+                        try:
+                            birthyear = int(p[year_field])
+                            break
+                        except (ValueError, TypeError):
+                            pass
+                
+                # Extract other fields
+                club = p.get('Verein', p.get('Club', ''))
+                association = p.get('Verband', p.get('Association', ''))
+                weight = 0.0  # Will be filled during weighing
+                
+                # Extract paid status
+                paid_str = str(p.get('Bezahlt', p.get('Paid', ''))).strip().lower()
+                paid = paid_str in ['true', 'ja', 'yes', '1', 'y']
+                
+                # Create contestant record
+                contestant = {
+                    'ID': idx,
+                    'Firstname': firstname,
+                    'Lastname': lastname,
+                    'Name': f"{firstname} {lastname}".strip(),
+                    'Birthyear': birthyear,
+                    'Club': club,
+                    'Association': association,
+                    'Weight': weight,
+                    'Valid': False,
+                    'Gender': gender_normalized,
+                    'Paid': paid
+                }
+                
+                if gender_normalized == 'male':
+                    male_contestants.append(contestant)
+                else:
+                    female_contestants.append(contestant)
+            
+            male_count = len(male_contestants)
+            female_count = len(female_contestants)
+            
+            if male_count == 0 and female_count == 0:
+                return False, "No valid contestants found with recognized gender."
+            
+            if self.ui_feedback:
+                self.ui_feedback.set_status("Saving JSON files...", '#999999')
+            
+            # Ensure save directory exists
+            os.makedirs(save_dir, exist_ok=True)
+            
+            # Save male contestants
+            if male_count > 0:
+                male_file = os.path.join(save_dir, 'contestants_male.json')
+                with open(male_file, 'w', encoding='utf-8') as f:
+                    json.dump(male_contestants, f, indent=2, ensure_ascii=False)
+                self.logger.info(f"Saved {male_count} male contestants to: {male_file}")
+            
+            # Save female contestants
+            if female_count > 0:
+                female_file = os.path.join(save_dir, 'contestants_female.json')
+                with open(female_file, 'w', encoding='utf-8') as f:
+                    json.dump(female_contestants, f, indent=2, ensure_ascii=False)
+                self.logger.info(f"Saved {female_count} female contestants to: {female_file}")
+            
+            # Save tolerance settings with proper structure
+            if configured_tolerances:
+                tolerance_settings = {
+                    "ageRange": {
+                        "minAge": 6,
+                        "maxAge": 35
+                    },
+                    "ageClassTolerance": {
+                        "mixed": {},
+                        "male": {},
+                        "female": {}
+                    }
+                }
+                
+                for (gender, age_group), tolerance_value in configured_tolerances.items():
+                    # Map age group: '18+' -> 'Senior'
+                    mapped_age_group = 'Senior' if age_group == '18+' else age_group
+                    
+                    if gender == 'mixed':
+                        # Mixed categories (U9, U11)
+                        tolerance_settings["ageClassTolerance"]["mixed"][mapped_age_group] = int(tolerance_value)
+                    else:
+                        # Gender-specific categories (U13+)
+                        if gender == 'm':
+                            tolerance_settings["ageClassTolerance"]["male"][mapped_age_group] = int(tolerance_value)
+                        elif gender == 'w':
+                            tolerance_settings["ageClassTolerance"]["female"][mapped_age_group] = int(tolerance_value)
+                
+                tolerances_file = os.path.join(save_dir, 'tolerance_settings.json')
+                with open(tolerances_file, 'w', encoding='utf-8') as f:
+                    json.dump(tolerance_settings, f, indent=2, ensure_ascii=False)
+                self.logger.info(f"Saved tolerance configuration to: {tolerances_file}")
+            
+            if self.ui_feedback:
+                self.ui_feedback.set_status("Split complete! Files ready for weighing.", '#00cc00')
+            
+            success_msg = "Successfully saved split files:\n"
+            if male_count > 0:
+                success_msg += f"• contestants_male.json ({male_count} entries)\n"
+            if female_count > 0:
+                success_msg += f"• contestants_female.json ({female_count} entries)\n"
+            success_msg += "• tolerance_settings.json (weight tolerance configuration)\n"
+            
+            return True, success_msg
+        
+        except Exception as e:
+            error_msg = f"Failed to split participants: {str(e)}"
+            self.logger.exception(error_msg)
+            if self.ui_feedback:
+                self.ui_feedback.set_status(error_msg, '#cc0000')
+            return False, error_msg
