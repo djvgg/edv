@@ -535,6 +535,9 @@ class BracketViewerApp(tk.Tk):
         self.show_tables()
         self.update_bracket_list()
         self.update_table_panels()
+        
+        # Automatically unassign any finished brackets (after all UI is created)
+        self.auto_unassign_finished_brackets()
 
 
     def _on_mousewheel(self, event):
@@ -635,6 +638,58 @@ class BracketViewerApp(tk.Tk):
         """Update the zoom percentage label."""
         zoom_percent = int(self.zoom_level * 100)
         self.zoom_label.config(text=f'{zoom_percent}%')
+
+    def auto_unassign_finished_brackets(self):
+        """Automatically unassign brackets where all fights are finished."""
+        unassigned_count = 0
+        for bracket_key in list(self.bracket_table_assignment.keys()):
+            # Skip if not assigned
+            if not self.bracket_table_assignment.get(bracket_key):
+                continue
+            
+            # Check if bracket is complete
+            if self.is_bracket_complete(bracket_key):
+                old_table = self.bracket_table_assignment[bracket_key]
+                self.bracket_table_assignment[bracket_key] = None
+                unassigned_count += 1
+                self.logger.info(f"Auto-unassigned finished bracket '{bracket_key}' from Matte {old_table}")
+        
+        # Update UI if any were unassigned
+        if unassigned_count > 0:
+            self.update_bracket_list()
+            self.update_table_panels()
+            self.logger.info(f"Auto-unassigned {unassigned_count} finished bracket(s)")
+
+    def is_bracket_complete(self, bracket_key):
+        """Check if all fights in a bracket have been recorded in monitoring.
+        
+        Args:
+            bracket_key: The bracket identifier
+        
+        Returns:
+            True if all fights recorded, False otherwise
+        """
+        if bracket_key not in self.brackets:
+            return False
+        
+        assigned_method = self.bracket_generation_methods.get(bracket_key)
+        is_u9_u11 = bracket_key in ('U9', 'U11')
+        default_method = 'pools' if is_u9_u11 else 'ko'
+        method = assigned_method or default_method
+        
+        total_fights = self.calculate_number_of_fights(bracket_key)
+        if total_fights == 0:
+            return False
+        
+        # Check in-memory fight results based on bracket type
+        if method in ('pools', 'double'):
+            # Pool: check pool_cell_values
+            pool_results = self.pool_cell_values.get(bracket_key, {})
+            return len(pool_results) >= total_fights
+        else:
+            # KO: check match_results
+            ko_results = self.match_results.get(bracket_key, {})
+            return len(ko_results) >= total_fights
 
     def calculate_number_of_fights(self, bracket_key):
         """Calculate the number of fights for a bracket based on its type and structure.
@@ -1055,7 +1110,12 @@ class BracketViewerApp(tk.Tk):
         for bracket_key in filtered_keys:
             fighter_count = len(self.brackets[bracket_key].get('fighters', []))
             fight_count = self.calculate_number_of_fights(bracket_key)
-            display_text = f"{bracket_key} • {fighter_count} / {fight_count}"
+            
+            # Check if bracket is complete
+            is_complete = self.is_bracket_complete(bracket_key)
+            prefix = "[✓] " if is_complete else ""
+            
+            display_text = f"{prefix}{bracket_key} • {fighter_count} / {fight_count}"
             
             self.bracket_listbox.insert(tk.END, display_text)
             # Store the mapping
