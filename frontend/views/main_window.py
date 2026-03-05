@@ -293,6 +293,10 @@ class BracketViewerApp(tk.Tk):
         # QuarantineService handles extraction and preservation of QUARANTINE bracket
         self.quarantine_service.extract_quarantine(self.brackets)
 
+        # Split U9/U11 single-bucket into individual pools (fighters already sorted by weight)
+        from utils.bracket_utils import split_u9_u11_into_pools
+        self.brackets = split_u9_u11_into_pools(self.brackets)
+
         # Create the generation method screen
         gen_screen = GenerationMethodScreen(self)
         gen_screen.pack(fill=tk.BOTH, expand=True)
@@ -692,32 +696,12 @@ class BracketViewerApp(tk.Tk):
         
         # Determine bracket type from generation method assignment
         assigned_method = self.bracket_generation_methods.get(bracket_key)
-        is_u9_u11 = bracket_key in ('U9', 'U11')
-        default_method = 'pools' if is_u9_u11 else 'ko'
-        method = assigned_method or default_method
-        
-        # Calculate fights based on type
+        method = assigned_method or 'ko'
+
+        # Calculate fights based on method
         if method in ('pools', 'double'):
-            # Pool/round-robin: n * (n-1) / 2 fights per pool
-            pool_size = bracket_data.get('pool_size')
-            
-            if is_u9_u11 and pool_size:
-                # U9/U11 with configured pool_size: split into multiple small pools
-                # Calculate number of pools based on pool_size
-                num_pools = (num_fighters + pool_size - 1) // pool_size
-                # Each pool has up to pool_size fighters
-                total_fights = 0
-                for pool_idx in range(num_pools):
-                    start_idx = pool_idx * pool_size
-                    end_idx = min(start_idx + pool_size, num_fighters)
-                    pool_fighters = end_idx - start_idx
-                    if pool_fighters > 0:
-                        fights_in_pool = pool_fighters * (pool_fighters - 1) // 2
-                        total_fights += fights_in_pool
-                num_fights = total_fights
-            else:
-                # Single large pool or other method
-                num_fights = num_fighters * (num_fighters - 1) // 2
+            # Round-robin: n * (n-1) / 2 fights
+            num_fights = num_fighters * (num_fighters - 1) // 2
         else:
             # KO/single elimination: n - 1 fights
             num_fights = num_fighters - 1
@@ -1204,13 +1188,8 @@ class BracketViewerApp(tk.Tk):
 
             # Get user's generation method assignment from generation screen
             assigned_method = self.bracket_generation_methods.get(bracket_key)
-            
-            # Determine default method based on bracket type
-            is_u9_u11 = bracket_key in ('U9', 'U11')
-            default_method = 'pools' if is_u9_u11 else 'ko'
-            
-            method = assigned_method or default_method
-            self.logger.debug(f"Bracket {bracket_key} method: {method} (assigned: {assigned_method}, default: {default_method})")
+            method = assigned_method or 'ko'
+            self.logger.debug(f"Bracket {bracket_key} method: {method} (assigned: {assigned_method})")
 
             # Get pool_size from bracket data for decision-making
             pool_size = self.brackets.get(bracket_key, {}).get('pool_size')

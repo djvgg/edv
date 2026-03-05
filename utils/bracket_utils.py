@@ -458,6 +458,59 @@ def _compute_snake_bracket(participants):
     return _compute_balanced_bracket(participants)
 
 
+def split_u9_u11_into_pools(brackets):
+    """Replace the single U9/U11 bracket entry with individual pool brackets.
+
+    Precondition: fighters list is already sorted by weight
+    (export_all_brackets guarantees this).
+
+    Example (pool_size=4, 16 fighters in "U11"):
+        "U11 | Pool 1" → 4 lightest fighters
+        "U11 | Pool 2" → next 4
+        ...
+
+    Brackets without pool_size configured (or 0 fighters) are kept unchanged.
+    """
+    new_brackets = {}
+    for key, data in brackets.items():
+        if key not in ('U9', 'U11'):
+            new_brackets[key] = data
+            continue
+
+        fighters = data.get('fighters', [])
+        pool_size = data.get('pool_size')
+
+        if not pool_size or not fighters:
+            new_brackets[key] = data
+            continue
+
+        # Always re-sort by weight (defensive: handles in-place weight edits)
+        fighters = sorted(fighters, key=lambda x: x.get('Weight', 0))
+
+        # Even distribution: ceil(n / pool_size) pools, remainder spread across first pools
+        import math
+        n = len(fighters)
+        n_pools = math.ceil(n / pool_size)
+        base = n // n_pools
+        extra = n % n_pools  # first `extra` pools get base+1 fighters
+
+        pool_sizes = [base + 1 if i < extra else base for i in range(n_pools)]
+
+        start = 0
+        for pool_num, size in enumerate(pool_sizes, 1):
+            chunk = fighters[start: start + size]
+            start += size
+            pool_key = f"{key} | Pool {pool_num}"
+            new_brackets[pool_key] = {
+                'fighters': chunk,
+                'bracket': [],
+                'pool_size': None,
+            }
+            logger.info(f"[POOL SPLIT] {key} → {pool_key}: {len(chunk)} fighters")
+
+    return new_brackets
+
+
 def _interleave_by_club(participants):
     """Interleave participants by club to reduce same-club pairings."""
     buckets = {}
