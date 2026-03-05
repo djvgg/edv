@@ -104,7 +104,12 @@ class DataLoaderService:
             else:
                 # Add rejection info to participant data
                 invalid_entry = dict(p)
-                invalid_entry['rejection_reason'] = rejection_reason
+                # Normalize all age-related rejections to "age_out_of_bounds" category
+                # (too old, too young, missing age all go to same quarantine)
+                if rejection_reason and ('too old' in rejection_reason or 'too young' in rejection_reason or 'Missing' in str(rejection_reason)):
+                    invalid_entry['rejection_reason'] = 'age_out_of_bounds'
+                else:
+                    invalid_entry['rejection_reason'] = rejection_reason
                 invalid_entry['age'] = calculated_age
                 invalid_entry['age_group'] = age_group
                 invalid_participants.append(invalid_entry)
