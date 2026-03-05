@@ -779,7 +779,7 @@ class BracketViewerApp(tk.Tk):
         for table_num, panel in self.table_panels.items():
             # Create canvas for scrollable content
             canvas = tk.Canvas(panel, bg=COLORS['bg_panel'], highlightthickness=0, borderwidth=0)
-            scrollbar = ttk.Scrollbar(panel, orient=tk.VERTICAL, command=canvas.yview)
+            scrollbar = ttk.Scrollbar(panel, orient=tk.VERTICAL, command=canvas.yview, style='Vertical.TScrollbar')
             
             # Frame inside canvas to hold content
             content_frame = create_dark_frame(canvas)
