@@ -704,14 +704,7 @@ class BracketViewerApp(tk.Tk):
         display_text = self.bracket_listbox.get(selection[0])
         bracket_key = self.bracket_listbox_map.get(display_text, display_text)
 
-        # Check if table is full (max 2 brackets per table)
-        assigned = [k for k, v in self.bracket_table_assignment.items() if v == table_num]
-        if len(assigned) >= 2:
-            messagebox.showwarning('Matte Voll',
-                                  f'Matte {table_num} already has 2 brackets assigned.')
-            return
-
-        # Assign the bracket
+        # Assign the bracket (no limit on number of brackets per table)
         self.bracket_table_assignment[bracket_key] = table_num
         self.db_service.assign_bracket_to_table(bracket_key, table_num)
         self.update_bracket_list()
@@ -773,7 +766,7 @@ class BracketViewerApp(tk.Tk):
         self.update_table_panels()
 
     def update_table_panels(self):
-        """Update the visual display of table assignments."""
+        """Update the visual display of table assignments with scrollable content."""
         # Clear all panels
         for panel in self.table_panels.values():
             for widget in panel.winfo_children():
@@ -782,54 +775,84 @@ class BracketViewerApp(tk.Tk):
         # Track totals for each table (fighters and fights)
         table_totals = {}  # {table_num: {'fighters': count, 'fights': count}}
 
-        # Add assigned brackets to panels — skip empty brackets
-        for bracket_key, table_num in self.bracket_table_assignment.items():
-            if table_num and len(self.brackets[bracket_key].get('fighters', [])) > 0:
-                panel = self.table_panels[table_num]
-
-                # Create row frame for label + unassign button
-                row_frame = create_dark_frame(panel)
-                row_frame.pack(fill=tk.X, pady=2, padx=4)
-
-                # Get fighter count
-                fighter_count = len(self.brackets[bracket_key].get('fighters', []))
-                
-                # Get fight count using standard calculation method
-                fight_count = self.calculate_number_of_fights(bracket_key)
-                
-                # Track totals for this table
-                if table_num not in table_totals:
-                    table_totals[table_num] = {'fighters': 0, 'fights': 0}
-                table_totals[table_num]['fighters'] += fighter_count
-                table_totals[table_num]['fights'] += fight_count
-                
-                # Truncate long names
-                display_text = bracket_key[:25] + '...' if len(bracket_key) > 25 else bracket_key
-                display_text = f"{display_text} • {fighter_count} / {fight_count}"
-                label = tk.Label(row_frame, text=display_text, wraplength=110,
-                               justify='left', anchor='w', cursor='hand2',
-                               bg=COLORS['bg_panel'], fg=COLORS['text_primary'],
-                               font=FONTS['body_xs'])
-                label.pack(side=tk.LEFT, fill=tk.X, expand=True)
-                label.bind('<Button-1>', lambda e, k=bracket_key: self.show_bracket_view(k))
-
-                # Add unassign button
-                unassign_btn = tk.Button(row_frame, text='✕', width=3,
-                                       command=lambda k=bracket_key: self.unassign_bracket(k))
-                apply_button_style(unassign_btn, 'secondary')
-                unassign_btn.pack(side=tk.RIGHT, padx=2)
-
-        # Add totals footer to each table
+        # For each panel, create a scrollable canvas with content
         for table_num, panel in self.table_panels.items():
+            # Create canvas for scrollable content
+            canvas = tk.Canvas(panel, bg=COLORS['bg_panel'], highlightthickness=0, borderwidth=0)
+            scrollbar = ttk.Scrollbar(panel, orient=tk.VERTICAL, command=canvas.yview)
+            
+            # Frame inside canvas to hold content
+            content_frame = create_dark_frame(canvas)
+            canvas.configure(yscrollcommand=scrollbar.set)
+            canvas_window = canvas.create_window((0, 0), window=content_frame, anchor='nw')
+            
+            # Bind canvas resize to expand content frame to full width
+            def _on_canvas_configure(event, c=canvas, cf=content_frame, cw=canvas_window):
+                # Update the canvas window width to match canvas width
+                c.itemconfig(cw, width=event.width)
+            
+            canvas.bind('<Configure>', _on_canvas_configure)
+            
+            # Bind mousewheel to canvas
+            def _on_panel_wheel(event, c=canvas):
+                if event.num == 5 or event.delta < 0:
+                    c.yview_scroll(1, "units")
+                elif event.num == 4 or event.delta > 0:
+                    c.yview_scroll(-1, "units")
+            
+            canvas.bind('<MouseWheel>', _on_panel_wheel)
+            canvas.bind('<Button-4>', _on_panel_wheel)
+            canvas.bind('<Button-5>', _on_panel_wheel)
+            
+            # Pack scrollbar and canvas
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            
+            # Add assigned brackets to this table
+            for bracket_key, assigned_table in self.bracket_table_assignment.items():
+                if assigned_table == table_num and len(self.brackets[bracket_key].get('fighters', [])) > 0:
+                    # Create row frame for label + unassign button
+                    row_frame = create_dark_frame(content_frame)
+                    row_frame.pack(fill=tk.X, pady=2, padx=4)
+
+                    # Get fighter count
+                    fighter_count = len(self.brackets[bracket_key].get('fighters', []))
+                    
+                    # Get fight count using standard calculation method
+                    fight_count = self.calculate_number_of_fights(bracket_key)
+                    
+                    # Track totals for this table
+                    if table_num not in table_totals:
+                        table_totals[table_num] = {'fighters': 0, 'fights': 0}
+                    table_totals[table_num]['fighters'] += fighter_count
+                    table_totals[table_num]['fights'] += fight_count
+                    
+                    # Truncate long names
+                    display_text = bracket_key[:25] + '...' if len(bracket_key) > 25 else bracket_key
+                    display_text = f"{display_text} • {fighter_count} / {fight_count}"
+                    label = tk.Label(row_frame, text=display_text, wraplength=110,
+                                   justify='left', anchor='w', cursor='hand2',
+                                   bg=COLORS['bg_panel'], fg=COLORS['text_primary'],
+                                   font=FONTS['body_xs'])
+                    label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+                    label.bind('<Button-1>', lambda e, k=bracket_key: self.show_bracket_view(k))
+
+                    # Add unassign button
+                    unassign_btn = tk.Button(row_frame, text='✕', width=3,
+                                           command=lambda k=bracket_key: self.unassign_bracket(k))
+                    apply_button_style(unassign_btn, 'secondary')
+                    unassign_btn.pack(side=tk.RIGHT, padx=2)
+            
+            # Add totals footer
             fighter_total = table_totals.get(table_num, {}).get('fighters', 0)
             fight_total = table_totals.get(table_num, {}).get('fights', 0)
             
             # Add separator
-            separator = tk.Frame(panel, height=1, bg=COLORS['border'])
+            separator = tk.Frame(content_frame, height=1, bg=COLORS['border'])
             separator.pack(fill=tk.X, pady=4, padx=4)
             
             # Add total label with both fighters and fights
-            total_frame = create_dark_frame(panel)
+            total_frame = create_dark_frame(content_frame)
             total_frame.pack(fill=tk.X, pady=2, padx=4)
             
             total_text = f"Table Total: {fighter_total} players • {fight_total} matches"
@@ -838,6 +861,10 @@ class BracketViewerApp(tk.Tk):
                                   bg=COLORS['bg_panel'], fg=COLORS['accent_orange'],
                                   font=FONTS['heading_sm'])
             total_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            
+            # Update scroll region
+            content_frame.update_idletasks()
+            canvas.configure(scrollregion=canvas.bbox('all'))
 
     def on_bracket_double_click(self, event):
         """Handle double-click on bracket - show visualization."""
