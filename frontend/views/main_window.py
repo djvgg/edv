@@ -53,6 +53,7 @@ from .file_loader_screen import FileLoaderScreen  # noqa: E402
 from .group_preview_screen import GroupPreviewScreen  # noqa: E402
 from .fight_monitoring_window import FightMonitoringScreen  # noqa: E402
 from .rejection_summary_window import RejectionSummaryWindow  # noqa: E402
+from .tolerance_config_dialog import ToleranceConfigDialog  # noqa: E402
 from ..search_utils import filter_items  # noqa: E402
 from ..services.quarantine_service import QuarantineService  # noqa: E402
 from ..services.ui_feedback_service import UIFeedbackService  # noqa: E402
@@ -916,11 +917,10 @@ class BracketViewerApp(tk.Tk):
         })
 
     def split_gender_to_json(self):
-        """Split contestants by gender (M/W) and save to separate JSON files with English field names.
+        """Split contestants by gender (M/W) and save to separate JSON files with tolerances.
         
-        Reads tournament registration XLSX, extracts all available data, and outputs
-        separate JSON files for male and female participants with all fields populated
-        that are available at registration time (Weight will be filled during weighing).
+        Delegates to DataLoaderService which handles the file processing and splitting.
+        This method manages the UI flow: file selection → tolerance configuration → service call.
         """
         # Import here to avoid circular dependency
         from frontend.utils.participant_loader import load_participants_from_xlsx
@@ -934,168 +934,63 @@ class BracketViewerApp(tk.Tk):
             return
 
         try:
-            self.ui_feedback.set_status("Reading tournament XLSX file...", COLORS['text_secondary'])
-
-            # Load participants using the tournament format parser
-            raw_participants = load_participants_from_xlsx(input_file)
-
-            if not raw_participants:
-                self.ui_feedback.set_status("Error: No participants found.", COLORS['accent_red'])
-                messagebox.showerror("Error", "No participants found in the file.")
+            # Verify file exists
+            if not os.path.exists(input_file):
+                messagebox.showerror("Error", f"File not found: {input_file}")
                 return
             
-            # Debug: Check what fields are in raw_participants
-            if raw_participants:
-                first_p = raw_participants[0]
-                self.logger.debug(f"First participant fields: {list(first_p.keys())}")
-                self.logger.debug(f"First participant: {first_p}")
-
-            self.ui_feedback.set_status("Splitting by gender and converting to English format...", COLORS['text_secondary'])
-
-            # Split by gender and convert to English field names
-            male_contestants = []
-            female_contestants = []
-            skipped_participants = []
-
-            for idx, p in enumerate(raw_participants, 1):
-                # Extract gender (should be 'm' or 'w' from parser)
-                gender = str(p.get('Gender', '')).strip().lower()
-                
-                # Try alternative gender field names
-                if not gender:
-                    for gender_field in ['Geschlecht', 'gender']:
-                        if gender_field in p and p[gender_field]:
-                            gender = str(p[gender_field]).strip().lower()
-                            break
-                
-                # Normalize gender to 'male' or 'female'
-                if gender in ['m', 'male', 'männlich', 'maennlich']:
-                    gender_normalized = 'male'
-                elif gender in ['w', 'female', 'weiblich', 'f']:
-                    gender_normalized = 'female'
-                else:
-                    # Skip participants with missing gender (cannot split without it)
-                    participant_name = p.get('Name', f"ID {idx}")
-                    skipped_participants.append({
-                        'name': participant_name,
-                        'gender': gender if gender else '(empty)',
-                        'id': idx
-                    })
-                    self.logger.warning(f"Skipping participant with missing/invalid gender '{gender}': {participant_name}")
-                    continue
-
-                # Convert to English field names (CamelCase for code)
-                # Split full name into Firstname and Lastname
-                full_name = p.get('Name', '')
-                name_parts = full_name.split(' ', 1)
-                firstname = name_parts[0] if len(name_parts) > 0 else ''
-                lastname = name_parts[1] if len(name_parts) > 1 else ''
-
-                # Extract birthyear (try multiple field names)
-                birthyear = None
-                for year_field in ['BirthYear', 'Jahrgang', 'Age']:
-                    if year_field in p and p[year_field]:
-                        try:
-                            birthyear = int(p[year_field])
-                            break
-                        except (ValueError, TypeError):
-                            pass
-
-                # Extract club (Verein in German)
-                club = p.get('Verein', p.get('Club', ''))
-
-                # Extract association (Verband in German)
-                association = p.get('Verband', p.get('Association', ''))
-
-                # Extract weight (initially 0.0, will be filled during weighing)
-                # Don't use pre-translated weight from XLSX, start fresh
-                weight = 0.0
-
-                # Extract paid status (Bezahlt in German)
-                paid_str = str(p.get('Bezahlt', p.get('Paid', ''))).strip().lower()
-                paid = paid_str in ['true', 'ja', 'yes', '1', 'y']
-
-                # Create contestant record with English field names
-                contestant = {
-                    'ID': idx,
-                    'Firstname': firstname,
-                    'Lastname': lastname,
-                    'Name': f"{firstname} {lastname}".strip(),  # Combined name
-                    'Birthyear': birthyear,
-                    'Club': club,
-                    'Association': association,
-                    'Weight': weight,
-                    'Valid': False,  # Will be set during weighing validation
-                    'Gender': gender_normalized,
-                    'Paid': paid
-                }
-
-                # Add to appropriate list
-                if gender_normalized == 'male':
-                    male_contestants.append(contestant)
-                else:
-                    female_contestants.append(contestant)
-
-            # Show split results
-            male_count = len(male_contestants)
-            female_count = len(female_contestants)
-            skipped = len(skipped_participants)
-
-            result_msg = f"Split complete:\n• Male: {male_count}\n• Female: {female_count}"
-            if skipped > 0:
-                result_msg += f"\n• Skipped (unknown gender): {skipped}"
-                if skipped_participants:
-                    result_msg += "\n\nSkipped participants:"
-                    for sp in skipped_participants[:5]:
-                        result_msg += f"\n  - {sp['name']} (gender: '{sp['gender']}')"
-                    if len(skipped_participants) > 5:
-                        result_msg += f"\n  ... and {len(skipped_participants) - 5} more"
-
-            messagebox.showinfo("Split Results", result_msg)
-
-            if male_count == 0 and female_count == 0:
-                self.ui_feedback.set_status("No valid contestants to save.", COLORS['accent_red'])
+            # Step 1: Show tolerance configuration dialog
+            self.ui_feedback.set_status("Configuring weight tolerances...", COLORS['text_secondary'])
+            
+            # Build group_keys: mixed categories (U9, U11) + gender-specific (U13+)
+            group_keys = []
+            # Mixed categories (no gender distinction)
+            for age in ['U9', 'U11']:
+                group_keys.append(('mixed', age))
+            # Gender-specific categories
+            for age in ['U13', 'U15', 'U18', '18+']:
+                for gender in ['m', 'w']:
+                    group_keys.append((gender, age))
+            
+            tolerance_dialog = ToleranceConfigDialog(
+                self,
+                group_keys=group_keys,
+                existing_tolerances={}
+            )
+            configured_tolerances = tolerance_dialog.show()
+            
+            if configured_tolerances is None:
+                # User cancelled
+                self.ui_feedback.set_status("Tolerance configuration cancelled.", COLORS['text_secondary'])
                 return
-
-            # Ask user where to save the files
+            
+            # Step 2: Ask where to save the files
             save_dir = filedialog.askdirectory(
                 title="Select Folder to Save Split JSON Files"
             )
             if not save_dir:
                 self.ui_feedback.set_status("Save cancelled.", COLORS['text_secondary'])
                 return
-
-            self.ui_feedback.set_status("Saving JSON files...", COLORS['text_secondary'])
-
-            # Save male contestants if any
-            if male_count > 0:
-                male_file = os.path.join(save_dir, 'contestants_male.json')
-                with open(male_file, 'w', encoding='utf-8') as f:
-                    json.dump(male_contestants, f, indent=2, ensure_ascii=False)
-                self.logger.info(f"Saved {male_count} male contestants to: {male_file}")
-
-            # Save female contestants if any
-            if female_count > 0:
-                female_file = os.path.join(save_dir, 'contestants_female.json')
-                with open(female_file, 'w', encoding='utf-8') as f:
-                    json.dump(female_contestants, f, indent=2, ensure_ascii=False)
-                self.logger.info(f"Saved {female_count} female contestants to: {female_file}")
-
-            success_msg = f"Successfully saved split files to:\n{save_dir}\n\n"
-            if male_count > 0:
-                success_msg += f"• contestants_male.json ({male_count} entries)\n"
-            if female_count > 0:
-                success_msg += f"• contestants_female.json ({female_count} entries)\n"
-            success_msg += "\nFiles are ready for external weighing process.\n"
-            success_msg += "After weighing, reimport JSON files to generate brackets."
-
-            messagebox.showinfo("Success", success_msg)
-            self.ui_feedback.set_status("Split complete! Files ready for weighing.", COLORS['accent_green'])
+            
+            # Step 3: Pass tolerances to service and execute the split
+            success, message = self.data_loader.split_gender_to_json_with_tolerances(
+                input_file, 
+                save_dir,
+                configured_tolerances=configured_tolerances
+            )
+            
+            if success:
+                messagebox.showinfo("Success", message)
+                self.ui_feedback.set_status("Split complete! Files ready for weighing.", COLORS['accent_green'])
+            else:
+                messagebox.showerror("Error", message)
+                self.ui_feedback.set_status(f"Error: {message}", COLORS['accent_red'])
 
         except Exception as e:
             self.ui_feedback.set_status(f"Error: {e}", COLORS['accent_red'])
             self.logger.exception(f"Failed to split participants: {e}")
             messagebox.showerror("Error", f"Failed to split participants:\n{str(e)}")
+
 
     def on_closing(self):
         """Handle window closing - cleanup resources."""
