@@ -119,7 +119,7 @@ class BracketViewerApp(tk.Tk):
         self.logger = get_logger('main_window', debug_verbose=DEBUG)
         
         self.title('Combat Control')
-        self.geometry('520x440')  
+        self.geometry('520x520')
         self.configure(bg=COLORS['bg_dark'])
 
         # Configure dark theme for ttk widgets (scrollbars)
@@ -211,6 +211,7 @@ class BracketViewerApp(tk.Tk):
         loader_screen.on_load_database = self.load_from_database
         loader_screen.on_load_json = self.load_json_and_generate
         loader_screen.on_split_gender = self.split_gender_to_json
+        loader_screen.on_flush_database = self._flush_database
         
         # Register variables with ui_feedback service if they exist
         if hasattr(loader_screen, 'status_var') and hasattr(loader_screen, 'status_label'):
@@ -986,6 +987,23 @@ class BracketViewerApp(tk.Tk):
             bracket_key = self.bracket_listbox_map.get(display_text, display_text)
             self.show_bracket_view(bracket_key)
 
+    def _flush_database(self):
+        """Handle Flush Database button — wipe all tournament data."""
+        success = self.db_service.flush_database()
+        if success:
+            self.brackets = {}
+            self.match_results = {}
+            self.loser_match_results = {}
+            if self.file_loader_screen:
+                self.file_loader_screen.set_status_text(
+                    "Database flushed successfully.", 'status_success'
+                )
+        else:
+            if self.file_loader_screen:
+                self.file_loader_screen.set_status_text(
+                    "Failed to flush database.", 'status_error'
+                )
+
     def load_and_generate(self):
         """Load participants from XLSX file and generate brackets."""
         filepath = filedialog.askopenfilename(
@@ -1491,6 +1509,15 @@ class BracketViewerApp(tk.Tk):
                 paid_str = str(p.get('Bezahlt', p.get('Paid', ''))).strip().lower()
                 paid = paid_str in ['true', 'ja', 'yes', '1', 'y']
 
+                # Extract Doublestart (nein / ja / höher)
+                ds_raw = str(p.get('Doppelstart', p.get('Doublestart', 'nein'))).strip().lower()
+                if ds_raw in ['höher', 'hoeher', 'higher']:
+                    doublestart = 'höher'
+                elif ds_raw in ['ja', 'yes', 'true', '1', 'y']:
+                    doublestart = 'ja'
+                else:
+                    doublestart = 'nein'
+
                 # Create contestant record with English field names
                 contestant = {
                     'ID': idx,
@@ -1503,7 +1530,8 @@ class BracketViewerApp(tk.Tk):
                     'Weight': weight,
                     'Valid': False,  # Will be set during weighing validation
                     'Gender': gender_normalized,
-                    'Paid': paid
+                    'Paid': paid,
+                    'Doublestart': doublestart,
                 }
 
                 # Add to appropriate list

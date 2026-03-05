@@ -126,6 +126,7 @@ def export_all_brackets(participants, event_year=None):
         birth_year = p.get('Age', p.get('age'))
         weight = p.get('Weight', p.get('weight', 0))
         name = p.get('Name', p.get('name', ''))
+        doublestart = str(p.get('Doublestart', p.get('doublestart', 'nein'))).strip().lower()
 
         # Normalize gender to 'm'/'w' to match config group names
         _g = str(raw_gender).lower().strip()
@@ -143,7 +144,7 @@ def export_all_brackets(participants, event_year=None):
                 age_group = bracket_config.get_age_group(birth_year)
             except Exception as e:
                 logger.warning(f"Could not determine age group for birth_year {birth_year}: {e}")
-        
+
         if age_group is None:
             if birth_year is not None:
                 logger.warning(f"Missing/unknown birth year {birth_year!r} for {name!r}, defaulting to '18+'")
@@ -151,28 +152,43 @@ def export_all_brackets(participants, event_year=None):
                 logger.warning(f"Missing age for {name!r}, defaulting to '18+'")
             age_group = '18+'
 
-        # For U9/U11: no gender separation, group by age only, sorted by weight
-        if age_group in ('U9', 'U11'):
-            bracket_key = f"{age_group}"  # Just age group, no gender/weight class
-        else:
-            # For U13+: group by (gender, age_group, weight_class)
-            try:
-                weight_class = bracket_config.get_weight_class(weight, gender_norm, age_group)
-            except Exception as e:
-                logger.warning(f"Weight class lookup failed for {name!r}: {e}")
-                weight_class = 'unknown'
+        # Build list of age groups this participant goes into
+        age_groups_to_enter = [age_group]
 
-            if weight_class is None or str(weight_class).lower() == 'unknown':
-                logger.warning(f"Missing weight class for {name!r} (age_group={age_group})")
-                weight_class = 'unknown'
-
-            bracket_key = f"{gender_norm} | {age_group} | {weight_class}"
+        if doublestart in ('höher', 'hoeher', 'higher') and birth_year is not None:
+            all_eligible = bracket_config.get_all_eligible_age_groups(birth_year)
+            if len(all_eligible) > 1:
+                # Primary group is the first eligible; "höher" = next one up
+                primary_idx = all_eligible.index(age_group) if age_group in all_eligible else 0
+                if primary_idx + 1 < len(all_eligible):
+                    higher_group = all_eligible[primary_idx + 1]
+                    age_groups_to_enter.append(higher_group)
+                    logger.info(f"Doublestart höher: {name!r} → {age_group} + {higher_group}")
+                else:
+                    logger.warning(f"Doublestart höher: {name!r} already in highest eligible group ({age_group}), no higher group available")
 
         # Create participant copy with birth_year
         p_copy = dict(p)
         p_copy['Age'] = birth_year
-        
-        brackets[bracket_key]['fighters'].append(p_copy)
+
+        # Add fighter to each age group bracket
+        for ag in age_groups_to_enter:
+            if ag in ('U9', 'U11'):
+                bracket_key = f"{ag}"
+            else:
+                try:
+                    weight_class = bracket_config.get_weight_class(weight, gender_norm, ag)
+                except Exception as e:
+                    logger.warning(f"Weight class lookup failed for {name!r} (age_group={ag}): {e}")
+                    weight_class = 'unknown'
+
+                if weight_class is None or str(weight_class).lower() == 'unknown':
+                    logger.warning(f"Missing weight class for {name!r} (age_group={ag})")
+                    weight_class = 'unknown'
+
+                bracket_key = f"{gender_norm} | {ag} | {weight_class}"
+
+            brackets[bracket_key]['fighters'].append(dict(p_copy))
     
     # Post-process: sort U9/U11 by weight, set pool_size
     for key in list(brackets.keys()):

@@ -70,22 +70,50 @@ class TournamentService:
     # Screen 1 — Load XLSX / JSON / DB
     # ------------------------------------------------------------------
 
-    def save_participants(self, raw_participants: List[dict]) -> List[Participant]:
+    def add_participants(self, raw_participants: List[dict]) -> int:
         """
-        Wipe ALL tournament data and bulk-insert new participants.
-        Called on every XLSX / JSON load — this is always a fresh start.
-        Deletes in reverse FK order to avoid constraint violations.
+        Add participants to DB, skipping duplicates.
+        Returns count of newly inserted participants.
         """
-        # TRUNCATE resets auto-increment sequences back to 1.
-        # CASCADE handles FK order automatically.
-        self.db.execute(text(
-            "TRUNCATE TABLE fights, group_participants, brackets, groups, mats, participants"
-            " RESTART IDENTITY CASCADE"
-        ))
+        new_count = 0
+        for p in raw_participants:
+            mapped = self._map_to_model(p)
+            if not self._participant_exists(mapped):
+                self.db.add(Participant(**mapped))
+                new_count += 1
         self.db.commit()
+        return new_count
 
-        mapped = [self._map_to_model(p) for p in raw_participants]
-        return self.participants.add_bulk(mapped)
+    def _participant_exists(self, mapped: dict) -> bool:
+        """Check if participant already exists by natural key."""
+        q = self.db.query(Participant).filter(
+            Participant.first_name == mapped['first_name'],
+            Participant.last_name == mapped['last_name'],
+            Participant.gender == mapped['gender'],
+        )
+        if mapped.get('birth_date'):
+            q = q.filter(Participant.birth_date == mapped['birth_date'])
+        if mapped.get('club'):
+            q = q.filter(Participant.club == mapped['club'])
+        if mapped.get('association'):
+            q = q.filter(Participant.association == mapped['association'])
+        return q.first() is not None
+
+    def flush_database(self) -> None:
+        """
+        Wipe ALL tournament data table-by-table in FK-dependency order.
+
+        Uses DELETE (not TRUNCATE) so the same pattern can be reused later
+        for selective deletion (e.g. delete fights for one bracket only).
+        """
+        # Children first → parents last (reverse FK order)
+        for table in ('fights', 'group_participants', 'brackets', 'groups', 'mats', 'participants'):
+            self.db.execute(text(f"DELETE FROM {table}"))
+        # Reset all sequences so IDs start from 1 on next insert
+        for seq in ('fights_id_seq', 'group_participants_id_seq', 'brackets_id_seq',
+                     'groups_id_seq', 'mats_id_seq', 'participants_id_seq'):
+            self.db.execute(text(f"ALTER SEQUENCE {seq} RESTART WITH 1"))
+        self.db.commit()
 
     @staticmethod
     def _map_to_model(raw: dict) -> dict:
@@ -105,6 +133,15 @@ class TournamentService:
             except (ValueError, TypeError):
                 pass
 
+        # Normalize doublestart value (accepts German: ja/nein/höher)
+        ds_raw = str(raw.get('Doppelstart', raw.get('Doublestart', 'nein'))).strip().lower()
+        if ds_raw in ('höher', 'hoeher', 'higher'):
+            doublestart = 'höher'
+        elif ds_raw in ('ja', 'yes', 'true', '1', 'y'):
+            doublestart = 'ja'
+        else:
+            doublestart = 'nein'
+
         return {
             'first_name':  first_name,
             'last_name':   last_name,
@@ -115,6 +152,7 @@ class TournamentService:
             'association': raw.get('Association', ''),
             'valid':       bool(raw.get('Valid', False)),
             'paid':        bool(raw.get('Paid', False)),
+            'doublestart': doublestart,
         }
 
     # ------------------------------------------------------------------
@@ -126,34 +164,28 @@ class TournamentService:
         Populate the groups table with every valid category from bracket_config.xlsx
         plus the special QUARANTINE group.
 
-        Always called right after save_participants (which already truncated groups).
-        Uses a single bulk transaction — all groups are committed atomically.
+        Additive: only inserts groups that don't exist yet, preserving existing
+        groups and their associated brackets/fights.
         """
         from utils import bracket_utils
         bracket_utils.ensure_config_loaded()
 
-        # Wipe dependents in FK order so the groups table is empty before we fill it.
-        # (save_participants already truncated everything, but this is safe to repeat
-        #  and makes initialize_all_groups callable on its own too.)
-        self.db.execute(text(
-            "TRUNCATE TABLE fights, brackets, group_participants, groups"
-            " RESTART IDENTITY CASCADE"
-        ))
-        self.db.commit()
-
         combos = bracket_utils.bracket_config.get_all_group_combinations()
         for combo in combos:
-            self.db.add(Group(
-                name=combo['name'],
-                gender=combo.get('gender'),
-                age_group=combo.get('age_group'),
-                weight_class=combo.get('weight_class'),
-            ))
+            existing = self.groups.get_by_name(combo['name'])
+            if not existing:
+                self.db.add(Group(
+                    name=combo['name'],
+                    gender=combo.get('gender'),
+                    age_group=combo.get('age_group'),
+                    weight_class=combo.get('weight_class'),
+                ))
 
         # QUARANTINE is always present regardless of config
-        self.db.add(Group(name='QUARANTINE'))
+        if not self.groups.get_by_name('QUARANTINE'):
+            self.db.add(Group(name='QUARANTINE'))
 
-        self.db.commit()  # single atomic commit for all groups
+        self.db.commit()
 
     # Screen 2 — participant edit (single-row update from Edit_Participants dialog)
     # ------------------------------------------------------------------
@@ -235,18 +267,12 @@ class TournamentService:
 
     def save_groups(self, brackets_dict: dict) -> None:
         """
-        Re-sync group_participants from the current brackets dict.
+        Sync group_participants from the current brackets dict.
         Groups must already exist (call initialize_all_groups first).
-        Clears group_participants, fights, brackets (FK order) then re-inserts.
 
-        Called immediately after load and again when leaving group preview.
+        Additive: only adds group_participant links that don't exist yet.
+        Does not touch existing fights or brackets.
         """
-        self.db.execute(text(
-            "TRUNCATE TABLE fights, brackets, group_participants"
-            " RESTART IDENTITY CASCADE"
-        ))
-        self.db.commit()
-
         for bracket_key, bracket_data in brackets_dict.items():
             group = self.groups.get_by_name(bracket_key)
             if not group:
@@ -255,7 +281,11 @@ class TournamentService:
             for fighter in bracket_data.get('fighters', []):
                 participant = self._find_participant(fighter)
                 if participant:
-                    self.groups.add_participant(group.id, participant.id)
+                    existing = self.db.query(GroupParticipant).filter_by(
+                        group_id=group.id, participant_id=participant.id
+                    ).first()
+                    if not existing:
+                        self.groups.add_participant(group.id, participant.id)
 
     # Screen 3 — Generation Method confirmed
     # ------------------------------------------------------------------

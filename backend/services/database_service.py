@@ -115,19 +115,34 @@ class DatabaseService:
     
     def save_participants(self, participants: list) -> bool:
         """
-        Save participant list to database.
-        
+        Add participants to database, skipping duplicates.
+
         Args:
             participants: List of participant dicts
-            
+
         Returns:
             True if successful, False if DB unavailable or error
         """
         def _save(svc: TournamentService):
-            svc.save_participants(participants)
+            new_count = svc.add_participants(participants)
+            self.logger.info(
+                f"Added {new_count} new participants "
+                f"({len(participants) - new_count} duplicates skipped)"
+            )
             return True
-        
+
         result = self._execute_with_session(_save)
+        return result is True
+
+    def flush_database(self) -> bool:
+        """Wipe all tournament data (explicit user action via Flush button)."""
+        self.logger.warning("[FLUSH] User requested full database flush")
+
+        def _flush(svc: TournamentService):
+            svc.flush_database()
+            return True
+        result = self._execute_with_session(_flush)
+        self.logger.info(f"[FLUSH] {'OK' if result else 'FAILED'}")
         return result is True
 
     def fetch_participants(self) -> Optional[list]:
