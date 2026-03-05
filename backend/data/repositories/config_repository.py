@@ -124,7 +124,10 @@ class ConfigRepository:
                 df = df[df['AgeGroup'].isna()]
         
         for _, row in df.iterrows():
-            if row['MinWeight'] <= weight < row['MaxWeight']:
+            # User requested: a fighter weighing exactly the max weight (e.g. 66kg) 
+            # should go into the -66kg class, not +66kg.
+            # This means we use <= for MaxWeight and < for MinWeight.
+            if row['MinWeight'] < weight <= row['MaxWeight'] or (weight == 0 and row['MinWeight'] == 0):
                 return row['Label']
         return 'unknown'
     
