@@ -191,7 +191,6 @@ class QuarantineService:
             return
         
         valid_from_quarantine = []
-        brackets_to_remove = []
         
         # Process each quarantine bracket by reason
         for quarantine_key in quarantine_keys:
@@ -258,26 +257,20 @@ class QuarantineService:
                     self.logger.info(f"RESORT: ✗ {fighter_name} remains invalid ({invalid_reason})")
             
             # Update quarantine bracket with only still-invalid fighters
+            # KEEP the bracket even if empty, so it persists in the UI
+            brackets[quarantine_key]['fighters'] = still_invalid
+            
             if still_invalid:
-                brackets[quarantine_key]['fighters'] = still_invalid
                 self.logger.info(f"Re-sorted from {quarantine_key}: {len(quarantine_fighters) - len(still_invalid)} now valid, {len(still_invalid)} remain invalid")
             else:
-                # Remove quarantine bracket if empty
-                brackets_to_remove.append(quarantine_key)
-                self.logger.info(f"Re-sorted all {len(quarantine_fighters)} from {quarantine_key} - now valid")
-        
-        # Remove empty quarantine brackets
-        for quarantine_key in brackets_to_remove:
-            del brackets[quarantine_key]
-        
-        # Clear preserved quarantine brackets if all empty
-        if not any(k.startswith('QUARANTINE_') for k in brackets.keys()):
-            self.quarantine_brackets = {}
+                self.logger.info(f"Re-sorted all {len(quarantine_fighters)} from {quarantine_key} - now valid (bracket now empty but preserved)")
         
         # Re-generate brackets with valid participants
         if valid_from_quarantine:
             # Save current brackets (excluding QUARANTINE_*)
             temp_brackets = {k: v for k, v in brackets.items() if not k.startswith('QUARANTINE_')}
+            # Also save the quarantine brackets we want to preserve
+            quarantine_brackets_to_preserve = {k: v for k, v in brackets.items() if k.startswith('QUARANTINE_')}
             
             # Generate brackets for the newly valid fighters
             new_brackets = export_all_brackets(valid_from_quarantine)
@@ -298,6 +291,11 @@ class QuarantineService:
                     # New bracket, add it entirely
                     brackets[key] = new_bracket_data
                     self.logger.debug(f"RESORT: Created new bracket {key} with {len(new_bracket_data.get('fighters', []))} fighter(s)")
+            
+            # IMPORTANT: Restore the quarantine brackets after merge
+            # This ensures quarantine brackets stay in the dict for the UI to display
+            brackets.update(quarantine_brackets_to_preserve)
+            self.logger.debug(f"RESORT: Restored {len(quarantine_brackets_to_preserve)} quarantine bracket(s) to brackets dict")
             
             # Log where each fighter was placed
             for fighter in valid_from_quarantine:
@@ -321,6 +319,9 @@ class QuarantineService:
                     self.logger.debug(f"RESORT: {fighter_name} → new bracket: {new_bracket_key}")
                 else:
                     self.logger.warning(f"RESORT: {fighter_name} could not find assigned bracket after re-sort")
+        
+        # Update preserved quarantine brackets to match current state (including empty ones)
+        self.quarantine_brackets = {k: v for k, v in brackets.items() if k.startswith('QUARANTINE_')}
         
         # Refresh the group preview display with updated data
         if group_preview_screen and group_preview_screen.winfo_exists():
