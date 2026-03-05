@@ -539,6 +539,10 @@ class GroupPreviewScreen(tk.Frame):
 
         self.current_bracket_key = bracket_key
 
+        # U9/U11: always show fighters sorted by weight (also persists order for the split later)
+        if bracket_key in ('U9', 'U11'):
+            self.brackets[bracket_key]['fighters'].sort(key=lambda x: x.get('Weight', 0))
+
         fighters = self.brackets[bracket_key].get('fighters', [])
         count = len(fighters)
 

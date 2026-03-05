@@ -458,6 +458,96 @@ def _compute_snake_bracket(participants):
     return _compute_balanced_bracket(participants)
 
 
+def merge_u9_u11_pools(brackets):
+    """Reverse of split_u9_u11_into_pools.
+
+    Merges "U9 | Pool N" / "U11 | Pool N" keys back into single "U9" / "U11"
+    buckets so GroupPreviewScreen always shows one combined group.
+    Fighters are re-sorted by weight and pool_size is restored from config.
+    """
+    ensure_config_loaded()
+    merged = {}
+    collected = {}  # {'U9': [...fighters], 'U11': [...fighters]}
+
+    for key, data in brackets.items():
+        age_group = None
+        if key.startswith('U9 | Pool'):
+            age_group = 'U9'
+        elif key.startswith('U11 | Pool'):
+            age_group = 'U11'
+
+        if age_group:
+            if age_group not in collected:
+                collected[age_group] = []
+            collected[age_group].extend(data.get('fighters', []))
+        else:
+            merged[key] = data
+
+    for age_group, fighters in collected.items():
+        fighters_sorted = sorted(fighters, key=lambda x: x.get('Weight', 0))
+        pool_size = get_pool_size(age_group)
+        merged[age_group] = {
+            'fighters': fighters_sorted,
+            'bracket': [],
+            'pool_size': pool_size,
+        }
+        logger.info(f"[POOL MERGE] {len(fighters_sorted)} fighters merged back into {age_group!r}")
+
+    return merged
+
+
+def split_u9_u11_into_pools(brackets):
+    """Replace the single U9/U11 bracket entry with individual pool brackets.
+
+    Precondition: fighters list is already sorted by weight
+    (export_all_brackets guarantees this).
+
+    Example (pool_size=4, 16 fighters in "U11"):
+        "U11 | Pool 1" → 4 lightest fighters
+        "U11 | Pool 2" → next 4
+        ...
+
+    Brackets without pool_size configured (or 0 fighters) are kept unchanged.
+    """
+    new_brackets = {}
+    for key, data in brackets.items():
+        if key not in ('U9', 'U11'):
+            new_brackets[key] = data
+            continue
+
+        fighters = data.get('fighters', [])
+        pool_size = data.get('pool_size')
+
+        if not pool_size or not fighters:
+            new_brackets[key] = data
+            continue
+
+        # Always re-sort by weight (defensive: handles in-place weight edits)
+        fighters = sorted(fighters, key=lambda x: x.get('Weight', 0))
+
+        # Even distribution: ceil(n / pool_size) pools, remainder spread across first pools
+        n = len(fighters)
+        n_pools = math.ceil(n / pool_size)
+        base = n // n_pools
+        extra = n % n_pools  # first `extra` pools get base+1 fighters
+
+        pool_sizes = [base + 1 if i < extra else base for i in range(n_pools)]
+
+        start = 0
+        for pool_num, size in enumerate(pool_sizes, 1):
+            chunk = fighters[start: start + size]
+            start += size
+            pool_key = f"{key} | Pool {pool_num}"
+            new_brackets[pool_key] = {
+                'fighters': chunk,
+                'bracket': [],
+                'pool_size': None,
+            }
+            logger.info(f"[POOL SPLIT] {key} → {pool_key}: {len(chunk)} fighters")
+
+    return new_brackets
+
+
 def _interleave_by_club(participants):
     """Interleave participants by club to reduce same-club pairings."""
     buckets = {}

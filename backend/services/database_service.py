@@ -70,7 +70,6 @@ class DatabaseService:
 
     def is_available(self) -> bool:
         """Check if database is available."""
-        global DB_AVAILABLE
         return DB_AVAILABLE
 
     def _execute_with_session(self, fn: Callable[[TournamentService], Any]) -> Optional[Any]:

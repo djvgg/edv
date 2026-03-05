@@ -398,9 +398,15 @@ class GenerationMethodScreen(tk.Frame):
         selection = listbox.curselection()
         if selection:
             idx = selection[0]
-            # Get the bracket key from the listbox
-            bracket_key = listbox.get(idx).split(' (')[0]  # Extract key before " (N)"
-            self.selected_in_tables[method] = bracket_key
+            display_text = listbox.get(idx)
+            # Reverse-lookup: find bracket key whose formatted display matches
+            bracket_key = next(
+                (k for k in self.brackets
+                 if self._format_bracket_display(k, self.brackets[k]["tuple"]) == display_text),
+                None,
+            )
+            if bracket_key:
+                self.selected_in_tables[method] = bracket_key
             self.logger.debug(f"Selected bracket in {method} table: {bracket_key}")
 
     def on_assign_to_method(self, method):
@@ -515,8 +521,7 @@ class GenerationMethodScreen(tk.Frame):
 
         for bracket_key in self.filtered_keys:
             bracket_data = self.brackets[bracket_key]
-            fighter_count = self._count_fighters(bracket_data["tuple"])
-            display_text = f"{bracket_key} ({fighter_count})"
+            display_text = self._format_bracket_display(bracket_key, bracket_data["tuple"])
             self.unassigned_listbox.insert(tk.END, display_text)
 
     def _refresh_method_display(self, method):
@@ -530,8 +535,7 @@ class GenerationMethodScreen(tk.Frame):
 
         for bracket_key, bracket_data in self.brackets.items():
             if bracket_data["method"] == method:
-                fighter_count = self._count_fighters(bracket_data["tuple"])
-                display_text = f"{bracket_key} ({fighter_count})"
+                display_text = self._format_bracket_display(bracket_key, bracket_data["tuple"])
                 listbox.insert(tk.END, display_text)
 
     def _count_fighters(self, bracket_tuple):
@@ -539,6 +543,34 @@ class GenerationMethodScreen(tk.Frame):
         if isinstance(bracket_tuple, list):
             return len(bracket_tuple)
         return 0
+
+    def _format_bracket_display(self, bracket_key, bracket_tuple):
+        """Return the listbox display string for a bracket.
+
+        For U9/U11 pool keys (e.g. "U11 | Pool 1") the format is:
+            "U11 | Pool 1 | 4 * 6 | bis 28.5 kg"
+        where  4  = number of fighters,  6  = round-robin fights (n*(n-1)/2),
+        and  28.5 kg  = max weight in this pool.
+
+        All other brackets: "<key> (<n>)"
+        """
+        is_u9_u11_pool = (
+            isinstance(bracket_tuple, list) and
+            bracket_tuple and
+            ('U9 | Pool' in bracket_key or 'U11 | Pool' in bracket_key)
+        )
+
+        if is_u9_u11_pool:
+            n = len(bracket_tuple)
+            try:
+                max_weight = max(f.get('Weight', 0) for f in bracket_tuple)
+                weight_str = f"{max_weight:g}"
+            except (TypeError, ValueError):
+                weight_str = '?'
+            return f"{bracket_key} | -{weight_str}kg ({n})"
+
+        fighter_count = self._count_fighters(bracket_tuple)
+        return f"{bracket_key} ({fighter_count})"
 
     def _recommend_method(self, fighter_count, bracket_key=None):
         """Recommend a generation method based on fighter count using config thresholds.

@@ -10,7 +10,6 @@ participant ordering using the deterministic fight generation algorithm.
 """
 
 from typing import List, Dict, Optional, Tuple
-from itertools import combinations
 
 from utils.logging import get_logger
 
