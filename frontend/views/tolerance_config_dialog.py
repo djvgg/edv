@@ -16,12 +16,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from utils.logging import get_logger
-from ..styles import (
-    COLORS, FONTS,
-    SCROLLBAR_STYLE,
-    apply_button_style,
-    create_dark_frame,
-)
+from ..styles import (COLORS, FONTS)
 
 logger = get_logger('tolerance_config_dialog', debug_verbose=False)
 

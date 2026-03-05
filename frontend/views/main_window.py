@@ -4,7 +4,6 @@
 # Extracted GUI code from bracket_viewer.py
 
 
-import json
 import os
 import sys
 import threading
@@ -922,9 +921,6 @@ class BracketViewerApp(tk.Tk):
         Delegates to DataLoaderService which handles the file processing and splitting.
         This method manages the UI flow: file selection → tolerance configuration → service call.
         """
-        # Import here to avoid circular dependency
-        from frontend.utils.participant_loader import load_participants_from_xlsx
-        
         # Select input XLSX file
         input_file = filedialog.askopenfilename(
             title="Select Tournament Registration XLSX File",

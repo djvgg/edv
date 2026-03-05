@@ -726,7 +726,7 @@ class DataLoaderService:
             if self.ui_feedback:
                 self.ui_feedback.set_status("Split complete! Files ready for weighing.", '#00cc00')
             
-            success_msg = f"Successfully saved split files:\n"
+            success_msg = "Successfully saved split files:\n"
             if male_count > 0:
                 success_msg += f"• contestants_male.json ({male_count} entries)\n"
             if female_count > 0:
