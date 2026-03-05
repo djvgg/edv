@@ -275,6 +275,10 @@ class BracketViewerApp(tk.Tk):
             self.brackets, edited_fighter, preview_screen
         )
 
+        # Re-merge any split U9/U11 pools back into single buckets for the preview
+        from utils.bracket_utils import merge_u9_u11_pools
+        self.brackets = merge_u9_u11_pools(self.brackets)
+
         # Load bracket data (QuarantineService restores preserved brackets if available)
         self.quarantine_service.restore_quarantine(self.brackets)
         preview_screen.load_data(self.brackets)
@@ -1356,8 +1360,6 @@ class BracketViewerApp(tk.Tk):
             BW = int(200 * zoom_level)
             BH = int(64 * zoom_level)
             
-            FS = max(7, int(10 * zoom_level))
-
             for r, matches in enumerate(loser_rounds):
                 for m in range(len(matches)):
                     if (r, m) not in lb_pos:

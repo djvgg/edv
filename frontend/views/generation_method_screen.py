@@ -562,13 +562,12 @@ class GenerationMethodScreen(tk.Frame):
 
         if is_u9_u11_pool:
             n = len(bracket_tuple)
-            fights = n * (n - 1) // 2
             try:
                 max_weight = max(f.get('Weight', 0) for f in bracket_tuple)
                 weight_str = f"{max_weight:g}"
             except (TypeError, ValueError):
                 weight_str = '?'
-            return f"{bracket_key} | {n} * {fights} | bis {weight_str} kg"
+            return f"{bracket_key} | -{weight_str}kg ({n})"
 
         fighter_count = self._count_fighters(bracket_tuple)
         return f"{bracket_key} ({fighter_count})"
