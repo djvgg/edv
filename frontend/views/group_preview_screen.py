@@ -50,11 +50,12 @@ class GroupPreviewScreen(tk.Frame):
     # Debug flag - set to True for verbose logging
     DEBUG = DEBUG
 
-    def __init__(self, parent, quarantine_service=None, **kwargs):
+    def __init__(self, parent, quarantine_service=None, db_service=None, **kwargs):
         super().__init__(parent, **kwargs)
         self.configure(bg=COLORS['bg_dark'])
         self.logger = logger
         self.quarantine_service = quarantine_service  # Store reference for edit dialog
+        self.db_service = db_service                  # DB service for persisting edits
 
         # Initialize config repository for weight classes
         try:

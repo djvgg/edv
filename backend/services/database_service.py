@@ -25,6 +25,7 @@ if _edv_backend_path not in sys.path:
 from utils.logging import get_logger  # noqa: E402
 from ..data.database import SessionLocal, init_db as _init_db, Base, engine  # noqa: E402
 from .tournament_service import TournamentService  # noqa: E402
+from .bracket_reconstruction_service import BracketReconstructionService  # noqa: E402
 
 logger = get_logger('database_service')
 
@@ -63,6 +64,9 @@ class DatabaseService:
             else:
                 self.logger.error(f"Failed to initialize database: {e}")
                 DB_AVAILABLE = False
+        
+        # Initialize bracket reconstruction service
+        self.bracket_reconstruction = BracketReconstructionService(self)
 
     def is_available(self) -> bool:
         """Check if database is available."""
@@ -115,19 +119,34 @@ class DatabaseService:
     
     def save_participants(self, participants: list) -> bool:
         """
-        Save participant list to database.
-        
+        Add participants to database, skipping duplicates.
+
         Args:
             participants: List of participant dicts
-            
+
         Returns:
             True if successful, False if DB unavailable or error
         """
         def _save(svc: TournamentService):
-            svc.save_participants(participants)
+            new_count = svc.add_participants(participants)
+            self.logger.info(
+                f"Added {new_count} new participants "
+                f"({len(participants) - new_count} duplicates skipped)"
+            )
             return True
-        
+
         result = self._execute_with_session(_save)
+        return result is True
+
+    def flush_database(self) -> bool:
+        """Wipe all tournament data (explicit user action via Flush button)."""
+        self.logger.warning("[FLUSH] User requested full database flush")
+
+        def _flush(svc: TournamentService):
+            svc.flush_database()
+            return True
+        result = self._execute_with_session(_flush)
+        self.logger.info(f"[FLUSH] {'OK' if result else 'FAILED'}")
         return result is True
 
     def fetch_participants(self) -> Optional[list]:
@@ -145,7 +164,38 @@ class DatabaseService:
         return self._execute_with_session(_fetch)
 
     # ===== BRACKET & GROUP CRUD =====
-    
+
+    def update_participant(self, fighter: dict, new_bracket_key: str) -> bool:
+        """
+        Persist edits from edit_participant_dialog to DB.
+        Updates the participants row and moves the group_participants entry.
+        """
+        def _update(svc: TournamentService):
+            svc.update_participant(fighter, new_bracket_key)
+            return True
+        return self._execute_with_session(_update) is True
+
+    def initialize_all_groups(self) -> bool:
+        """Create all possible groups from config + QUARANTINE. Called once after save_participants."""
+        def _init(svc: TournamentService):
+            svc.initialize_all_groups()
+            return True
+        return self._execute_with_session(_init) is True
+
+    def save_groups(self, brackets: dict) -> bool:
+        """Re-sync group_participants after load or group preview edits."""
+        def _save(svc: TournamentService):
+            svc.save_groups(brackets)
+            return True
+        return self._execute_with_session(_save) is True
+
+    def save_brackets(self, brackets: dict, generation_methods: dict) -> bool:
+        """Write brackets table after generation methods are confirmed."""
+        def _save(svc: TournamentService):
+            svc.save_brackets(brackets, generation_methods)
+            return True
+        return self._execute_with_session(_save) is True
+
     def save_groups_and_brackets(self, brackets: dict, generation_methods: dict) -> bool:
         """
         Save bracket groups and their assignments.
@@ -164,50 +214,250 @@ class DatabaseService:
         result = self._execute_with_session(_save)
         return result is True
 
+    def reconstruct_bracket_from_db(
+        self,
+        bracket_id: int,
+        bracket_key: str,
+        bracket_type: str = 'ko',
+        pool_size: int = None,
+    ) -> dict:
+        """
+        Reconstruct a bracket data structure from database Fight records.
+        
+        Uses the reverse mapping algorithm to recover original participant ordering
+        for pool brackets by analyzing the deterministic fight generation algorithm.
+        
+        Args:
+            bracket_id: Database bracket ID
+            bracket_key: Human-readable bracket key (for logging)
+            bracket_type: 'ko', 'pools', or 'double'
+            pool_size: Max fighters per pool (if applicable)
+        
+        Returns:
+            Dict matching self.brackets[bracket_key] format:
+            {
+                'fighters': [participant dicts with 'Name', 'Verein' keys],
+                'bracket': [(fighter1, fighter2), ...],  # KO pairs only
+                'bracket_phase': 'pool' or 'wb',
+                'pool_size': pool_size,
+                'is_quarantine': False
+            }
+        """
+        return self.bracket_reconstruction.reconstruct_bracket_from_db(
+            bracket_id=bracket_id,
+            bracket_key=bracket_key,
+            bracket_type=bracket_type,
+            pool_size=pool_size,
+        )
+
     # ===== TABLE ASSIGNMENT CRUD =====
     
     def assign_bracket_to_table(self, bracket_key: str, table_num: int) -> bool:
         """
         Assign a bracket to a specific table (mat).
-        
+
         Args:
             bracket_key: Bracket identifier (e.g. 'U13')
             table_num: Table/mat number (1-4)
-            
+
         Returns:
             True if successful, False if DB unavailable or error
         """
+        self.logger.info(f"[MAT ASSIGN] '{bracket_key}' → Mat {table_num}")
+
         def _assign(svc: TournamentService):
             svc.assign_mat(bracket_key, table_num)
             return True
-        
+
         result = self._execute_with_session(_assign)
+        self.logger.info(f"[MAT ASSIGN] '{bracket_key}' → Mat {table_num}: {'OK' if result else 'FAILED'}")
         return result is True
+
+    def unassign_bracket_from_table(self, bracket_key: str) -> bool:
+        """Set mat_id back to NULL when a bracket is removed from its mat."""
+        self.logger.info(f"[MAT UNASSIGN] '{bracket_key}'")
+
+        def _unassign(svc: TournamentService):
+            svc.unassign_mat(bracket_key)
+            return True
+        return self._execute_with_session(_unassign) is True
 
     # ===== FIGHT MONITORING CRUD =====
     
-    def create_fights_for_bracket(self, bracket_key: str, fight_pairs: list) -> bool:
+    def create_fights_for_bracket(
+        self,
+        bracket_key: str,
+        fight_pairs: list,
+        bracket_type: str = 'ko',
+        fighters: list = None,
+        pool_size: int = None,
+    ) -> bool:
         """
         Create fight rows for a bracket (for fight monitoring).
-        
+
         Args:
-            bracket_key: Bracket identifier
-            fight_pairs: List of (fighter1, fighter2) tuples
-            
-        Returns:
-            True if successful, False if DB unavailable or error
+            bracket_key:   Bracket identifier
+            fight_pairs:   WB round-0 name pairs for KO/special brackets
+            bracket_type:  'pools' | 'double' | 'ko' | 'special'
+            fighters:      Full fighters list — required for pool/double brackets
+            pool_size:     Max fighters per pool (for U9/U11 multi-pool splits)
         """
+        self.logger.info(f"[CREATE FIGHTS] '{bracket_key}' type={bracket_type}, "
+                         f"{len(fight_pairs)} pairs, {len(fighters or [])} fighters")
+
         def _create(svc: TournamentService):
             try:
-                svc.open_bracket_for_monitoring(bracket_key, fight_pairs)
+                fights = svc.open_bracket_for_monitoring(
+                    bracket_key, fight_pairs,
+                    bracket_type=bracket_type,
+                    fighters=fighters,
+                    pool_size=pool_size,
+                )
+                self.logger.info(f"[CREATE FIGHTS] '{bracket_key}': {len(fights)} fight rows in DB")
                 return True
-            except ValueError:
-                # Bracket not yet saved to DB (expected if loaded from file)
-                self.logger.debug(f"Bracket '{bracket_key}' not yet in DB (skipping fight creation)")
+            except ValueError as e:
+                self.logger.debug(f"Bracket '{bracket_key}' not yet in DB: {e}")
                 return False
-        
+
         result = self._execute_with_session(_create)
         return result is True
+
+    def assign_and_create_fights(
+        self,
+        bracket_key: str,
+        table_num: int,
+        fight_pairs: list,
+        bracket_type: str = 'ko',
+        fighters: list = None,
+        pool_size: int = None,
+    ) -> bool:
+        """
+        Combined operation: Assign bracket to table AND create fights in one session.
+        
+        This is the preferred method when a bracket is being assigned to a mat
+        (consolidates repetitive assign + create pattern from GUI callers).
+
+        Args:
+            bracket_key:   Bracket identifier
+            table_num:     Table/mat number (1-4)
+            fight_pairs:   WB round-0 name pairs for KO/special brackets
+            bracket_type:  'pools' | 'double' | 'ko' | 'special'
+            fighters:      Full fighters list — required for pool/double brackets
+            pool_size:     Max fighters per pool (for U9/U11 multi-pool splits)
+
+        Returns:
+            True if both assign and create succeeded, False otherwise
+        """
+        self.logger.info(f"[ASSIGN+CREATE] '{bracket_key}' → Mat {table_num}, "
+                         f"type={bracket_type}, {len(fight_pairs)} pairs")
+
+        def _assign_and_create(svc: TournamentService):
+            try:
+                # 1. Assign bracket to table
+                svc.assign_mat(bracket_key, table_num)
+                self.logger.info(f"[ASSIGN+CREATE] Step 1/2: Assigned '{bracket_key}' → Mat {table_num}")
+
+                # 2. Create fight rows
+                fights = svc.open_bracket_for_monitoring(
+                    bracket_key, fight_pairs,
+                    bracket_type=bracket_type,
+                    fighters=fighters,
+                    pool_size=pool_size,
+                )
+                self.logger.info(f"[ASSIGN+CREATE] Step 2/2: Created {len(fights)} fight rows for '{bracket_key}'")
+                return True
+            except ValueError as e:
+                self.logger.debug(f"[ASSIGN+CREATE] Failed: Bracket '{bracket_key}' not yet in DB: {e}")
+                return False
+
+        result = self._execute_with_session(_assign_and_create)
+        return result is True
+
+    # ===== FIGHT RESULT PERSISTENCE =====
+
+    def record_fight_result(
+        self,
+        bracket_key: str,
+        phase: str,
+        round_num: int,
+        pos: int,
+        winner_name: str,
+        p1_name: str = None,
+        p2_name: str = None,
+    ) -> bool:
+        """Persist a KO or LB fight result after a winner is clicked.
+
+        p1_name / p2_name are required for rounds 1+ that were not pre-inserted —
+        the service will lazily create the fight row when they are provided.
+        """
+        self.logger.info(
+            f"[RECORD RESULT] '{bracket_key}' {phase} R{round_num} pos{pos}: "
+            f"winner='{winner_name}' (p1='{p1_name}', p2='{p2_name}')"
+        )
+
+        def _record(svc: TournamentService):
+            return svc.record_ko_result(
+                bracket_key, phase, round_num, pos, winner_name,
+                p1_name=p1_name, p2_name=p2_name,
+            )
+        ok = self._execute_with_session(_record) is True
+        self.logger.info(f"[RECORD RESULT] '{bracket_key}' {phase} R{round_num} pos{pos}: {'OK' if ok else 'FAILED'}")
+        return ok
+
+    def reset_fight_result(
+        self,
+        bracket_key: str,
+        phase: str,
+        round_num: int,
+        pos: int,
+    ) -> bool:
+        """Clear a KO or LB fight result (user de-selected the winner)."""
+        self.logger.info(f"[RESET RESULT] '{bracket_key}' {phase} R{round_num} pos{pos}")
+
+        def _reset(svc: TournamentService):
+            return svc.reset_ko_result(bracket_key, phase, round_num, pos)
+        return self._execute_with_session(_reset) is True
+
+    def delete_fight_position(
+        self,
+        bracket_key: str,
+        phase: str,
+        round_num: int,
+        pos: int,
+    ) -> bool:
+        """Delete a lazily-created fight row (used when undoing upstream results)."""
+        self.logger.info(f"[DELETE FIGHT] '{bracket_key}' {phase} R{round_num} pos{pos}")
+
+        def _delete(svc: TournamentService):
+            svc.delete_ko_fight(bracket_key, phase, round_num, pos)
+            return True
+        return self._execute_with_session(_delete) is True
+
+    def compute_placements(self, bracket_key: str) -> dict:
+        """Compute and store placements for a completed KO bracket.
+        Returns dict with first/second/third_1/third_2 group_participant IDs."""
+        self.logger.info(f"[PLACEMENTS] Computing placements for '{bracket_key}'")
+
+        def _compute(svc: TournamentService):
+            return svc.compute_and_store_placements(bracket_key)
+        return self._execute_with_session(_compute) or {}
+
+    def record_pool_score(
+        self,
+        bracket_key: str,
+        fighter1_name: str,
+        fighter2_name: str,
+        score1: str,
+        score2: str,
+        winner_name: str = None,
+    ) -> bool:
+        """Persist a pool fight score after a cell is committed."""
+        def _record(svc: TournamentService):
+            return svc.record_pool_score(
+                bracket_key, fighter1_name, fighter2_name,
+                score1, score2, winner_name,
+            )
+        return self._execute_with_session(_record) is True
 
     # ===== UTILITY =====
     

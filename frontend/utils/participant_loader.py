@@ -158,7 +158,21 @@ def load_participants_from_xlsx(file_path):
                         paid = paid_str in ['true', 'ja', 'yes', '1', 'y']
                         paid_source_col = col
                         break
-            
+
+            # Extract Doublestart (values: nein / ja / höher)
+            doublestart = 'nein'
+            for col in df.columns:
+                col_lower = col.lower()
+                if 'doppelstart' in col_lower or 'doublestart' in col_lower:
+                    if pd.notna(row[col]):
+                        ds_val = str(row[col]).strip().lower()
+                        if ds_val in ['höher', 'hoeher', 'higher']:
+                            doublestart = 'höher'
+                        elif ds_val in ['ja', 'yes', 'true', '1', 'y']:
+                            doublestart = 'ja'
+                        # else stays 'nein'
+                    break
+
             # Build participant record
             participant = {
                 'Name': full_name,
@@ -168,6 +182,7 @@ def load_participants_from_xlsx(file_path):
                 'Club': club,
                 'Association': association,
                 'Paid': paid,
+                'Doublestart': doublestart,
             }
             
             participants.append(participant)
