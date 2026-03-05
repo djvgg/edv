@@ -3,8 +3,7 @@
 
 # Extracted GUI code from bracket_viewer.py
 
-import datetime
-import json
+
 import os
 import sys
 import threading
@@ -18,10 +17,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from utils.logging import get_logger  # noqa: E402
 from backend.services.bracket_service import (  # noqa: E402
-    export_all_brackets,
     make_bracket,
     set_bracket_config,
-    get_age_group,
 )
 from backend.services.database_service import get_database_service  # noqa: E402
 
@@ -44,8 +41,6 @@ from ..styles import (  # noqa: E402
 # Import frontend utilities
 from ..utils import (  # noqa: E402
     calculate_box_size,
-    load_participants_from_xlsx,
-    normalize_participants,
     draw_pools_on_canvas,
     build_bracket_rounds,
     draw_bracket_on_canvas,
@@ -59,9 +54,12 @@ from .generation_method_screen import GenerationMethodScreen  # noqa: E402
 from .file_loader_screen import FileLoaderScreen  # noqa: E402
 from .group_preview_screen import GroupPreviewScreen  # noqa: E402
 from .fight_monitoring_window import FightMonitoringScreen  # noqa: E402
+from .rejection_summary_window import RejectionSummaryWindow  # noqa: E402
+from .tolerance_config_dialog import ToleranceConfigDialog  # noqa: E402
 from ..search_utils import filter_items  # noqa: E402
 from ..services.quarantine_service import QuarantineService  # noqa: E402
 from ..services.ui_feedback_service import UIFeedbackService  # noqa: E402
+from ..services.data_loader_service import DataLoaderService  # noqa: E402
 
 # ====================================================================
 # !!!!! CLAUDE: REFACTORING INSTRUCTIONS !!!!!
@@ -135,8 +133,8 @@ class BracketViewerApp(tk.Tk):
         except Exception as e:
             self.logger.warning(f"Could not load config: {e}")
 
-        # Initialize database service (handles all DB operations)
-        self.db_service = get_database_service()
+        # Initialize database service placeholder (will be set in background thread)
+        self.db_service = None
 
         # Initialize background task runner (for loading, imports, etc.)
         self.task_runner = TaskRunner(num_workers=2)
@@ -148,6 +146,16 @@ class BracketViewerApp(tk.Tk):
 
         # Initialize UI feedback service (handles progress dialogs, status messages)
         self.ui_feedback = UIFeedbackService(self)
+
+        # Initialize data loader service (will be reconfigured when db_service is ready)
+        self.data_loader = DataLoaderService(
+            ui_feedback=self.ui_feedback,
+            quarantine_service=self.quarantine_service,
+            db_service=None  # Will be updated after db_service is initialized
+        )
+
+        # Start database service initialization in background thread
+        self._init_database_service_thread()
 
         # Data
         self.brackets = {}  # {bracket_key: Bracket data}
@@ -175,6 +183,26 @@ class BracketViewerApp(tk.Tk):
 
         # Start with file loading UI
         self.show_file_loader()
+
+    def _init_database_service_thread(self):
+        """Initialize database service in a background thread to avoid blocking UI."""
+        thread = threading.Thread(target=self._database_init_worker, daemon=True)
+        thread.start()
+    
+    def _database_init_worker(self):
+        """Worker thread that initializes the database service."""
+        try:
+            self.logger.debug("Starting database service initialization in background thread...")
+            # Get database service (may take time due to connection pooling)
+            self.db_service = get_database_service()
+            
+            # Update data_loader_service with initialized db_service
+            self.data_loader.db_service = self.db_service
+            
+            self.logger.debug("Database service initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize database service: {e}")
+            self.db_service = None
 
     def setup_ttk_styles(self):
         """Configure ttk styles for dark theme scrollbars."""
@@ -291,128 +319,6 @@ class BracketViewerApp(tk.Tk):
         # Set up callback for when generation methods are selected
         gen_screen.on_generation_complete = self.on_generation_methods_selected
 
-    def filter_unpaid_participants(self, all_participants):
-        """Filter out unpaid participants and show a popup if any are found.
-        
-        Args:
-            all_participants: List of participant dicts with 'Paid' field
-        
-        Returns:
-            Tuple of (paid_participants, unpaid_list) where unpaid_list contains full
-            participant dicts with 'rejection_reason' field added
-        """
-        paid_participants = []
-        unpaid_participants = []
-        
-        for p in all_participants:
-            # Check if paid field exists and is truthy
-            is_paid = p.get('Paid', False)
-            
-            if is_paid:
-                paid_participants.append(p)
-            else:
-                # Add full participant data with rejection reason
-                unpaid_entry = dict(p)
-                unpaid_entry['rejection_reason'] = 'unpaid'
-                unpaid_participants.append(unpaid_entry)
-        
-        # Show popup if there are unpaid participants
-        if unpaid_participants:
-            unpaid_names = ['{} {}'.format(
-                p.get('Firstname', p.get('Vorname', '')),
-                p.get('Lastname', p.get('Nachname', ''))
-            ).strip() or p.get('Name', 'Unknown') for p in unpaid_participants]
-            
-            unpaid_text = "\n".join(f"• {name}" for name in unpaid_names)
-            
-            message = f"The following {len(unpaid_participants)} participant(s) have not paid and will NOT be sorted into brackets:\n\n{unpaid_text}"
-            
-            messagebox.showwarning("Unpaid Participants", message)
-            self.logger.info(f"Filtered out {len(unpaid_participants)} unpaid participant(s): {', '.join(unpaid_names)}")
-        
-        return paid_participants, unpaid_participants
-
-    def filter_invalid_ages(self, all_participants, min_age=6, max_age=120):
-        """Filter out participants with invalid ages and show popups for each rejection reason.
-        
-        Args:
-            all_participants: List of participant dicts with 'Age' or birthyear fields
-            min_age: Minimum valid age (configurable, default 6)
-            max_age: Maximum valid age (configurable, default 120)
-        
-        Returns:
-            Tuple of (valid_participants, invalid_list) where invalid_list contains dicts 
-            with name, age, and rejection reason
-        """
-        import datetime
-        
-        valid_participants = []
-        invalid_participants = []
-        current_year = datetime.datetime.now().year
-        
-        for p in all_participants:
-            age = None
-            
-            # Get age value from 'Age' field
-            age_value = p.get('Age')
-            
-            try:
-                if age_value is not None:
-                    age_value = int(age_value)
-                    # Age field contains birthyear, convert to actual age
-                    age = current_year - age_value
-            except (ValueError, TypeError):
-                pass
-            
-            # Fall back to Birthyear field if Age didn't work
-            if age is None and 'Birthyear' in p:
-                try:
-                    birthyear = int(p.get('Birthyear'))
-                    age = current_year - birthyear
-                except (ValueError, TypeError):
-                    pass
-            
-            # Rejection reasons
-            rejection_reason = None
-            
-            if age is None:
-                rejection_reason = "missing birth year/age"
-            elif age < min_age:
-                rejection_reason = f"too young ({age} years, minimum {min_age})"
-            elif age > max_age:
-                rejection_reason = f"too old ({age} years, maximum {max_age})"
-            else:
-                # Check if age maps to a valid age group
-                try:
-                    age_group = get_age_group(age)
-                    if age_group is None:
-                        rejection_reason = f"no valid age group for age {age}"
-                except Exception as e:
-                    rejection_reason = f"age validation error: {e}"
-            
-            if rejection_reason:
-                # Include full participant data + rejection reason
-                invalid_entry = dict(p)  # Copy original participant
-                invalid_entry['rejection_reason'] = rejection_reason
-                invalid_entry['calculated_age'] = age
-                invalid_participants.append(invalid_entry)
-            else:
-                valid_participants.append(p)
-        
-        # Show popup if there are invalid ages
-        if invalid_participants:
-            invalid_text = "\n".join(
-                f"• {p.get('Name', 'Unknown')} (age {p.get('calculated_age', '?')}) — {p.get('rejection_reason', 'unknown')}"
-                for p in invalid_participants
-            )
-            
-            message = f"The following {len(invalid_participants)} participant(s) have invalid ages and will NOT be sorted into brackets:\n\n{invalid_text}"
-            
-            messagebox.showwarning("Invalid Ages", message)
-            self.logger.info(f"Filtered out {len(invalid_participants)} participant(s) with invalid ages:\n{invalid_text}")
-        
-        return valid_participants, invalid_participants
-
     def _log_bracket_summary(self):
         """Log a detailed summary of generated brackets."""
         if not self.brackets:
@@ -422,21 +328,25 @@ class BracketViewerApp(tk.Tk):
         summary_parts = []
         total_fighters = 0
         quarantine_count = 0
+        quarantine_reasons = {}
         
         for bracket_key, bracket_data in sorted(self.brackets.items()):
             fighter_count = len(bracket_data.get('fighters', []))
             total_fighters += fighter_count
             
-            if bracket_key == 'QUARANTINE':
-                quarantine_count = fighter_count
-                summary_parts.append(f"  [QUARANTINE] {fighter_count} rejected participants")
+            if bracket_key.startswith('QUARANTINE_'):
+                reason = bracket_key.replace('QUARANTINE_', '')
+                quarantine_count += fighter_count
+                quarantine_reasons[reason] = fighter_count
+                summary_parts.append(f"  [QUARANTINE_{reason}] {fighter_count} rejected participants")
             else:
                 summary_parts.append(f"  {bracket_key}: {fighter_count} fighters")
         
         summary_text = "\n".join(summary_parts)
         self.logger.info(f"Bracket generation summary ({len(self.brackets)} brackets, {total_fighters} total fighters):\n{summary_text}")
         if quarantine_count > 0:
-            self.logger.warning(f"⚠️  {quarantine_count} participant(s) in QUARANTINE for manual review")
+            reason_summary = ", ".join([f"{r}({c})" for r, c in quarantine_reasons.items()])
+            self.logger.warning(f"⚠️  {quarantine_count} participant(s) in QUARANTINE for manual review ({reason_summary})")
 
 
     def show_bracket_viewer(self):
@@ -719,9 +629,9 @@ class BracketViewerApp(tk.Tk):
         self.tables_frame.pack(fill=tk.BOTH, expand=True)
 
     def show_bracket_view(self, bracket_key):
-        """Show bracket visualization view or group preview for QUARANTINE."""
-        # For QUARANTINE bracket, open group preview for editing
-        if bracket_key == 'QUARANTINE':
+        """Show bracket visualization view or group preview for QUARANTINE_* brackets."""
+        # For QUARANTINE_* brackets, open group preview for editing
+        if bracket_key.startswith('QUARANTINE_'):
             self.show_group_preview_window()
             return
         
@@ -1066,183 +976,54 @@ class BracketViewerApp(tk.Tk):
                 )
 
     def load_and_generate(self):
-        """Load participants from XLSX file and generate brackets."""
-        filepath = filedialog.askopenfilename(
-            title="Select Participant XLSX File",
-            filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")]
-        )
-        if not filepath:
-            return
+        """Load participants from XLSX file and generate brackets (wrapper to DataLoaderService)."""
+        self.data_loader.load_and_generate(callbacks={
+            'on_success': self._on_brackets_loaded
+        })
 
-        # Show loading progress dialog
-        self.ui_feedback.show_loading_progress("Loading and generating brackets...")
-        
-        # Run loading in background thread
-        thread = threading.Thread(target=self._load_and_generate_thread, args=(filepath,), daemon=True)
-        thread.start()
+    def _on_brackets_loaded(self, brackets=None, rejected_participants=None):
+        """Callback when brackets are successfully loaded (called from background thread).
 
-    def _load_and_generate_thread(self, filepath):
-        """Background thread for loading XLSX and generating brackets."""
-        try:
-            self.ui_feedback.set_status("Reading XLSX file...", COLORS['text_secondary'])
-            self.ui_feedback.update_progress(10)
+        Args:
+            brackets: Dict of generated brackets (including QUARANTINE_* brackets per reason)
+            rejected_participants: List of rejected participant dicts with rejection reasons
+        """
+        # The brackets are already generated by the service (including QUARANTINE_* per reason)
+        if brackets:
+            self.brackets = brackets
 
-            # Load and normalize participants from XLSX using utility function
-            raw_participants = load_participants_from_xlsx(filepath)
-            self.ui_feedback.update_progress(30)
-            
-            participants = normalize_participants(raw_participants)
-            self.ui_feedback.update_progress(40)
-            self.db_service.save_participants(participants)
-            self.db_service.initialize_all_groups()
+        # Log bracket generation summary
+        self._log_bracket_summary()
 
-            # Filter out unpaid participants
-            participants, unpaid = self.filter_unpaid_participants(participants)
-
-            # Filter out participants with invalid ages
-            participants, invalid_ages = self.filter_invalid_ages(participants)
-            
-            # Create QUARANTINE bracket with all rejected participants (unpaid + invalid ages)
-            all_rejected = unpaid + invalid_ages
-            if all_rejected:
-                self.quarantine_service.create_quarantine_bracket(self.brackets, all_rejected)
-
-            if not participants:
-                self.ui_feedback.set_status("Error: No valid participants found.", COLORS['accent_red'])
-                self.ui_feedback.hide_loading_progress()
-                return
-
-            total_fighters = len(participants)
-            self.ui_feedback.set_info_text(f"✓ {total_fighters} participants loaded")
-            self.ui_feedback.update_progress(50)
-
-            self.ui_feedback.set_status("Generating brackets...", COLORS['text_secondary'])
-
-            # Save QUARANTINE bracket if it exists (it gets overwritten by export_all_brackets)
-            quarantine_bracket = self.brackets.pop('QUARANTINE', None)
-            
-            # Generate brackets using backend service
-            self.brackets = export_all_brackets(participants)
-
-            # Restore QUARANTINE bracket if it existed
-            if quarantine_bracket is not None:
-                self.brackets['QUARANTINE'] = quarantine_bracket
-
-            # Persist groups + group_participants immediately after generation
-            self.ui_feedback.set_status("Saving groups to database...", COLORS['text_secondary'])
-            self.db_service.save_groups(self.brackets)
-            self.ui_feedback.update_progress(80)
-
-            # Log bracket generation summary
-            self._log_bracket_summary()
-
-            self.ui_feedback.set_status(f"Success! Generated {len(self.brackets)} brackets.", COLORS['accent_green'])
-            self.ui_feedback.update_progress(100)
-
-            # Hide progress and show group preview window
-            self.ui_feedback.hide_loading_progress()
+        # Schedule UI updates on main thread (callback is called from background thread)
+        if rejected_participants:
+            # Show rejection window and wait for it to close before showing group preview
+            self.after(100, lambda: self._show_rejection_window_and_continue(rejected_participants))
+        else:
+            # Show group preview window immediately if no rejections
             self.after(500, self.show_group_preview_window)
+    
+    def _show_rejection_window_and_continue(self, rejected_participants):
+        """Show rejection window and continue to group preview after it closes.
+        
+        This runs on the main thread, so wait_window() won't freeze the entire app.
+        """
+        self.rejection_window = RejectionSummaryWindow(self, rejected_participants)
+        # This will block the main thread until the user closes the rejection window
+        # but won't affect other event processing
+        self.rejection_window.wait_for_close()
+        # After rejection window is closed, show group preview
+        self.show_group_preview_window()
 
-        except Exception as e:
-            self.logger.error(f"Error during load and generate: {e}")
-            self.ui_feedback.set_status(f"Error: {e}", COLORS['accent_red'])
-            self.ui_feedback.hide_loading_progress()
 
     def load_from_database(self):
-        """Load participants from PostgreSQL database and generate brackets."""
-        # Show loading progress dialog
-        self.ui_feedback.show_loading_progress("Loading from database...")
-        
-        # Run loading in background thread
-        thread = threading.Thread(target=self._load_from_database_thread, daemon=True)
-        thread.start()
-
-    def _load_from_database_thread(self):
-        """Background thread for loading from database and generating brackets."""
-        try:
-            self.ui_feedback.set_status("Connecting to database...", COLORS['text_secondary'])
-            self.ui_feedback.update_progress(10)
-
-            # Fetch participants from database
-            participants = self.db_service.fetch_participants()
-            self.ui_feedback.update_progress(30)
-
-            if not participants:
-                self.ui_feedback.set_status("Error: No participants found in database.", COLORS['accent_red'])
-                self.ui_feedback.hide_loading_progress()
-                self.after(500, lambda: messagebox.showwarning("No Data", "No participants found in database."))
-                return
-
-            # Filter out unpaid participants
-            participants, unpaid = self.filter_unpaid_participants(participants)
-
-            # Filter out participants with invalid ages
-            participants, invalid_ages = self.filter_invalid_ages(participants)
-            
-            # Create QUARANTINE bracket with all rejected participants (unpaid + invalid ages)
-            all_rejected = unpaid + invalid_ages
-            if all_rejected:
-                self.quarantine_service.create_quarantine_bracket(self.brackets, all_rejected)
-
-            if not participants:
-                self.ui_feedback.set_status("Error: No valid participants found in database.", COLORS['accent_red'])
-                self.ui_feedback.hide_loading_progress()
-                self.after(500, lambda: messagebox.showwarning("No Data", "No valid participants found in database."))
-                return
-
-            total_fighters = len(participants)
-            self.ui_feedback.set_info_text(f"✓ {total_fighters} participants loaded from database")
-            self.ui_feedback.update_progress(50)
-
-            self.ui_feedback.set_status("Generating brackets...", COLORS['text_secondary'])
-
-            # Save QUARANTINE bracket if it exists (it gets overwritten by export_all_brackets)
-            quarantine_bracket = self.brackets.pop('QUARANTINE', None)
-            
-            # Generate brackets using backend service
-            self.brackets = export_all_brackets(participants)
-            self.ui_feedback.update_progress(80)
-            
-            # Restore QUARANTINE bracket if it existed
-            if quarantine_bracket is not None:
-                self.brackets['QUARANTINE'] = quarantine_bracket
-            
-            # Log bracket generation summary
-            self._log_bracket_summary()
-
-            self.ui_feedback.set_status(f"Success! Generated {len(self.brackets)} brackets from database.", COLORS['accent_green'])
-            self.ui_feedback.update_progress(100)
-
-            # Hide progress and show group preview window
-            self.ui_feedback.hide_loading_progress()
-            self.after(500, self.show_group_preview_window)
-
-        except Exception as e:
-            self.logger.error(f"Database error during load: {e}")
-            self.ui_feedback.set_status(f"Database Error: {e}", COLORS['accent_red'])
-            self.ui_feedback.hide_loading_progress()
-            self.after(500, lambda err=e: messagebox.showerror("Database Error", f"Failed to load from database:\n{str(err)}"))
+        """Load participants from PostgreSQL database and generate brackets (wrapper to DataLoaderService)."""
+        self.data_loader.load_from_database(callbacks={
+            'on_success': self._on_brackets_loaded
+        })
 
     def load_json_and_generate(self):
-        """Load 2 JSON files (male/female), merge them, and generate brackets.
-        
-        Expected JSON structure:
-        [
-          {
-            "ID": 1,
-            "Firstname": "Leon",
-            "Lastname": "Müller",
-            "Birthyear": 2018,
-            "Club": "JC Sakura Berlin",
-            "Association": "JV Berlin",
-            "Weight": 28.5,
-            "Valid": true,
-            "Gender": "male",
-            "Paid": true
-          },
-          ...
-        ]
-        """
+        """Load 2 JSON files (male/female), merge them, and generate brackets (wrapper to DataLoaderService)."""
         # Select 2 JSON files
         filepaths = filedialog.askopenfilenames(
             title="Select 2 JSON Files (Male & Female)",
@@ -1257,229 +1038,17 @@ class BracketViewerApp(tk.Tk):
                                f"Please select exactly 2 JSON files.\nYou selected {len(filepaths)} file(s).")
             return
 
-        # Show loading progress dialog
-        self.ui_feedback.show_loading_progress("Loading and generating brackets from JSON...")
-        
-        # Run loading in background thread
-        thread = threading.Thread(target=self._load_json_and_generate_thread, args=(filepaths,), daemon=True)
-        thread.start()
-
-    def _load_json_and_generate_thread(self, filepaths):
-        """Background thread for loading JSON files and generating brackets."""
-        try:
-            self.ui_feedback.set_status("Reading JSON files...", COLORS['text_secondary'])
-            self.ui_feedback.update_progress(10)
-            self.logger.info(f"Loading {len(filepaths)} JSON files")
-
-            all_participants = []
-            
-            # Define expected fields
-            required_core_fields = ['Firstname', 'Lastname', 'Birthyear', 'Weight', 'Gender']
-
-            # Load both JSON files
-            for file_idx, filepath in enumerate(filepaths, 1):
-                filename = os.path.basename(filepath)
-                self.logger.info(f"[File {file_idx}] Loading: {filename}")
-                
-                # Update progress (20% for first file, 50% for second file)
-                progress = 20 + (file_idx - 1) * 30
-                self.ui_feedback.update_progress(progress)
-                
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-
-                # Validate that data is a list
-                if not isinstance(data, list):
-                    error_msg = f"File must contain a JSON array.\nFile: {filename}\nGot: {type(data).__name__}"
-                    self.logger.error(error_msg)
-                    self.ui_feedback.hide_loading_progress()
-                    self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
-                    self.after(500, lambda msg=error_msg: messagebox.showerror("Invalid JSON Format", msg))
-                    return
-
-                self.logger.debug(f"[File {file_idx}] Found {len(data)} entries")
-                
-                valid_count = 0
-
-                # Validate each participant
-                for idx, participant in enumerate(data, 1):
-                    if not isinstance(participant, dict):
-                        error_msg = f"Participant {idx} is not a valid object (got {type(participant).__name__}).\nFile: {filename}"
-                        self.logger.error(error_msg)
-                        self.ui_feedback.hide_loading_progress()
-                        self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
-                        self.after(500, lambda msg=error_msg: messagebox.showerror("Invalid Participant", msg))
-                        return
-
-                    # Check for required core fields
-                    missing_fields = [field for field in required_core_fields if field not in participant]
-
-                    if missing_fields:
-                        error_msg = f"Participant {idx} is missing required fields: {', '.join(missing_fields)}\nFile: {filename}"
-                        self.logger.error(error_msg)
-                        self.ui_feedback.hide_loading_progress()
-                        self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
-                        self.after(500, lambda msg=error_msg: messagebox.showerror("Missing Required Fields", msg))
-                        return
-
-                    # Validate field types and values
-                    validation_errors = []
-                    
-                    # Check Firstname/Lastname are strings
-                    if not isinstance(participant.get('Firstname'), str) or not participant.get('Firstname', '').strip():
-                        validation_errors.append("Firstname must be non-empty string")
-                    if not isinstance(participant.get('Lastname'), str) or not participant.get('Lastname', '').strip():
-                        validation_errors.append("Lastname must be non-empty string")
-                    
-                    # Check Birthyear is integer or null
-                    birthyear = participant.get('Birthyear')
-                    if birthyear is not None and not isinstance(birthyear, int):
-                        try:
-                            participant['Birthyear'] = int(birthyear)
-                        except (ValueError, TypeError):
-                            validation_errors.append(f"Birthyear must be integer, got: {birthyear}")
-                    
-                    # Check Weight is number
-                    weight = participant.get('Weight')
-                    if weight is not None:
-                        try:
-                            participant['Weight'] = float(weight)
-                        except (ValueError, TypeError):
-                            validation_errors.append(f"Weight must be number, got: {weight}")
-                    
-                    # Check and normalize Gender
-                    gender = str(participant.get('Gender', '')).strip().lower()
-                    if gender in ['m', 'male', 'maennlich', 'männlich']:
-                        participant['Gender'] = 'male'
-                    elif gender in ['w', 'f', 'female', 'weiblich', 'frau']:
-                        participant['Gender'] = 'female'
-                    else:
-                        validation_errors.append(f"Gender must be male/female/männlich/weiblich, got: {gender}")
-                    
-                    if validation_errors:
-                        error_msg = f"Participant {idx} validation failed:\n" + "\n".join(f"  • {err}" for err in validation_errors) + f"\nFile: {filename}"
-                        self.logger.error(error_msg)
-                        self.ui_feedback.hide_loading_progress()
-                        self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
-                        self.after(500, lambda msg=error_msg: messagebox.showerror("Validation Error", msg))
-                        return
-
-                    # Construct Name field from Firstname + Lastname if not present
-                    if 'Name' not in participant:
-                        participant['Name'] = f"{participant['Firstname']} {participant['Lastname']}".strip()
-                    
-                    # Ensure Age field exists (use Birthyear)
-                    if 'Age' not in participant:
-                        participant['Age'] = participant.get('Birthyear')
-
-                    self.logger.debug(f"[File {file_idx}] Participant {idx}: {participant['Name']} (Age: {participant.get('Birthyear')}, Weight: {participant.get('Weight', 0.0)}kg, Gender: {gender})")
-                    
-                    valid_count += 1
-                    all_participants.append(participant)
-
-                self.logger.info(f"[File {file_idx}] Successfully validated {valid_count} participants")
-
-            self.ui_feedback.update_progress(60)
-
-            if not all_participants:
-                error_msg = "No valid participants found in JSON files."
-                self.logger.error(error_msg)
-                self.ui_feedback.hide_loading_progress()
-                self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
-                return
-
-            # Save to DB — wipes previous data and inserts fresh (same as XLSX load)
-            self.ui_feedback.set_status("Saving participants to database...", COLORS['text_secondary'])
-            self.db_service.save_participants(all_participants)
-            self.db_service.initialize_all_groups()
-
-            self.ui_feedback.set_status("Filtering participants...", COLORS['text_secondary'])
-            self.ui_feedback.update_progress(65)
-
-            # Filter out unpaid participants
-            all_participants, unpaid = self.filter_unpaid_participants(all_participants)
-
-            self.ui_feedback.update_progress(70)
-
-            # Filter out participants with invalid ages
-            all_participants, invalid_ages = self.filter_invalid_ages(all_participants)
-            
-            self.ui_feedback.update_progress(75)
-
-            # Create QUARANTINE bracket with all rejected participants (unpaid + invalid ages)
-            all_rejected = unpaid + invalid_ages
-            if all_rejected:
-                self.quarantine_service.create_quarantine_bracket(self.brackets, all_rejected)
-
-            if not all_participants:
-                error_msg = "No valid participants found in JSON files."
-                self.logger.error(error_msg)
-                self.ui_feedback.hide_loading_progress()
-                self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
-                return
-
-            total_fighters = len(all_participants)
-            self.logger.info(f"Total valid participants loaded: {total_fighters}")
-            self.ui_feedback.set_info_text(f"✓ {total_fighters} valid participants loaded from JSON files")
-
-            self.ui_feedback.set_status("Generating brackets...", COLORS['text_secondary'])
-            self.ui_feedback.update_progress(85)
-            self.logger.info("Starting bracket generation...")
-
-            # Save QUARANTINE bracket if it exists (it gets overwritten by export_all_brackets)
-            quarantine_bracket = self.brackets.pop('QUARANTINE', None)
-            
-            # Generate brackets using backend service
-            self.brackets = export_all_brackets(all_participants)
-
-            # Restore QUARANTINE bracket if it existed
-            if quarantine_bracket is not None:
-                self.brackets['QUARANTINE'] = quarantine_bracket
-
-            # Persist groups + group_participants immediately after generation
-            self.ui_feedback.set_status("Saving groups to database...", COLORS['text_secondary'])
-            self.db_service.save_groups(self.brackets)
-            self.ui_feedback.update_progress(95)
-
-            # Log bracket generation summary
-            self._log_bracket_summary()
-
-            self.ui_feedback.set_status(f"Success! Generated {len(self.brackets)} brackets from JSON files.", COLORS['accent_green'])
-            self.ui_feedback.update_progress(100)
-
-            # Hide progress and show group preview window
-            self.ui_feedback.hide_loading_progress()
-            self.after(500, self.show_group_preview_window)
-
-        except json.JSONDecodeError as e:
-            error_msg = f"JSON Parse Error: {e}"
-            self.logger.error(error_msg)
-            self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
-            self.ui_feedback.hide_loading_progress()
-            self.after(500, lambda err=e: messagebox.showerror("JSON Error", f"Failed to parse JSON file:\n{str(err)}"))
-        except FileNotFoundError as e:
-            error_msg = f"File not found: {e}"
-            self.logger.error(error_msg)
-            self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
-            self.ui_feedback.hide_loading_progress()
-            self.after(500, lambda err=e: messagebox.showerror("File Error", f"Could not find file:\n{str(err)}"))
-        except Exception as e:
-            error_msg = f"Unexpected error: {e}"
-            self.logger.exception(error_msg)
-            self.ui_feedback.set_status(error_msg, COLORS['accent_red'])
-            self.ui_feedback.hide_loading_progress()
-            self.after(500, lambda err=e: messagebox.showerror("Error", f"Failed to load JSON files:\n{str(err)}"))
+        # Delegate to DataLoaderService
+        self.data_loader.load_json_and_generate(filepaths=filepaths, callbacks={
+            'on_success': self._on_brackets_loaded
+        })
 
     def split_gender_to_json(self):
-        """Split contestants by gender (M/W) and save to separate JSON files with English field names.
+        """Split contestants by gender (M/W) and save to separate JSON files with tolerances.
         
-        Reads tournament registration XLSX, extracts all available data, and outputs
-        separate JSON files for male and female participants with all fields populated
-        that are available at registration time (Weight will be filled during weighing).
+        Delegates to DataLoaderService which handles the file processing and splitting.
+        This method manages the UI flow: file selection → tolerance configuration → service call.
         """
-        # Import here to avoid circular dependency
-        from frontend.utils.participant_loader import load_participants_from_xlsx
-        
         # Select input XLSX file
         input_file = filedialog.askopenfilename(
             title="Select Tournament Registration XLSX File",
@@ -1489,183 +1058,69 @@ class BracketViewerApp(tk.Tk):
             return
 
         try:
-            self.ui_feedback.set_status("Reading tournament XLSX file...", COLORS['text_secondary'])
-
-            # Load participants using the tournament format parser
-            raw_participants = load_participants_from_xlsx(input_file)
-
-            if not raw_participants:
-                self.ui_feedback.set_status("Error: No participants found.", COLORS['accent_red'])
-                messagebox.showerror("Error", "No participants found in the file.")
+            # Verify file exists
+            if not os.path.exists(input_file):
+                messagebox.showerror("Error", f"File not found: {input_file}")
                 return
             
-            # Debug: Check what fields are in raw_participants
-            if raw_participants:
-                first_p = raw_participants[0]
-                self.logger.debug(f"First participant fields: {list(first_p.keys())}")
-                self.logger.debug(f"First participant: {first_p}")
+            # Step 1: Show tolerance configuration dialog
+            self.ui_feedback.set_status("Configuring weight tolerances...", COLORS['text_secondary'])
 
-            self.ui_feedback.set_status("Splitting by gender and converting to English format...", COLORS['text_secondary'])
+            # Build group_keys: mixed categories (U9, U11) + gender-specific (U13+)
+            group_keys = []
+            # Mixed categories (no gender distinction)
+            for age in ['U9', 'U11']:
+                group_keys.append(('mixed', age))
+            # Gender-specific categories
+            for age in ['U13', 'U15', 'U18', '18+']:
+                for gender in ['m', 'w']:
+                    group_keys.append((gender, age))
 
-            # Split by gender and convert to English field names
-            male_contestants = []
-            female_contestants = []
-            skipped_participants = []
+            tolerance_dialog = ToleranceConfigDialog(
+                self,
+                group_keys=group_keys,
+                existing_tolerances={}
+            )
+            configured_tolerances = tolerance_dialog.show()
 
-            for idx, p in enumerate(raw_participants, 1):
-                # Extract gender (should be 'm' or 'w' from parser)
-                gender = str(p.get('Gender', '')).strip().lower()
-                
-                # Try alternative gender field names
-                if not gender:
-                    for gender_field in ['Geschlecht', 'gender']:
-                        if gender_field in p and p[gender_field]:
-                            gender = str(p[gender_field]).strip().lower()
-                            break
-                
-                # Normalize gender to 'male' or 'female'
-                if gender in ['m', 'male', 'männlich', 'maennlich']:
-                    gender_normalized = 'male'
-                elif gender in ['w', 'female', 'weiblich', 'f']:
-                    gender_normalized = 'female'
-                else:
-                    # Skip participants with missing gender (cannot split without it)
-                    participant_name = p.get('Name', f"ID {idx}")
-                    skipped_participants.append({
-                        'name': participant_name,
-                        'gender': gender if gender else '(empty)',
-                        'id': idx
-                    })
-                    self.logger.warning(f"Skipping participant with missing/invalid gender '{gender}': {participant_name}")
-                    continue
-
-                # Convert to English field names (CamelCase for code)
-                # Split full name into Firstname and Lastname
-                full_name = p.get('Name', '')
-                name_parts = full_name.split(' ', 1)
-                firstname = name_parts[0] if len(name_parts) > 0 else ''
-                lastname = name_parts[1] if len(name_parts) > 1 else ''
-
-                # Extract birthyear (try multiple field names)
-                birthyear = None
-                for year_field in ['BirthYear', 'Jahrgang', 'Age']:
-                    if year_field in p and p[year_field]:
-                        try:
-                            birthyear = int(p[year_field])
-                            break
-                        except (ValueError, TypeError):
-                            pass
-
-                # Extract club (Verein in German)
-                club = p.get('Verein', p.get('Club', ''))
-
-                # Extract association (Verband in German)
-                association = p.get('Verband', p.get('Association', ''))
-
-                # Extract weight (initially 0.0, will be filled during weighing)
-                # Don't use pre-translated weight from XLSX, start fresh
-                weight = 0.0
-
-                # Extract paid status (Bezahlt in German)
-                paid_str = str(p.get('Bezahlt', p.get('Paid', ''))).strip().lower()
-                paid = paid_str in ['true', 'ja', 'yes', '1', 'y']
-
-                # Extract Doublestart (nein / ja / höher)
-                ds_raw = str(p.get('Doppelstart', p.get('Doublestart', 'nein'))).strip().lower()
-                if ds_raw in ['höher', 'hoeher', 'higher']:
-                    doublestart = 'höher'
-                elif ds_raw in ['ja', 'yes', 'true', '1', 'y']:
-                    doublestart = 'ja'
-                else:
-                    doublestart = 'nein'
-
-                # Create contestant record with English field names
-                contestant = {
-                    'ID': idx,
-                    'Firstname': firstname,
-                    'Lastname': lastname,
-                    'Name': f"{firstname} {lastname}".strip(),  # Combined name
-                    'Birthyear': birthyear,
-                    'Club': club,
-                    'Association': association,
-                    'Weight': weight,
-                    'Valid': False,  # Will be set during weighing validation
-                    'Gender': gender_normalized,
-                    'Paid': paid,
-                    'Doublestart': doublestart,
-                }
-
-                # Add to appropriate list
-                if gender_normalized == 'male':
-                    male_contestants.append(contestant)
-                else:
-                    female_contestants.append(contestant)
-
-            # Show split results
-            male_count = len(male_contestants)
-            female_count = len(female_contestants)
-            skipped = len(skipped_participants)
-
-            result_msg = f"Split complete:\n• Male: {male_count}\n• Female: {female_count}"
-            if skipped > 0:
-                result_msg += f"\n• Skipped (unknown gender): {skipped}"
-                if skipped_participants:
-                    result_msg += "\n\nSkipped participants:"
-                    for sp in skipped_participants[:5]:
-                        result_msg += f"\n  - {sp['name']} (gender: '{sp['gender']}')"
-                    if len(skipped_participants) > 5:
-                        result_msg += f"\n  ... and {len(skipped_participants) - 5} more"
-
-            messagebox.showinfo("Split Results", result_msg)
-
-            if male_count == 0 and female_count == 0:
-                self.ui_feedback.set_status("No valid contestants to save.", COLORS['accent_red'])
+            if configured_tolerances is None:
+                # User cancelled
+                self.ui_feedback.set_status("Tolerance configuration cancelled.", COLORS['text_secondary'])
                 return
-
-            # Ask user where to save the files
+            
+            # Step 2: Ask where to save the files
             save_dir = filedialog.askdirectory(
                 title="Select Folder to Save Split JSON Files"
             )
             if not save_dir:
                 self.ui_feedback.set_status("Save cancelled.", COLORS['text_secondary'])
                 return
-
-            self.ui_feedback.set_status("Saving JSON files...", COLORS['text_secondary'])
-
-            # Save male contestants if any
-            if male_count > 0:
-                male_file = os.path.join(save_dir, 'contestants_male.json')
-                with open(male_file, 'w', encoding='utf-8') as f:
-                    json.dump(male_contestants, f, indent=2, ensure_ascii=False)
-                self.logger.info(f"Saved {male_count} male contestants to: {male_file}")
-
-            # Save female contestants if any
-            if female_count > 0:
-                female_file = os.path.join(save_dir, 'contestants_female.json')
-                with open(female_file, 'w', encoding='utf-8') as f:
-                    json.dump(female_contestants, f, indent=2, ensure_ascii=False)
-                self.logger.info(f"Saved {female_count} female contestants to: {female_file}")
-
-            success_msg = f"Successfully saved split files to:\n{save_dir}\n\n"
-            if male_count > 0:
-                success_msg += f"• contestants_male.json ({male_count} entries)\n"
-            if female_count > 0:
-                success_msg += f"• contestants_female.json ({female_count} entries)\n"
-            success_msg += "\nFiles are ready for external weighing process.\n"
-            success_msg += "After weighing, reimport JSON files to generate brackets."
-
-            messagebox.showinfo("Success", success_msg)
-            self.ui_feedback.set_status("Split complete! Files ready for weighing.", COLORS['accent_green'])
+            
+            # Step 3: Pass tolerances to service and execute the split
+            success, message = self.data_loader.split_gender_to_json_with_tolerances(
+                input_file, 
+                save_dir,
+                configured_tolerances=configured_tolerances
+            )
+            
+            if success:
+                messagebox.showinfo("Success", message)
+                self.ui_feedback.set_status("Split complete! Files ready for weighing.", COLORS['accent_green'])
+            else:
+                messagebox.showerror("Error", message)
+                self.ui_feedback.set_status(f"Error: {message}", COLORS['accent_red'])
 
         except Exception as e:
             self.ui_feedback.set_status(f"Error: {e}", COLORS['accent_red'])
             self.logger.exception(f"Failed to split participants: {e}")
             messagebox.showerror("Error", f"Failed to split participants:\n{str(e)}")
 
+
     def on_closing(self):
         """Handle window closing - cleanup resources."""
         self.logger.info("Application closing, shutting down task runner...")
         self.task_runner.shutdown(wait=False)  # Don't block UI, let tasks finish in background
+        self.logger.close()  # Close file handlers for proper cleanup
         self.destroy()
 
     def update_bracket_list(self, *args):
@@ -1683,10 +1138,10 @@ class BracketViewerApp(tk.Tk):
                            if not self.bracket_table_assignment.get(k)
                            and len(self.brackets[k].get('fighters', [])) > 0]
         
-        # Move QUARANTINE to front if it exists
-        if 'QUARANTINE' in unassigned_keys:
-            unassigned_keys.remove('QUARANTINE')
-            unassigned_keys.insert(0, 'QUARANTINE')
+        # Move QUARANTINE_* brackets to front
+        quarantine_keys = [k for k in unassigned_keys if k.startswith('QUARANTINE_')]
+        normal_keys = [k for k in unassigned_keys if not k.startswith('QUARANTINE_')]
+        unassigned_keys = quarantine_keys + normal_keys
         
         # Use shared search utility
         filtered_keys, matched_count, search_terms = filter_items(unassigned_keys, search_term)

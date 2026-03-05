@@ -76,16 +76,81 @@ def get_age_group(age, event_year=None):
         logger.warning(f'Invalid age value: {age!r}')
         return None
     birth_year = event_year - age_num
-    group = bracket_config.get_age_group(birth_year)
+    group = bracket_config.get_age_group(int(float(birth_year)))
     if group is None:
-        # Fallback: treat adults (age >= 18) as '18+' if config lacks older birth years
         if age_num >= 18:
-            logger.info(f"Age group not found for birth_year={birth_year}; falling back to '18+' for age={age_num}")
-            return '18+'
+            group = '18+'
+        elif age_num >= 15:
+            group = 'U18'
+        elif age_num >= 13:
+            group = 'U15'
+        elif age_num >= 11:
+            group = 'U13'
+        elif age_num >= 9:
+            group = 'U11'
+        else:
+            group = 'U9'
+        logger.info(f"Age group not found in config for birth_year={birth_year}; mathematically fallback to '{group}'")
     return group
 
 
+def validate_age_from_birthyear(birthyear, min_age=6, max_age=120, event_year=None):
+    """
+    Validates a participant's age based on birthyear and returns detailed validation info.
+    
+    SINGLE SOURCE OF TRUTH for age validation across the app.
+    
+    Args:
+        birthyear: Birth year as integer (e.g., 2018)
+        min_age: Minimum valid age (default 6)
+        max_age: Maximum valid age (default 120)
+        event_year: Event year for age calculation (uses config default if None)
+    
+    Returns:
+        Tuple: (age_group, calculated_age, is_valid, rejection_reason)
+        Examples:
+            (2018, None, ...) → ('U13', 8, True, None)
+            (2001, None, ...) → ('18+', 25, True, None)
+            (2026, None, ...) → ('18+', 0, True, None)  # Fallback for future births
+            (1900, None, ...) → (None, 126, False, 'too old (126 years)')
+            (None, None, ...) → (None, None, False, 'no age/birthyear')
+    """
+    ensure_config_loaded()
+    
+    # Step 1: Validate birthyear exists
+    if birthyear is None or birthyear == '':
+        return None, None, False, "no age/birthyear"
+    
+    # Step 2: Parse birthyear
+    try:
+        birthyear_int = int(birthyear)
+    except (ValueError, TypeError):
+        return None, None, False, f"invalid birthyear: {birthyear}"
+    
+    # Step 3: Get event year for calculation
+    if event_year is None:
+        event_year = bracket_config.get_event_year()
+    if event_year is None:
+        return None, None, False, "event year not configured"
+    
+    # Step 4: Calculate age
+    calculated_age = event_year - birthyear_int
+    
+    # Step 5: Check hard bounds (6-120 years old)
+    if calculated_age < min_age:
+        return None, calculated_age, False, f"too young ({calculated_age} years, minimum {min_age})"
+    if calculated_age > max_age:
+        return None, calculated_age, False, f"too old ({calculated_age} years, maximum {max_age})"
+    
+    # Step 6: Get age group (with fallback)
+    age_group = get_age_group(calculated_age, event_year)
+    
+    # Step 7: Return success (age_group may still be None in edge cases, but valid within bounds)
+    return age_group, calculated_age, True, None
+
+
 def make_bracket(participants):
+
     """Generate a balanced tournament bracket using the 3-layer system.
     
     This implementation:
@@ -123,7 +188,12 @@ def export_all_brackets(participants, event_year=None):
     # Group participants
     for p in participants:
         raw_gender = p.get('Gender', p.get('gender', 'Unknown'))
-        birth_year = p.get('Age', p.get('age'))
+        
+        # Explicit priority to 'Birthyear' since it's the intended field, fallback to 'Age'
+        birth_year = p.get('Birthyear', p.get('BirthYear', p.get('birthyear')))
+        if birth_year in (None, ''):
+            birth_year = p.get('Age', p.get('age'))
+            
         weight = p.get('Weight', p.get('weight', 0))
         name = p.get('Name', p.get('name', ''))
         doublestart = str(p.get('Doublestart', p.get('doublestart', 'nein'))).strip().lower()
@@ -141,16 +211,34 @@ def export_all_brackets(participants, event_year=None):
         age_group = None
         if birth_year is not None:
             try:
-                age_group = bracket_config.get_age_group(birth_year)
+                age_group = bracket_config.get_age_group(int(float(birth_year)))
             except Exception as e:
                 logger.warning(f"Could not determine age group for birth_year {birth_year}: {e}")
 
         if age_group is None:
             if birth_year is not None:
-                logger.warning(f"Missing/unknown birth year {birth_year!r} for {name!r}, defaulting to '18+'")
+                try:
+                    current_year_num = event_year if event_year else bracket_config.get_event_year()
+                    calc_age = int(current_year_num) - int(float(birth_year))
+                    if calc_age >= 18:
+                        age_group = '18+'
+                    elif calc_age >= 15:
+                        age_group = 'U18'
+                    elif calc_age >= 13:
+                        age_group = 'U15'
+                    elif calc_age >= 11:
+                        age_group = 'U13'
+                    elif calc_age >= 9:
+                        age_group = 'U11'
+                    else:
+                        age_group = 'U9'
+                    logger.warning(f"Excel mapping missing for birth_year {birth_year!r}, mathematically fallback to '{age_group}'")
+                except Exception:
+                    logger.warning(f"Missing/unknown birth year {birth_year!r} for {name!r}, defaulting to '18+'")
+                    age_group = '18+'
             else:
                 logger.warning(f"Missing age for {name!r}, defaulting to '18+'")
-            age_group = '18+'
+                age_group = '18+'
 
         # Build list of age groups this participant goes into
         age_groups_to_enter = [age_group]

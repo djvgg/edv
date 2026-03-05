@@ -20,27 +20,29 @@ import tkinter as tk
 
 COLORS = {
     # Dark theme colors
-    'bg_dark': '#1e1e1e',           # Main background (dark gray)
-    'bg_darker': '#141414',         # Darker variant
+    'bg_dark': '#292C34',           # Main background (shadow grey)
+    'bg_darker': '#6D737C',         # Darker variant (slate grey)
     'bg_panel': '#252525',          # Panel background
     'bg_input': '#2d2d2d',          # Input fields
 
     # Text colors
     'text_primary': '#ffffff',      # Primary text (white)
-    'text_secondary': '#aaaaaa',    # Secondary text (light gray)
-    'text_muted': '#888888',        # Muted text (medium gray)
-    'text_disabled': '#555555',     # Disabled text
+    'text_secondary': '#ADB0B8',    # Secondary text (pale slate)
+    'text_muted': '#ADB0B8',        # Muted text (light gray)
+    'text_disabled': '#B58B82',     # Disabled text (pink)
 
     # Accent colors
-    'accent_blue': '#2d5aa0',       # Primary blue
-    'accent_blue_hover': '#3a6bc5', # Blue hover state
-    'accent_green': '#4ec94e',      # Success green
-    'accent_red': '#e74c3c',        # Error red
-    'accent_orange': '#f39c12',     # Warning orange
+    'accent_blue': '#7F85C5',       # Primary blue (soft periwinkle)
+    'accent_blue_hover': '#22AAF0', # Fresh sky
+    'accent_purple': '#9F80F8',     # Bright lavender
+    'accent_violet': '#E590E8',     # Light violet
+    'accent_green': '#4CCD70',      # Emerald
+    'accent_red': '#B58B82',        # Rosy taupe
+    'accent_orange': '#F5CA74',     # Jasmine
 
     # Neutral colors
     'border': '#3a3a3a',            # Border color
-    'border_light': '#555555',      # Light border
+    'border_light': '#ADB0B8',      # Light border (pale slate)
     'white': '#ffffff',
     'black': '#000000',
 }
@@ -50,26 +52,26 @@ COLORS = {
 # ============================================================================
 
 FONTS = {
-    'heading_xl': ('Consolas', 18, 'bold'),
-    'heading_lg': ('Consolas', 16, 'bold'),
-    'heading_md': ('Arial', 12, 'bold'),
-    'heading_sm': ('Arial', 10, 'bold'),
+    'heading_xl': ('Rubik', 18, 'bold'),
+    'heading_lg': ('Rubik', 16, 'bold'),
+    'heading_md': ('Rubik', 12, 'bold'),
+    'heading_sm': ('Rubik', 10, 'bold'),
 
-    'body_lg': ('Consolas', 12),
-    'body_md': ('Consolas', 11),
-    'body_sm': ('Consolas', 10),
-    'body_xs': ('Consolas', 9),
+    'body_lg': ('Rubik', 12),
+    'body_md': ('Rubik', 11),
+    'body_sm': ('Rubik', 10),
+    'body_xs': ('Rubik', 9),
 
-    'mono_md': ('Consolas', 10),
-    'mono_sm': ('Consolas', 9),
+    'mono_md': ('Rubik Mono', 10),
+    'mono_sm': ('Rubik Mono', 9),
     
     # Custom fonts for Group Preview Screen and Editor
-    'preview_title': ('Arial', 14, 'bold'),
-    'preview_label': ('Arial', 9, 'bold'),
-    'preview_text': ('Arial', 11),
-    'preview_small': ('Arial', 9),
-    'preview_info': ('Arial', 10),
-    'preview_hint': ('Arial', 8),
+    'preview_title': ('Rubik', 14, 'bold'),
+    'preview_label': ('Rubik', 9, 'bold'),
+    'preview_text': ('Rubik', 11),
+    'preview_small': ('Rubik', 9),
+    'preview_info': ('Rubik', 10),
+    'preview_hint': ('Rubik', 8),
     
     # Custom lists
     'list_mono': ('Courier', 10),
