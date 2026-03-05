@@ -124,19 +124,58 @@ class ConfigRepository:
                 df = df[df['AgeGroup'].isna()]
         
         for _, row in df.iterrows():
-            if row['MinWeight'] <= weight < row['MaxWeight']:
+            # User requested: a fighter weighing exactly the max weight (e.g. 66kg) 
+            # should go into the -66kg class, not +66kg.
+            # This means we use <= for MaxWeight and < for MinWeight.
+            if row['MinWeight'] < weight <= row['MaxWeight'] or (weight == 0 and row['MinWeight'] == 0):
                 return row['Label']
         return 'unknown'
     
+    def get_all_group_combinations(self):
+        """Return all possible group definitions from config.
+
+        U9/U11  → no gender, no weight class (pool age groups)
+        U13+    → one entry per (gender, age_group, weight_class) from WeightClasses sheet
+        """
+        groups = []
+
+        # U9 and U11: mixed gender, no fixed weight class
+        for ag in ('U9', 'U11'):
+            if ag in self.age_eligibility.columns:
+                groups.append({
+                    'name': ag,
+                    'gender': None,
+                    'age_group': ag,
+                    'weight_class': 'no-class',
+                })
+
+        # U13+ combinations from WeightClasses sheet
+        for _, row in (
+            self.weight_classes[['Gender', 'AgeGroup', 'Label']]
+            .drop_duplicates()
+            .iterrows()
+        ):
+            gender = str(row['Gender'])
+            age_group = str(row['AgeGroup'])
+            weight_class = str(row['Label'])
+            groups.append({
+                'name': f"{gender} | {age_group} | {weight_class}",
+                'gender': gender,
+                'age_group': age_group,
+                'weight_class': weight_class,
+            })
+
+        return groups
+
     def get_weight_class_limit(self, gender, age_group, weight_class_label):
         """
         Get the MaxWeight (upper limit) for a specific weight class.
-        
+
         Args:
             gender: 'm' or 'w'
             age_group: e.g. 'U13', 'U15', 'U18', '18+'
             weight_class_label: e.g. '-66kg', '+66kg'
-        
+
         Returns:
             MaxWeight as float, or None if not found / open class (+XXkg) / U9/U11
         """
@@ -145,7 +184,7 @@ class ConfigRepository:
         # Open classes have no meaningful upper limit
         if weight_class_label and weight_class_label.startswith('+'):
             return None
-        
+
         gender_str = str(gender).lower().strip()
         if gender_str in ('m', 'male', 'maennlich', 'männlich'):
             gender = 'm'

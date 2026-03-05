@@ -22,20 +22,19 @@ class Participant(Base):
     association = Column(String(200))
     valid       = Column(Boolean, default=False)
     paid        = Column(Boolean, default=False)
+    doublestart = Column(String(10), default='nein')   # 'nein', 'ja', 'höher'
 
     group_participants = relationship('GroupParticipant', back_populates='participant')
 
 
 class Group(Base):
     __tablename__ = 'groups'
-    __table_args__ = (
-        UniqueConstraint('gender', 'age_group', 'weight_class'),
-    )
 
     id           = Column(Integer, primary_key=True)
-    gender       = Column(String(1),  nullable=False)
-    age_group    = Column(String(20), nullable=False)  # U9, U11, U13, U15, U18, 18+
-    weight_class = Column(String(20), nullable=False)  # -52kg, no-class, etc.
+    name         = Column(String(100), nullable=False, unique=True)  # 'm | U15 | -66kg' or 'QUARANTINE'
+    gender       = Column(String(10),  nullable=True)   # 'm', 'w', None for QUARANTINE/U9/U11
+    age_group    = Column(String(20),  nullable=True)   # 'U13', 'U15', None for QUARANTINE
+    weight_class = Column(String(20),  nullable=True)   # '-66kg', 'no-class', None for QUARANTINE
 
     group_participants = relationship('GroupParticipant', back_populates='group')
     bracket            = relationship('Bracket', back_populates='group', uselist=False)
@@ -74,13 +73,29 @@ class Bracket(Base):
     bracket_type = Column(String(20))                       # pools, double, ko, special
     status       = Column(String(20), default='pending')    # pending, in_progress, completed
 
+    # Placements — set when bracket status → 'completed'
+    first_place    = Column(Integer, ForeignKey('group_participants.id'), nullable=True)
+    second_place   = Column(Integer, ForeignKey('group_participants.id'), nullable=True)
+    third_place_1  = Column(Integer, ForeignKey('group_participants.id'), nullable=True)
+    third_place_2  = Column(Integer, ForeignKey('group_participants.id'), nullable=True)
+
     group  = relationship('Group',   back_populates='bracket')
     mat    = relationship('Mat',     back_populates='brackets')
     fights = relationship('Fight',   back_populates='bracket')
 
+    # Placement relationships (viewonly to avoid cascade conflicts)
+    first_place_gp   = relationship('GroupParticipant', foreign_keys=[first_place],   viewonly=True)
+    second_place_gp  = relationship('GroupParticipant', foreign_keys=[second_place],  viewonly=True)
+    third_place_1_gp = relationship('GroupParticipant', foreign_keys=[third_place_1], viewonly=True)
+    third_place_2_gp = relationship('GroupParticipant', foreign_keys=[third_place_2], viewonly=True)
+
 
 class Fight(Base):
     __tablename__ = 'fights'
+    __table_args__ = (
+        UniqueConstraint('bracket_id', 'bracket_phase', 'round', 'pos_in_round',
+                         name='uix_fight_position'),
+    )
 
     id              = Column(Integer, primary_key=True)
     bracket_id      = Column(Integer, ForeignKey('brackets.id'),          nullable=False)
@@ -91,6 +106,27 @@ class Fight(Base):
     score2          = Column(String(20))
     duration        = Column(String(20))
     status          = Column(String(20), default='pending')
+
+    # Bracket position metadata
+    bracket_phase = Column(String(10), nullable=False, default='wb')
+    # 'pool' — round-robin fight within a pool
+    # 'wb'   — winners bracket (main elimination tree)
+    # 'lb'   — losers bracket (double elimination)
+    round         = Column(Integer, nullable=True)
+    # wb: 0=first round, 1=second, … deepest=final
+    # lb: mirrors the wb round the loser dropped from (lb.round=R ↔ lost in wb.round=R)
+    # pool: NULL  (pool_index identifies the pool instead)
+    pos_in_round  = Column(Integer, nullable=True)
+    # 0-indexed position within the round, or fight sequence within a pool
+    pool_index    = Column(Integer, nullable=True)
+    # pool/double-pool: which pool this fight belongs to (0=pool A, 1=pool B, …)
+    # wb/lb: NULL
+
+    # Result
+    winner_id     = Column(Integer, ForeignKey('group_participants.id'), nullable=True)
+    # NULL = fight not yet decided; set when status → 'completed'
+
+    winner = relationship('GroupParticipant', foreign_keys=[winner_id])
 
     bracket      = relationship('Bracket',          back_populates='fights')
     participant1 = relationship('GroupParticipant', foreign_keys=[participant1_id],

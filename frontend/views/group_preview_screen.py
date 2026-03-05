@@ -50,11 +50,12 @@ class GroupPreviewScreen(tk.Frame):
     # Debug flag - set to True for verbose logging
     DEBUG = DEBUG
 
-    def __init__(self, parent, quarantine_service=None, **kwargs):
+    def __init__(self, parent, quarantine_service=None, db_service=None, **kwargs):
         super().__init__(parent, **kwargs)
         self.configure(bg=COLORS['bg_dark'])
         self.logger = logger
         self.quarantine_service = quarantine_service  # Store reference for edit dialog
+        self.db_service = db_service                  # DB service for persisting edits
 
         # Initialize config repository for weight classes
         try:
@@ -537,6 +538,10 @@ class GroupPreviewScreen(tk.Frame):
             widget.destroy()
 
         self.current_bracket_key = bracket_key
+
+        # U9/U11: always show fighters sorted by weight (also persists order for the split later)
+        if bracket_key in ('U9', 'U11'):
+            self.brackets[bracket_key]['fighters'].sort(key=lambda x: x.get('Weight', 0))
 
         fighters = self.brackets[bracket_key].get('fighters', [])
         count = len(fighters)

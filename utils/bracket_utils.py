@@ -196,11 +196,16 @@ def export_all_brackets(participants, event_year=None):
             
         weight = p.get('Weight', p.get('weight', 0))
         name = p.get('Name', p.get('name', ''))
+        doublestart = str(p.get('Doublestart', p.get('doublestart', 'nein'))).strip().lower()
 
-        # Normalize gender
-        gender_norm = str(raw_gender).strip()
-        if not gender_norm:
-            gender_norm = 'Unknown'
+        # Normalize gender to 'm'/'w' to match config group names
+        _g = str(raw_gender).lower().strip()
+        if _g in ('m', 'male', 'maennlich', 'männlich'):
+            gender_norm = 'm'
+        elif _g in ('w', 'f', 'female', 'weiblich', 'frau'):
+            gender_norm = 'w'
+        else:
+            gender_norm = _g or 'Unknown'
 
         # Determine age group
         age_group = None
@@ -209,7 +214,7 @@ def export_all_brackets(participants, event_year=None):
                 age_group = bracket_config.get_age_group(int(float(birth_year)))
             except Exception as e:
                 logger.warning(f"Could not determine age group for birth_year {birth_year}: {e}")
-        
+
         if age_group is None:
             if birth_year is not None:
                 try:
@@ -235,28 +240,43 @@ def export_all_brackets(participants, event_year=None):
                 logger.warning(f"Missing age for {name!r}, defaulting to '18+'")
                 age_group = '18+'
 
-        # For U9/U11: no gender separation, group by age only, sorted by weight
-        if age_group in ('U9', 'U11'):
-            bracket_key = f"{age_group}"  # Just age group, no gender/weight class
-        else:
-            # For U13+: group by (gender, age_group, weight_class)
-            try:
-                weight_class = bracket_config.get_weight_class(weight, gender_norm, age_group)
-            except Exception as e:
-                logger.warning(f"Weight class lookup failed for {name!r}: {e}")
-                weight_class = 'unknown'
+        # Build list of age groups this participant goes into
+        age_groups_to_enter = [age_group]
 
-            if weight_class is None or str(weight_class).lower() == 'unknown':
-                logger.warning(f"Missing weight class for {name!r} (age_group={age_group})")
-                weight_class = 'unknown'
-
-            bracket_key = f"{gender_norm} | {age_group} | {weight_class}"
+        if doublestart in ('höher', 'hoeher', 'higher') and birth_year is not None:
+            all_eligible = bracket_config.get_all_eligible_age_groups(birth_year)
+            if len(all_eligible) > 1:
+                # Primary group is the first eligible; "höher" = next one up
+                primary_idx = all_eligible.index(age_group) if age_group in all_eligible else 0
+                if primary_idx + 1 < len(all_eligible):
+                    higher_group = all_eligible[primary_idx + 1]
+                    age_groups_to_enter.append(higher_group)
+                    logger.info(f"Doublestart höher: {name!r} → {age_group} + {higher_group}")
+                else:
+                    logger.warning(f"Doublestart höher: {name!r} already in highest eligible group ({age_group}), no higher group available")
 
         # Create participant copy with birth_year
         p_copy = dict(p)
         p_copy['Age'] = birth_year
-        
-        brackets[bracket_key]['fighters'].append(p_copy)
+
+        # Add fighter to each age group bracket
+        for ag in age_groups_to_enter:
+            if ag in ('U9', 'U11'):
+                bracket_key = f"{ag}"
+            else:
+                try:
+                    weight_class = bracket_config.get_weight_class(weight, gender_norm, ag)
+                except Exception as e:
+                    logger.warning(f"Weight class lookup failed for {name!r} (age_group={ag}): {e}")
+                    weight_class = 'unknown'
+
+                if weight_class is None or str(weight_class).lower() == 'unknown':
+                    logger.warning(f"Missing weight class for {name!r} (age_group={ag})")
+                    weight_class = 'unknown'
+
+                bracket_key = f"{gender_norm} | {ag} | {weight_class}"
+
+            brackets[bracket_key]['fighters'].append(dict(p_copy))
     
     # Post-process: sort U9/U11 by weight, set pool_size
     for key in list(brackets.keys()):
@@ -436,6 +456,96 @@ def _compute_snake_bracket(participants):
     - Deterministic output
     """
     return _compute_balanced_bracket(participants)
+
+
+def merge_u9_u11_pools(brackets):
+    """Reverse of split_u9_u11_into_pools.
+
+    Merges "U9 | Pool N" / "U11 | Pool N" keys back into single "U9" / "U11"
+    buckets so GroupPreviewScreen always shows one combined group.
+    Fighters are re-sorted by weight and pool_size is restored from config.
+    """
+    ensure_config_loaded()
+    merged = {}
+    collected = {}  # {'U9': [...fighters], 'U11': [...fighters]}
+
+    for key, data in brackets.items():
+        age_group = None
+        if key.startswith('U9 | Pool'):
+            age_group = 'U9'
+        elif key.startswith('U11 | Pool'):
+            age_group = 'U11'
+
+        if age_group:
+            if age_group not in collected:
+                collected[age_group] = []
+            collected[age_group].extend(data.get('fighters', []))
+        else:
+            merged[key] = data
+
+    for age_group, fighters in collected.items():
+        fighters_sorted = sorted(fighters, key=lambda x: x.get('Weight', 0))
+        pool_size = get_pool_size(age_group)
+        merged[age_group] = {
+            'fighters': fighters_sorted,
+            'bracket': [],
+            'pool_size': pool_size,
+        }
+        logger.info(f"[POOL MERGE] {len(fighters_sorted)} fighters merged back into {age_group!r}")
+
+    return merged
+
+
+def split_u9_u11_into_pools(brackets):
+    """Replace the single U9/U11 bracket entry with individual pool brackets.
+
+    Precondition: fighters list is already sorted by weight
+    (export_all_brackets guarantees this).
+
+    Example (pool_size=4, 16 fighters in "U11"):
+        "U11 | Pool 1" → 4 lightest fighters
+        "U11 | Pool 2" → next 4
+        ...
+
+    Brackets without pool_size configured (or 0 fighters) are kept unchanged.
+    """
+    new_brackets = {}
+    for key, data in brackets.items():
+        if key not in ('U9', 'U11'):
+            new_brackets[key] = data
+            continue
+
+        fighters = data.get('fighters', [])
+        pool_size = data.get('pool_size')
+
+        if not pool_size or not fighters:
+            new_brackets[key] = data
+            continue
+
+        # Always re-sort by weight (defensive: handles in-place weight edits)
+        fighters = sorted(fighters, key=lambda x: x.get('Weight', 0))
+
+        # Even distribution: ceil(n / pool_size) pools, remainder spread across first pools
+        n = len(fighters)
+        n_pools = math.ceil(n / pool_size)
+        base = n // n_pools
+        extra = n % n_pools  # first `extra` pools get base+1 fighters
+
+        pool_sizes = [base + 1 if i < extra else base for i in range(n_pools)]
+
+        start = 0
+        for pool_num, size in enumerate(pool_sizes, 1):
+            chunk = fighters[start: start + size]
+            start += size
+            pool_key = f"{key} | Pool {pool_num}"
+            new_brackets[pool_key] = {
+                'fighters': chunk,
+                'bracket': [],
+                'pool_size': None,
+            }
+            logger.info(f"[POOL SPLIT] {key} → {pool_key}: {len(chunk)} fighters")
+
+    return new_brackets
 
 
 def _interleave_by_club(participants):

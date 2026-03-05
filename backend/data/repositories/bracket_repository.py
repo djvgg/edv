@@ -10,7 +10,7 @@ class BracketRepository:
         self.db = db
 
     def create(self, group_id: int, bracket_type: str) -> Bracket:
-        bracket = Bracket(group_id=group_id, bracket_type=bracket_type)
+        bracket = Bracket(group_id=group_id, bracket_type=bracket_type, status='in_progress')
         self.db.add(bracket)
         self.db.commit()
         self.db.refresh(bracket)
@@ -25,6 +25,12 @@ class BracketRepository:
     def assign_mat(self, bracket_id: int, mat_id: int) -> None:
         self.db.query(Bracket).filter(Bracket.id == bracket_id).update(
             {'mat_id': mat_id}
+        )
+        self.db.commit()
+
+    def unassign_mat(self, bracket_id: int) -> None:
+        self.db.query(Bracket).filter(Bracket.id == bracket_id).update(
+            {'mat_id': None}
         )
         self.db.commit()
 
@@ -53,6 +59,23 @@ class BracketRepository:
             self.db.commit()
             self.db.refresh(mat)
         return mat
+
+    def set_placements(
+        self,
+        bracket_id: int,
+        first: int = None,
+        second: int = None,
+        third_1: int = None,
+        third_2: int = None,
+    ) -> None:
+        """Store final placements (group_participant IDs)."""
+        self.db.query(Bracket).filter(Bracket.id == bracket_id).update({
+            'first_place': first,
+            'second_place': second,
+            'third_place_1': third_1,
+            'third_place_2': third_2,
+        })
+        self.db.commit()
 
     def get_all_mats(self) -> List[Mat]:
         return self.db.query(Mat).order_by(Mat.mat_number).all()

@@ -54,6 +54,7 @@ class FileLoaderScreen(tk.Frame):
         self.on_load_database = None
         self.on_load_json = None
         self.on_split_gender = None
+        self.on_flush_database = None
 
         # UI state
         self.info_var = tk.StringVar(value="[Waiting for data source...]")
@@ -90,12 +91,23 @@ class FileLoaderScreen(tk.Frame):
         apply_label_style(info_label, 'info')
         info_label.pack(pady=(0, 20))
 
-        # Status label (bottom)
+        # Bottom section — packed with side="bottom" in reverse order
+        # (Tkinter bottom-packing: first packed = lowest)
         self.status_label = tk.Label(self, textvariable=self.status_var, wraplength=480)
         apply_label_style(self.status_label, 'status_success')
         self.status_label.pack(side="bottom", pady=15)
 
-        # Main buttons
+        # Flush Database button (danger action, anchored above status)
+        flush_btn = tk.Button(
+            self,
+            text="Flush Database (Delete All Data)",
+            command=self.on_flush_database_click,
+        )
+        apply_button_style(flush_btn, 'secondary')
+        flush_btn.configure(fg=COLORS['accent_red'])
+        flush_btn.pack(side="bottom", pady=(10, 0), fill="x", padx=40)
+
+        # Main buttons (top section)
         load_xlsx_btn = tk.Button(
             self,
             text="Load Participant List (XLSX) & Generate Brackets",
@@ -164,6 +176,18 @@ class FileLoaderScreen(tk.Frame):
             self.logger.debug("DEBUG: Executing on_split_gender callback")
         if self.on_split_gender:
             self.on_split_gender()
+
+    def on_flush_database_click(self):
+        """Handle flush database button click with confirmation dialog."""
+        from tkinter import messagebox
+        self.logger.info("User clicked: Flush Database")
+        if messagebox.askyesno(
+            "Flush Database",
+            "This will permanently delete ALL tournament data.\n\nAre you sure?",
+            icon='warning',
+        ):
+            if self.on_flush_database:
+                self.on_flush_database()
 
     def set_info_text(self, text):
         """Update the info label text."""

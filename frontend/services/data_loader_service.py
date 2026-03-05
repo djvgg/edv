@@ -194,6 +194,7 @@ class DataLoaderService:
                 self.ui_feedback.update_progress(40)
             if self.db_service:
                 self.db_service.save_participants(participants)
+                self.db_service.initialize_all_groups()
 
             # Filter out unpaid participants
             participants, unpaid = self.filter_unpaid_participants(participants)
@@ -470,6 +471,10 @@ class DataLoaderService:
                     self.ui_feedback.hide_loading_progress()
                     self.ui_feedback.set_status(error_msg, '#cc0000')
                 return
+
+            if self.db_service:
+                self.db_service.save_participants(all_participants)
+                self.db_service.initialize_all_groups()
 
             if self.ui_feedback:
                 self.ui_feedback.set_status("Filtering participants...", '#888888')

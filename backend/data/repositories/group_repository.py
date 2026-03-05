@@ -9,19 +9,25 @@ class GroupRepository:
     def __init__(self, db):
         self.db = db
 
-    def get_or_create(self, gender: str, age_group: str, weight_class: str) -> Group:
-        """Return existing group or create a new one."""
-        group = (
-            self.db.query(Group)
-            .filter_by(gender=gender, age_group=age_group, weight_class=weight_class)
-            .first()
-        )
+    def get_or_create(self, name: str, gender: str = None,
+                      age_group: str = None, weight_class: str = None) -> Group:
+        """Return existing group by name or create a new one."""
+        group = self.db.query(Group).filter_by(name=name).first()
         if group is None:
-            group = Group(gender=gender, age_group=age_group, weight_class=weight_class)
+            group = Group(name=name, gender=gender,
+                          age_group=age_group, weight_class=weight_class)
             self.db.add(group)
             self.db.commit()
             self.db.refresh(group)
         return group
+
+    def get_by_name(self, name: str) -> Group:
+        return self.db.query(Group).filter_by(name=name).first()
+
+    def clear_group_participants(self) -> None:
+        """Clear only group_participants — leaves groups intact."""
+        self.db.query(GroupParticipant).delete()
+        self.db.commit()
 
     def add_participant(self, group_id: int, participant_id: int) -> GroupParticipant:
         """Link a participant to a group. Returns existing row if already linked."""
