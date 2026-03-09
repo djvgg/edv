@@ -26,7 +26,7 @@ from ..styles import (
     apply_listbox_style,
     create_dark_frame,
 )
-from ..search_utils import filter_items
+from ..utils.search_utils import filter_items
 
 # ===== DEBUG CONFIGURATION =====
 # Set to True to print debug logs to console; False to only log to file

@@ -22,7 +22,7 @@ from backend.services.bracket_service import (  # noqa: E402
 )
 from backend.services.database_service import get_database_service  # noqa: E402
 
-from ..services.task_runner import TaskRunner  # noqa: E402
+from utils.task_runner import TaskRunner  # noqa: E402
 from ..services.bracket_manager import regenerate_stale_ko_brackets  # noqa: E402
 
 from ..styles import (  # noqa: E402
@@ -56,7 +56,7 @@ from .group_preview_screen import GroupPreviewScreen  # noqa: E402
 from .fight_monitoring_window import FightMonitoringScreen  # noqa: E402
 from .rejection_summary_window import RejectionSummaryWindow  # noqa: E402
 from .tolerance_config_dialog import ToleranceConfigDialog  # noqa: E402
-from ..search_utils import filter_items  # noqa: E402
+from ..utils.search_utils import filter_items  # noqa: E402
 from ..services.quarantine_service import QuarantineService  # noqa: E402
 from ..services.ui_feedback_service import UIFeedbackService  # noqa: E402
 from ..services.data_loader_service import DataLoaderService  # noqa: E402
@@ -151,7 +151,8 @@ class BracketViewerApp(tk.Tk):
         self.data_loader = DataLoaderService(
             ui_feedback=self.ui_feedback,
             quarantine_service=self.quarantine_service,
-            db_service=None  # Will be updated after db_service is initialized
+            db_service=None,  # Will be updated after db_service is initialized
+            task_runner=self.task_runner
         )
 
         # Start database service initialization in background thread
@@ -196,8 +197,9 @@ class BracketViewerApp(tk.Tk):
             # Get database service (may take time due to connection pooling)
             self.db_service = get_database_service()
             
-            # Update data_loader_service with initialized db_service
+            # Update data_loader_service with initialized db_service and task_runner
             self.data_loader.db_service = self.db_service
+            self.data_loader.task_runner = self.task_runner
             
             self.logger.debug("Database service initialized successfully")
         except Exception as e:

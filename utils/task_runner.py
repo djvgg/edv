@@ -5,13 +5,15 @@
 Background Task Runner - Thread pool for long-running operations.
 
 Enables:
-- Running multiple tasks in parallel (DB init + file load simultaneously)
+- Running multiple tasks in parallel (DB operations + file loading simultaneously)
 - Fine-grained progress reporting
 - Task cancellation
 - Centralized error handling
 - Graceful shutdown
 
-Example:
+Works for both frontend (UI) and backend (database/file operations) use cases.
+
+Frontend Example (with UI feedback):
     runner = TaskRunner(num_workers=2)
     runner.submit_task(
         'load_xlsx',
@@ -20,20 +22,21 @@ Example:
         on_complete=ui.show_results,
         on_error=ui.show_error,
     )
+
+Backend Example (without UI):
+    runner = TaskRunner(num_workers=4)
+    runner.submit_task(
+        'bulk_import',
+        fn=lambda on_progress: bulk_import_participants(data, on_progress),
+        on_error=lambda e: logger.error(f"Import failed: {e}"),
+    )
 """
 
-import os
-import sys
 import queue
 import threading
 from typing import Callable, Optional
 
-# Add edv_backend to path
-_edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-if _edv_backend_path not in sys.path:
-    sys.path.insert(0, _edv_backend_path)
-
-from utils.logging import get_logger  # noqa: E402
+from .logging import get_logger
 
 logger = get_logger('task_runner')
 
@@ -61,11 +64,15 @@ class Task:
 
 class TaskRunner:
     """
-    Thread pool for running background tasks without blocking the UI.
+    Thread pool for running background tasks without blocking the main thread.
+    
+    Can be used for:
+    - Frontend: Long-running UI operations (file loading, bracket generation)
+    - Backend: Database operations (bulk imports, data processing)
     
     Features:
     - Multiple worker threads process tasks from a queue
-    - Progress reporting via callbacks
+    - Optional progress reporting via callbacks
     - Task cancellation
     - Error handling and logging
     - Graceful shutdown
@@ -113,14 +120,21 @@ class TaskRunner:
             task_id: Unique identifier for the task
             fn: Function to execute. Should accept on_progress keyword arg:
                 def fn(on_progress=None):
-                    on_progress(50)  # Update progress
+                    if on_progress:
+                        on_progress(50)  # Update progress
                     return result
-            on_progress: Callback called with progress value (0-100)
-            on_error: Callback called with Exception if task fails
-            on_complete: Callback called with result when task succeeds
+            on_progress: Optional callback called with progress value (0-100)
+            on_error: Optional callback called with Exception if task fails
+            on_complete: Optional callback called with result when task succeeds
         
         Returns:
             task_id (for cancellation)
+        
+        Note:
+            All callbacks are optional. Use:
+            - on_progress for UI progress updates
+            - on_error for error logging
+            - on_complete for result handling
         """
         task = Task(task_id, fn, on_progress, on_error, on_complete)
         

@@ -28,7 +28,7 @@ from ..styles import (
     apply_listbox_style,
     create_dark_frame,
 )
-from ..search_utils import filter_items
+from ..utils.search_utils import filter_items
 from .edit_participant_dialog import Edit_Participants
 
 # Debug flag - set to True for verbose logging
