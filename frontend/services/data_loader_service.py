@@ -12,10 +12,10 @@ Extracted from main_window.py:
 
 import json
 import os
-import threading
 from tkinter import filedialog, messagebox
 
 from utils.logging import get_logger
+from utils.task_runner import TaskRunner
 from backend.services.bracket_service import export_all_brackets, validate_age_from_birthyear
 from frontend.utils import (
     load_participants_from_xlsx,
@@ -26,18 +26,20 @@ from frontend.utils import (
 class DataLoaderService:
     """Handles all participant data loading and filtering operations."""
 
-    def __init__(self, ui_feedback=None, quarantine_service=None, db_service=None):
+    def __init__(self, ui_feedback=None, quarantine_service=None, db_service=None, task_runner=None):
         """Initialize the DataLoaderService.
         
         Args:
             ui_feedback: UIFeedbackService instance for progress updates
             quarantine_service: QuarantineService instance for rejected participants
             db_service: DatabaseService instance for database operations
+            task_runner: TaskRunner instance for background operations (optional, created if not provided)
         """
         self.logger = get_logger('data_loader_service', debug_verbose=True)
         self.ui_feedback = ui_feedback
         self.quarantine_service = quarantine_service
         self.db_service = db_service
+        self.task_runner = task_runner or TaskRunner(num_workers=2)
 
     def filter_unpaid_participants(self, all_participants):
         """Filter out unpaid participants and show a popup if any are found.
@@ -169,16 +171,15 @@ class DataLoaderService:
         if self.ui_feedback:
             self.ui_feedback.show_loading_progress("Loading and generating brackets...")
         
-        # Run loading in background thread
-        thread = threading.Thread(
-            target=self._load_and_generate_thread,
-            args=(filepath, callbacks),
-            daemon=True
+        # Run loading in background thread via task runner
+        self.task_runner.submit_task(
+            'load_xlsx',
+            fn=lambda on_progress=None: self._load_and_generate_thread(filepath, callbacks),
+            on_error=self._handle_load_error
         )
-        thread.start()
 
     def _load_and_generate_thread(self, filepath, callbacks):
-        """Background thread for loading XLSX and generating brackets."""
+        """Background task for loading XLSX and generating brackets."""
         try:
             if self.ui_feedback:
                 self.ui_feedback.set_status("Reading XLSX file...", '#999999')  # text_secondary
@@ -256,16 +257,15 @@ class DataLoaderService:
         if self.ui_feedback:
             self.ui_feedback.show_loading_progress("Loading from database...")
         
-        # Run loading in background thread
-        thread = threading.Thread(
-            target=self._load_from_database_thread,
-            args=(callbacks,),
-            daemon=True
+        # Run loading in background thread via task runner
+        self.task_runner.submit_task(
+            'load_database',
+            fn=lambda on_progress=None: self._load_from_database_thread(callbacks),
+            on_error=self._handle_load_error
         )
-        thread.start()
 
     def _load_from_database_thread(self, callbacks):
-        """Background thread for loading from database and generating brackets."""
+        """Background task for loading from database and generating brackets."""
         try:
             if self.ui_feedback:
                 self.ui_feedback.set_status("Connecting to database...", '#999999')
@@ -348,11 +348,14 @@ class DataLoaderService:
         if self.ui_feedback:
             self.ui_feedback.show_loading_progress("Loading and generating brackets from JSON...")
         
-        thread = threading.Thread(target=self._load_json_and_generate_thread, args=(filepaths, callbacks), daemon=True)
-        thread.start()
+        self.task_runner.submit_task(
+            'load_json',
+            fn=lambda on_progress=None: self._load_json_and_generate_thread(filepaths, callbacks),
+            on_error=self._handle_load_error
+        )
 
     def _load_json_and_generate_thread(self, filepaths, callbacks):
-        """Background thread for loading JSON files and generating brackets."""
+        """Background task for loading JSON files and generating brackets."""
         try:
             if self.ui_feedback:
                 self.ui_feedback.set_status("Reading JSON files...", '#888888')
@@ -751,3 +754,10 @@ class DataLoaderService:
             if self.ui_feedback:
                 self.ui_feedback.set_status(error_msg, '#cc0000')
             return False, error_msg
+
+    def _handle_load_error(self, error: Exception):
+        """Handle errors from background loading tasks."""
+        self.logger.error(f"Background task error: {error}", exc_info=True)
+        if self.ui_feedback:
+            self.ui_feedback.set_status(f"Error: {error}", '#cc0000')
+            self.ui_feedback.hide_loading_progress()
