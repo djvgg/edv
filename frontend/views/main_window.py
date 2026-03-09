@@ -56,6 +56,7 @@ from .group_preview_screen import GroupPreviewScreen  # noqa: E402
 from .fight_monitoring_window import FightMonitoringScreen  # noqa: E402
 from .rejection_summary_window import RejectionSummaryWindow  # noqa: E402
 from .tolerance_config_dialog import ToleranceConfigDialog  # noqa: E402
+from .table_and_bracket_viewer import TableAndBracketViewer  # noqa: E402
 from ..utils.search_utils import filter_items  # noqa: E402
 from ..services.quarantine_service import QuarantineService  # noqa: E402
 from ..services.ui_feedback_service import UIFeedbackService  # noqa: E402
@@ -379,7 +380,7 @@ class BracketViewerApp(tk.Tk):
         main_frame = create_dark_frame(self)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        # Bind Escape to return to tables view
+        # Bind Escape to return to tables view (backup)
         self.bind('<Escape>', lambda e: self.show_tables())
 
         # Create PanedWindow for resizable split
@@ -529,8 +530,8 @@ class BracketViewerApp(tk.Tk):
         apply_button_style(back_to_gen_btn, 'secondary')
         back_to_gen_btn.pack(side=tk.LEFT, padx=5)
 
-        monitor_btn = tk.Button(tables_nav_frame, text='Fight Monitoring',
-                                command=self.show_fight_monitoring_screen)
+        monitor_btn = tk.Button(tables_nav_frame, text='Fight Monitoring →',
+                                command=self.show_new_bracket_viewer)
         apply_button_style(monitor_btn, 'primary')
         monitor_btn.pack(side=tk.RIGHT, padx=5)
         
@@ -566,6 +567,39 @@ class BracketViewerApp(tk.Tk):
         elif event.num == 4 or event.delta > 0:
             self.bracket_canvas.yview_scroll(-1, "units")
 
+    def zoom_in(self):
+        """Zoom in on bracket visualization."""
+        if not hasattr(self, 'zoom_level'):
+            self.zoom_level = 1.0
+        self.zoom_level = min(self.zoom_level * 1.2, 3.0)  # Max 300%
+        self.update_zoom_label()
+        if hasattr(self, 'current_bracket_key') and self.current_bracket_key:
+            self.render_bracket(self.current_bracket_key)
+
+    def zoom_out(self):
+        """Zoom out on bracket visualization."""
+        if not hasattr(self, 'zoom_level'):
+            self.zoom_level = 1.0
+        self.zoom_level = max(self.zoom_level / 1.2, 0.3)  # Min 30%
+        self.update_zoom_label()
+        if hasattr(self, 'current_bracket_key') and self.current_bracket_key:
+            self.render_bracket(self.current_bracket_key)
+
+    def zoom_reset(self):
+        """Reset zoom to 100%."""
+        if not hasattr(self, 'zoom_level'):
+            self.zoom_level = 1.0
+        self.zoom_level = 1.0
+        self.update_zoom_label()
+        if hasattr(self, 'current_bracket_key') and self.current_bracket_key:
+            self.render_bracket(self.current_bracket_key)
+
+    def update_zoom_label(self):
+        """Update the zoom percentage label."""
+        if hasattr(self, 'zoom_label'):
+            zoom_percent = int(self.zoom_level * 100)
+            self.zoom_label.config(text=f'{zoom_percent}%')
+
     def on_generation_methods_selected(self, final_assignments):
         """
         Callback when generation methods have been assigned to all brackets.
@@ -582,43 +616,162 @@ class BracketViewerApp(tk.Tk):
         # Proceed to bracket viewer
         self.show_bracket_viewer()
 
-    def show_fight_monitoring_screen(self):
-        """Switch to the Fight Monitoring screen (in-app, no separate window)."""
-        self.logger.info(f"show_fight_monitoring_screen() called with {len(self.brackets)} brackets in self.brackets")
-        self.logger.info(f"Bracket table assignments: {self.bracket_table_assignment}")
+    def show_tables(self):
+        """Show table assignment view (OLD IMPLEMENTATION - kept for comparison)."""
+        if not hasattr(self, 'tables_frame') or not self.tables_frame.winfo_exists():
+            return
+        self.bracket_view_frame.pack_forget()
+        self.tables_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Ensure all KO bracket fields reflect the current fighters lists.
+    def show_bracket_view(self, bracket_key):
+        """Show bracket visualization (OLD IMPLEMENTATION - kept for comparison)."""
+        if bracket_key.startswith('QUARANTINE_'):
+            self.show_group_preview_window()
+            return
+        
+        if hasattr(self, 'tables_frame') and self.tables_frame.winfo_exists():
+            self.tables_frame.pack_forget()
+        if hasattr(self, 'bracket_view_frame'):
+            self.bracket_view_frame.pack(fill=tk.BOTH, expand=True)
+            self.current_bracket_key = bracket_key
+            self.render_bracket(bracket_key)
+
+    def show_new_bracket_viewer(self):
+        """Show the NEW TableAndBracketViewer implementation (full screen)."""
+        self.logger.info("Switching to NEW implementation (TableAndBracketViewer)")
+        
+        # Prepare data
+        regenerate_stale_ko_brackets(
+            self.brackets, self.bracket_generation_methods, make_bracket)
+        
+        processed = 0
+        for bracket_key, table_num in self.bracket_table_assignment.items():
+            if table_num and bracket_key in self.brackets:
+                bracket_data = self.brackets[bracket_key]
+                bracket_type = self.bracket_generation_methods.get(bracket_key, 'ko')
+                fight_pairs = bracket_data.get('bracket', [])
+                fighters = bracket_data.get('fighters', [])
+                pool_size = bracket_data.get('pool_size')
+                self.db_service.create_fights_for_bracket(
+                    bracket_key, fight_pairs, bracket_type=bracket_type,
+                    fighters=fighters, pool_size=pool_size)
+                processed += 1
+
+        self.logger.info(f"Processed {processed} brackets for NEW viewer")
+        self.geometry('1200x750')
+        
+        for widget in self.winfo_children():
+            widget.destroy()
+        
+        # Create the new viewer
+        new_viewer = TableAndBracketViewer(self, main_window=self)
+        new_viewer.pack(fill=tk.BOTH, expand=True)
+
+    def show_fight_monitoring_comparison(self):
+        """Show OLD vs NEW implementation side by side for comparison."""
+        self.logger.info("Showing comparison: OLD implementation (left) vs NEW (right)")
+        
+        # Prepare data
+        regenerate_stale_ko_brackets(
+            self.brackets, self.bracket_generation_methods, make_bracket)
+        
+        processed = 0
+        for bracket_key, table_num in self.bracket_table_assignment.items():
+            if table_num and bracket_key in self.brackets:
+                bracket_data = self.brackets[bracket_key]
+                bracket_type = self.bracket_generation_methods.get(bracket_key, 'ko')
+                fight_pairs = bracket_data.get('bracket', [])
+                fighters = bracket_data.get('fighters', [])
+                pool_size = bracket_data.get('pool_size')
+                self.db_service.create_fights_for_bracket(
+                    bracket_key, fight_pairs, bracket_type=bracket_type,
+                    fighters=fighters, pool_size=pool_size)
+                processed += 1
+
+        self.logger.info(f"Processed {processed} brackets for comparison view")
+        self.geometry('1800x800')
+        
+        for widget in self.winfo_children():
+            widget.destroy()
+        
+        # Create paned window for left/right split
+        paned = tk.PanedWindow(self, orient=tk.HORIZONTAL,
+                              bg=COLORS['bg_dark'], sashwidth=4,
+                              sashrelief=tk.FLAT, showhandle=False)
+        paned.pack(fill=tk.BOTH, expand=True)
+        
+        # LEFT: Old implementation (FightMonitoringScreen - original main_window code)
+        left_frame = create_dark_frame(paned)
+        paned.add(left_frame, width=800, minsize=600) 
+        
+        left_label = tk.Label(left_frame, text='← OLD: FightMonitoringScreen', 
+                            font=('Arial', 10, 'bold'), fg='#FF6B6B')
+        left_label.pack(pady=5)
+        
+        old_screen = FightMonitoringScreen(
+            parent=left_frame,
+            brackets=self.brackets,
+            bracket_table_assignment=self.bracket_table_assignment,
+            bracket_generation_methods=self.bracket_generation_methods,
+            match_results=self.match_results,
+            loser_match_results=self.loser_match_results,
+            pool_cell_values=self.pool_cell_values,
+            ko_bracket_data=self.ko_bracket_data,
+            ko_match_results=self.ko_match_results,
+            db_service=self.db_service,
+        )
+        old_screen.pack(fill=tk.BOTH, expand=True)
+        old_screen.show_matten_view()
+        
+        # RIGHT: New implementation (TableAndBracketViewer)
+        right_frame = create_dark_frame(paned)
+        paned.add(right_frame, minsize=600)
+        
+        right_label = tk.Label(right_frame, text='NEW: TableAndBracketViewer →', 
+                             font=('Arial', 10, 'bold'), fg='#4CAF50')
+        right_label.pack(pady=5)
+        
+        new_viewer = TableAndBracketViewer(right_frame, main_window=self)
+        new_viewer.pack(fill=tk.BOTH, expand=True)
+        
+        # Back button
+        def _go_back():
+            for w in self.winfo_children():
+                w.destroy()
+            self.show_bracket_viewer()
+        
+        old_screen.on_back = _go_back
+
+    def show_fight_monitoring_screen(self):
+        """Switch to the Fight Monitoring screen."""
+        self.logger.info(f"show_fight_monitoring_screen() called")
+
+        # Prepare data
         regenerate_stale_ko_brackets(
             self.brackets, self.bracket_generation_methods, make_bracket)
         self.logger.debug("Regenerated stale KO brackets")
 
-        # Create fight rows in DB for every assigned bracket (idempotent — skips if already created)
+        # Create fight rows in DB for every assigned bracket
         processed = 0
         for bracket_key, table_num in self.bracket_table_assignment.items():
             if table_num and bracket_key in self.brackets:
-                bracket_data    = self.brackets[bracket_key]
-                bracket_type    = self.bracket_generation_methods.get(bracket_key, 'ko')
-                fight_pairs     = bracket_data.get('bracket', [])
-                fighters        = bracket_data.get('fighters', [])
-                pool_size       = bracket_data.get('pool_size')
-                self.logger.info(f"Creating fights for bracket '{bracket_key}' (mat {table_num}) with {len(fight_pairs)} pairs (type={bracket_type})")
+                bracket_data = self.brackets[bracket_key]
+                bracket_type = self.bracket_generation_methods.get(bracket_key, 'ko')
+                fight_pairs = bracket_data.get('bracket', [])
+                fighters = bracket_data.get('fighters', [])
+                pool_size = bracket_data.get('pool_size')
                 self.db_service.create_fights_for_bracket(
-                    bracket_key, fight_pairs,
-                    bracket_type=bracket_type,
-                    fighters=fighters,
-                    pool_size=pool_size,
-                )
+                    bracket_key, fight_pairs, bracket_type=bracket_type,
+                    fighters=fighters, pool_size=pool_size)
                 processed += 1
-            elif table_num:
-                self.logger.warning(f"Bracket '{bracket_key}' assigned to table {table_num} but NOT in self.brackets (skipping fight creation)")
 
-        self.logger.info(f"Processed {processed} brackets for fight creation")
+        self.logger.info(f"Processed {processed} brackets for fight monitoring")
 
-        # Clear existing widgets
+        # Show fight monitoring screen fullscreen
+        self.geometry('1200x750')
+        
         for widget in self.winfo_children():
             widget.destroy()
-
-        self.geometry('1200x750')
 
         screen = FightMonitoringScreen(
             parent=self,
@@ -633,51 +786,15 @@ class BracketViewerApp(tk.Tk):
             db_service=self.db_service,
         )
         screen.pack(fill=tk.BOTH, expand=True)
-        screen.on_back = self.show_bracket_viewer
-        screen.show_matten_view()
-
-    def show_tables(self):
-        """Show table assignment view."""
-        self.bracket_view_frame.pack_forget()
-        self.tables_frame.pack(fill=tk.BOTH, expand=True)
-
-    def show_bracket_view(self, bracket_key):
-        """Show bracket visualization view or group preview for QUARANTINE_* brackets."""
-        # For QUARANTINE_* brackets, open group preview for editing
-        if bracket_key.startswith('QUARANTINE_'):
-            self.show_group_preview_window()
-            return
         
-        self.tables_frame.pack_forget()
-        self.bracket_view_frame.pack(fill=tk.BOTH, expand=True)
-        self.current_bracket_key = bracket_key
-        self.render_bracket(bracket_key)
-
-    def zoom_in(self):
-        """Zoom in on bracket visualization."""
-        self.zoom_level = min(self.zoom_level * 1.2, 3.0)  # Max 300%
-        self.update_zoom_label()
-        if self.current_bracket_key:
-            self.render_bracket(self.current_bracket_key)
-
-    def zoom_out(self):
-        """Zoom out on bracket visualization."""
-        self.zoom_level = max(self.zoom_level / 1.2, 0.3)  # Min 30%
-        self.update_zoom_label()
-        if self.current_bracket_key:
-            self.render_bracket(self.current_bracket_key)
-
-    def zoom_reset(self):
-        """Reset zoom to 100%."""
-        self.zoom_level = 1.0
-        self.update_zoom_label()
-        if self.current_bracket_key:
-            self.render_bracket(self.current_bracket_key)
-
-    def update_zoom_label(self):
-        """Update the zoom percentage label."""
-        zoom_percent = int(self.zoom_level * 100)
-        self.zoom_label.config(text=f'{zoom_percent}%')
+        # Back button goes back to bracket viewer
+        def _go_back_to_bracket_viewer():
+            for widget in self.winfo_children():
+                widget.destroy()
+            self.show_bracket_viewer()
+        
+        screen.on_back = _go_back_to_bracket_viewer
+        screen.show_matten_view()
 
     def auto_unassign_finished_brackets(self):
         """Automatically unassign brackets where all fights are finished."""
