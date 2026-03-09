@@ -42,6 +42,7 @@ from .table_and_bracket_viewer import TableAndBracketViewer  # noqa: E402
 from ..services.quarantine_service import QuarantineService  # noqa: E402
 from ..services.ui_feedback_service import UIFeedbackService  # noqa: E402
 from ..services.data_loader_service import DataLoaderService  # noqa: E402
+from ..navigation_bar import NavigationBar  # noqa: E402
 
 # ====================================================================
 # !!!!! CLAUDE: REFACTORING INSTRUCTIONS !!!!!
@@ -161,6 +162,15 @@ class BracketViewerApp(tk.Tk):
         # {bracket_key: {(round, match): winner_name}}
         self.ko_match_results = {}
 
+        # Create navigation bar (will display at top of window)
+        self.nav_bar = NavigationBar(self)
+        self.nav_bar.pack(fill=tk.X, side=tk.TOP, padx=0, pady=0)
+        self.logger.debug("Navigation bar created")
+
+        # Add initial tab for file loader
+        self.nav_bar.add_tab('file_loader', 'File Loader')
+        self.nav_bar.set_active_tab('file_loader')
+
         # Start with file loading UI
         self.show_file_loader()
 
@@ -209,9 +219,13 @@ class BracketViewerApp(tk.Tk):
 
     def show_file_loader(self):
         """Show file loading screen."""
-        # Clear any existing widgets
+        # Update nav bar
+        self.nav_bar.set_active_tab('file_loader')
+
+        # Clear any existing widgets (except nav bar)
         for widget in self.winfo_children():
-            widget.destroy()
+            if widget != self.nav_bar:
+                widget.destroy()
 
         # Create the file loader screen
         loader_screen = FileLoaderScreen(self)
@@ -240,9 +254,14 @@ class BracketViewerApp(tk.Tk):
         self.geometry('1000x600')
         self.configure(bg=COLORS['bg_dark'])
 
-        # Clear existing widgets
+        # Update nav bar
+        self.nav_bar.add_tab('group_preview', 'Group Preview')
+        self.nav_bar.set_active_tab('group_preview')
+
+        # Clear existing widgets (except nav bar)
         for widget in self.winfo_children():
-            widget.destroy()
+            if widget != self.nav_bar:
+                widget.destroy()
 
         # Create and display preview screen
         preview_screen = GroupPreviewScreen(self, quarantine_service=self.quarantine_service, db_service=self.db_service)
@@ -270,9 +289,14 @@ class BracketViewerApp(tk.Tk):
         # Sync any group preview edits to DB before proceeding
         self.db_service.save_groups(self.brackets)
 
-        # Clear existing widgets
+        # Update nav bar
+        self.nav_bar.add_tab('generation_method', 'Generation Method')
+        self.nav_bar.set_active_tab('generation_method')
+
+        # Clear existing widgets (except nav bar)
         for widget in self.winfo_children():
-            widget.destroy()
+            if widget != self.nav_bar:
+                widget.destroy()
 
         # QuarantineService handles extraction and preservation of QUARANTINE bracket
         self.quarantine_service.extract_quarantine(self.brackets)
@@ -367,6 +391,10 @@ class BracketViewerApp(tk.Tk):
         """Show the NEW TableAndBracketViewer implementation (full screen)."""
         self.logger.info("Switching to NEW implementation (TableAndBracketViewer)")
         
+        # Update nav bar
+        self.nav_bar.add_tab('bracket_viewer', 'Bracket Viewer')
+        self.nav_bar.set_active_tab('bracket_viewer')
+        
         # Prepare data
         regenerate_stale_ko_brackets(
             self.brackets, self.bracket_generation_methods, make_bracket)
@@ -387,8 +415,10 @@ class BracketViewerApp(tk.Tk):
         self.logger.info(f"Processed {processed} brackets for NEW viewer")
         self.geometry('1200x750')
         
+        # Clear existing widgets (except nav bar)
         for widget in self.winfo_children():
-            widget.destroy()
+            if widget != self.nav_bar:
+                widget.destroy()
         
         # Create the new viewer and store as instance variable to prevent garbage collection
         self.current_viewer = TableAndBracketViewer(self, main_window=self)
@@ -419,7 +449,8 @@ class BracketViewerApp(tk.Tk):
         self.geometry('1800x800')
         
         for widget in self.winfo_children():
-            widget.destroy()
+            if widget != self.nav_bar:
+                widget.destroy()
         
         # Create paned window for left/right split
         paned = tk.PanedWindow(self, orient=tk.HORIZONTAL,
@@ -494,11 +525,16 @@ class BracketViewerApp(tk.Tk):
 
         self.logger.info(f"Processed {processed} brackets for fight monitoring")
 
+        # Update nav bar
+        self.nav_bar.add_tab('fight_monitoring', 'Fight Monitoring')
+        self.nav_bar.set_active_tab('fight_monitoring')
+
         # Show fight monitoring screen fullscreen
         self.geometry('1200x750')
         
         for widget in self.winfo_children():
-            widget.destroy()
+            if widget != self.nav_bar:
+                widget.destroy()
 
         screen = FightMonitoringScreen(
             parent=self,
