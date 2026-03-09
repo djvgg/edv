@@ -1,8 +1,7 @@
 # SPDX-FileCopyrightText: 2026 TOP Team Combat Control
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-import tkinter as tk
-from ..styles import COLORS, FONTS, apply_label_style, create_dark_frame
+from ..styles import COLORS, FONTS
 from ..utils import (
     calculate_box_size,
     draw_pools_on_canvas,
@@ -12,11 +11,11 @@ from ..utils import (
     calculate_loser_positions,
     draw_loser_connectors,
 )
-import os, sys
+import os
+import sys
 _edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
-from utils.logging import get_logger
 from backend.services.bracket_service import make_bracket
 
 

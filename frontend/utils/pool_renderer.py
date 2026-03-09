@@ -3,7 +3,8 @@
 
 """Pool rendering utilities for round-robin group visualization on canvas."""
 
-import os, sys
+import os
+import sys
 _edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)

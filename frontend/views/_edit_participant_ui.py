@@ -4,13 +4,12 @@
 """UI builder mixin for Edit_Participants dialog."""
 
 import tkinter as tk
-from tkinter import messagebox, ttk
-from ..styles import COLORS, FONTS, apply_button_style, apply_label_style, create_dark_frame
-import os, sys
+from ..styles import COLORS, FONTS
+import os
+import sys
 _edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
-from utils.logging import get_logger, DEBUG_VERBOSE
 
 HINT_NAME = "Nur Buchstaben und -"
 HINT_WEIGHT = "Nur Ziffern, z.B. 52.3500 oder 52,3"
