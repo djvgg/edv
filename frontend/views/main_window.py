@@ -152,6 +152,9 @@ class BracketViewerApp(tk.Tk):
 
         # Initialize database service placeholder (will be set in background thread)
         self.db_service = None
+        
+        # Initialize bracket assignment controller (will be set after db_service is ready)
+        self.bracket_controller = None
 
         # Initialize background task runner (for loading, imports, etc.)
         self.task_runner = TaskRunner(num_workers=2)
@@ -197,10 +200,18 @@ class BracketViewerApp(tk.Tk):
             self.data_loader.db_service = self.db_service
             self.data_loader.task_runner = self.task_runner
             
+            # Initialize bracket assignment controller (coordinates state + database)
+            from ..services.bracket_assignment_controller import BracketAssignmentController
+            self.bracket_controller = BracketAssignmentController(
+                state=self.state,
+                db_service=self.db_service
+            )
+            
             self.logger.debug("Database service initialized successfully")
         except Exception as e:
             self.logger.error(f"Failed to initialize database service: {e}")
             self.db_service = None
+            self.bracket_controller = None
 
     def setup_ttk_styles(self):
         """Configure ttk styles for dark theme scrollbars."""

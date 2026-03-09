@@ -101,10 +101,15 @@ class TestGenerateSeedOrder:
         highest numbered seed which is the bye slot in odd brackets)."""
         order = _generate_seed_order(4)
         # Pairs are (order[0],order[1]) and (order[2],order[3])
-        # Both pairs should not both be byes (only one bye exists for 3 fighters)
         pairs = [(order[i], order[i+1]) for i in range(0, len(order), 2)]
-        # Each pair must contain exactly one 'bye position' at most
         assert len(pairs) == 2
+        # Seed 1 should be at position 0 and face the highest seed (4)
+        assert order[0] == 1
+        # In a 4-fighter bracket with 3 actual fighters, seed 4 is the bye
+        # Seed 1 should face seed 4 (the bye), but this validates the pairing structure
+        assert order[1] == 4
+        # Verify all seeds are present and unique
+        assert set(order) == {1, 2, 3, 4}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -218,7 +223,12 @@ class TestComputeBalancedBracket:
             (p1, p2) for p1, p2 in pairs
             if p1 != 'Freilos' and p2 != 'Freilos' and p1[1] != p2[1]
         ]
-        assert len(cross_club) > 0
+        assert len(cross_club) > 0, "Expected at least one cross-club match"
+        # With 5 clubs and 8 fighters, we should have multiple cross-club matches
+        assert len(cross_club) >= 2, f"Expected at least 2 cross-club matches, got {len(cross_club)}"
+        # Verify all pairs are valid (no duplicate fighters)
+        all_fighters_in_pairs = [f for pair in pairs for f in pair if f != 'Freilos']
+        assert len(all_fighters_in_pairs) == len(set(all_fighters_in_pairs)), "Duplicate fighters in bracket"
 
     def test_deterministic(self):
         fighters = _fighters([f'F{i}' for i in range(6)])

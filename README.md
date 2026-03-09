@@ -3,6 +3,183 @@ SPDX-License-Identifier: GPL-3.0-or-later-->
 
 # EDV_Backend
 
+Tournament management desktop application for Judo competitions.
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.10 or higher
+- PostgreSQL database
+- pip and virtualenv
+
+### Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd edv_backend
+   ```
+
+2. **Create and activate virtual environment**
+   ```bash
+   python -m venv venv
+   # On Windows:
+   venv\Scripts\activate
+   # On Linux/Mac:
+   source venv/bin/activate
+   ```
+
+3. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   pip install -e .  # Install in development mode
+   ```
+
+4. **Configure database**
+   - Copy `.env.example` to `.env` (if exists)
+   - Update database credentials in `backend/data/db_config.py`
+
+5. **Run database migrations**
+   ```bash
+   # For new installations, create initial schema:
+   alembic upgrade head
+   
+   # For existing databases that used custom migrations:
+   alembic stamp head  # Mark as up-to-date
+   ```
+
+6. **Run the application**
+   ```bash
+   python -m edv_backend
+   # or
+   python main.py
+   ```
+
+### Running Tests
+
+```bash
+pytest tests/
+```
+
+---
+
+## Database Migrations
+
+This project uses **Alembic** for database schema migrations.
+
+### After Pulling New Code
+
+If new schema changes were added:
+```bash
+alembic upgrade head
+```
+
+### Creating New Migrations
+
+When you modify database models:
+```bash
+# Auto-generate migration from model changes
+alembic revision --autogenerate -m "Description of changes"
+
+# Review the generated file in alembic/versions/
+# Edit if needed, then apply:
+alembic upgrade head
+```
+
+### Migration Commands
+
+```bash
+# Check current migration version
+alembic current
+
+# View migration history
+alembic history
+
+# Rollback one migration
+alembic downgrade -1
+
+# Rollback to specific version
+alembic downgrade <revision>
+
+# Upgrade to latest
+alembic upgrade head
+```
+
+### Migration History
+
+- `0001` - Initial schema (groups, group_participants, brackets, fights, etc.)
+- `0002` - Add groups.name column, allow NULL in gender/age_group/weight_class
+- `0003` - Add fight metadata columns (bracket_phase, round, pos_in_round, etc.)
+
+---
+
+## Project Structure
+
+```
+edv_backend/
+├── alembic/              # Database migrations
+├── backend/
+│   ├── data/            # Database models and services
+│   └── services/        # Business logic layer
+├── frontend/
+│   ├── views/           # UI components
+│   ├── utils/           # Frontend utilities
+│   └── state.py         # Application state management
+├── tests/               # Test suite
+├── utils/               # Shared utilities
+│   ├── bracket_utils.py
+│   ├── helpers.py
+│   └── logging/
+├── config/              # Configuration files
+├── logs/                # Application logs
+├── main.py              # Application entry point
+├── pyproject.toml       # Project metadata and dependencies
+└── requirements.txt     # Python dependencies
+```
+
+---
+
+## Development
+
+### Code Quality
+
+```bash
+# Run tests
+pytest tests/
+
+# Run specific test file
+pytest tests/test_bracket_algorithms.py
+
+# Run with coverage
+pytest --cov=backend --cov=frontend tests/
+```
+
+### Logging
+
+Logs are written to `logs/` directory. Each module has its own log file.
+
+To enable verbose debug logging:
+```bash
+export LOG_DEBUG=1  # Linux/Mac
+set LOG_DEBUG=1     # Windows CMD
+$env:LOG_DEBUG="1"  # Windows PowerShell
+```
+
+---
+
+## License
+
+GPL-3.0-or-later
+
+---
+
+## GitLab Template Information
+
+The sections below are from the GitLab README template and can be customized or removed.
+
 
 ## Getting started
 

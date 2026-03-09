@@ -10,11 +10,6 @@ from ..styles import (
     apply_table_panel_style,
     create_dark_frame,
 )
-import os, sys
-_edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-if _edv_backend_path not in sys.path:
-    sys.path.insert(0, _edv_backend_path)
-from utils.logging import get_logger
 
 
 class _AssignmentMixin:
@@ -29,24 +24,21 @@ class _AssignmentMixin:
         display_text = self.bracket_listbox.get(self.bracket_listbox.curselection()[0])
         bracket_key = self.bracket_listbox_map.get(display_text, display_text)
 
-        if not self.main_window:
+        if not self.main_window or not self.main_window.bracket_controller:
+            messagebox.showerror('Error', 'Bracket controller not initialized')
             return
 
-        # Assign the bracket
-        self.main_window.bracket_table_assignment[bracket_key] = table_num
-        bracket_data = self.main_window.brackets[bracket_key]
-        self.main_window.db_service.assign_and_create_fights(
-            bracket_key,
-            table_num=table_num,
-            fight_pairs=bracket_data.get('bracket', []),
-            bracket_type=self.main_window.bracket_generation_methods.get(bracket_key, 'ko'),
-            fighters=bracket_data.get('fighters', []),
-            pool_size=bracket_data.get('pool_size'),
+        # Use controller to coordinate state and database operations
+        success, error = self.main_window.bracket_controller.assign_bracket_to_table(
+            bracket_key, table_num
         )
 
-        self.update_bracket_list()
-        self.update_table_panels()
-        self.logger.info(f"Assigned '{bracket_key}' to Matte {table_num}")
+        if success:
+            self.update_bracket_list()
+            self.update_table_panels()
+            self.logger.info(f"Assigned '{bracket_key}' to Matte {table_num}")
+        else:
+            messagebox.showerror('Assignment Failed', error or 'Failed to assign bracket')
 
     def unassign_bracket(self, bracket_key=None):
         """Unassign bracket from its table."""
@@ -57,63 +49,84 @@ class _AssignmentMixin:
                 return
             bracket_key = self.bracket_listbox.get(selection[0])
 
-        if not self.main_window:
+        if not self.main_window or not self.main_window.bracket_controller:
+            messagebox.showerror('Error', 'Bracket controller not initialized')
             return
 
-        if not self.main_window.bracket_table_assignment.get(bracket_key):
-            messagebox.showinfo('Not Assigned', 'This bracket is not assigned to any table.')
-            return
+        # Use controller to coordinate state and database operations
+        success, error = self.main_window.bracket_controller.unassign_bracket(bracket_key)
 
-        old_table = self.main_window.bracket_table_assignment[bracket_key]
-        self.main_window.bracket_table_assignment[bracket_key] = None
-        self.main_window.db_service.unassign_bracket_from_table(bracket_key)
-        self.update_bracket_list()
-        self.update_table_panels()
-        self.logger.info(f"Unassigned '{bracket_key}' from Matte {old_table}")
+        if success:
+            self.update_bracket_list()
+            self.update_table_panels()
+            self.logger.info(f"Unassigned '{bracket_key}'")
+        else:
+            # Show info instead of error if bracket wasn't assigned
+            if error and 'not currently assigned' in error:
+                messagebox.showinfo('Not Assigned', error)
+            else:
+                messagebox.showerror('Unassignment Failed', error or 'Failed to unassign bracket')
 
     def auto_assign_tables(self):
         """Automatically distribute unassigned brackets across tables."""
-        if not self.main_window:
+        if not self.main_window or not self.main_window.bracket_controller:
+            messagebox.showerror('Error', 'Bracket controller not initialized')
             return
 
-        unassigned = [k for k in self.main_window.brackets.keys()
-                     if not self.main_window.bracket_table_assignment.get(k)]
+        unassigned = self.main_window.bracket_controller.get_unassigned_brackets()
 
         if not unassigned:
             messagebox.showinfo('Auto-assign', 'No unassigned brackets to assign.')
             return
 
         # Count current assignments per table
-        assigned_count = {t: len([k for k, v in self.main_window.bracket_table_assignment.items() if v == t])
-                         for t in range(1, 5)}
+        assigned_count = {}
+        for t in range(1, 5):
+            assigned_count[t] = len(self.main_window.bracket_controller.get_brackets_for_table(t))
 
+        # Track successful and failed assignments
+        success_count = 0
+        failed = []
+
+        # Assign brackets in a round-robin fashion
         table = 1
         for bracket_key in unassigned:
-            # Find next table with space
-            for _ in range(4):
-                if assigned_count[table] < 2:
-                    self.main_window.bracket_table_assignment[bracket_key] = table
-                    assigned_count[table] += 1
-                    table = table % 4 + 1
-                    break
+            # Find next table with space (max 2 brackets per table)
+            attempts = 0
+            while assigned_count[table] >= 2 and attempts < 4:
                 table = table % 4 + 1
+                attempts += 1
+            
+            # Use controller to assign
+            success, error = self.main_window.bracket_controller.assign_bracket_to_table(
+                bracket_key, table
+            )
+            
+            if success:
+                success_count += 1
+                assigned_count[table] += 1
+                table = table % 4 + 1
+            else:
+                failed.append((bracket_key, error))
+                self.logger.warning(f"Auto-assign failed for '{bracket_key}': {error}")
 
-        # Assign and create fights for newly assigned brackets
-        for bracket_key in unassigned:
-            table_num = self.main_window.bracket_table_assignment.get(bracket_key)
-            if table_num:
-                bracket_data = self.main_window.brackets[bracket_key]
-                self.main_window.db_service.assign_and_create_fights(
-                    bracket_key,
-                    table_num=table_num,
-                    fight_pairs=bracket_data.get('bracket', []),
-                    bracket_type=self.main_window.bracket_generation_methods.get(bracket_key, 'ko'),
-                    fighters=bracket_data.get('fighters', []),
-                    pool_size=bracket_data.get('pool_size'),
-                )
-
+        # Update UI
         self.update_bracket_list()
         self.update_table_panels()
+
+        # Show results
+        if failed:
+            failed_list = '\n'.join([f"{k}: {e}" for k, e in failed[:5]])
+            messagebox.showwarning(
+                'Auto-assign Complete',
+                f'Assigned {success_count} brackets.\n'
+                f'Failed: {len(failed)}\n\n{failed_list}'
+            )
+        else:
+            messagebox.showinfo(
+                'Auto-assign Complete',
+                f'Successfully assigned {success_count} brackets.'
+            )
 
     def update_table_panels(self):
         """Update the visual display of table assignments with scrollable content."""

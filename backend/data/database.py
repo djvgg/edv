@@ -26,17 +26,26 @@ SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
 def init_db():
-    """Create all tables and apply incremental migrations. Called once at startup."""
+    """Create all tables. Called once at startup.
+    
+    For schema migrations, use Alembic:
+        alembic upgrade head
+    
+    Base.metadata.create_all() is used for test databases and new installations.
+    For existing databases, Alembic migrations handle schema changes.
+    """
     logger.info("[DATABASE] Initializing database schema...")
     import backend.data.models  # noqa: F401 — models must be imported before create_all
 
     Base.metadata.create_all(engine)
     logger.info("[DATABASE] Base tables created/verified")
-
-    from .migrations import apply_migrations
-    apply_migrations(engine, logger)
-
+    
+    # Schema migrations are managed by Alembic.
+    # Run 'alembic upgrade head' after pulling new code with schema changes.
+    # For new installations, Base.metadata.create_all() above handles initial schema.
+    
     logger.info("[DATABASE] ✓ Database initialized successfully")
+    logger.info("[DATABASE] Note: Run 'alembic upgrade head' to apply any pending migrations")
 
 
 def get_db():
