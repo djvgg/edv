@@ -5,6 +5,8 @@
 
 from utils.logging import get_logger
 
+logger = get_logger('participant_loader', debug_verbose=True)
+
 
 def load_participants_from_xlsx(file_path):
     """Load participants from XLSX file using pandas.
@@ -19,7 +21,6 @@ def load_participants_from_xlsx(file_path):
         ImportError: If pandas is not available
         Exception: If file cannot be parsed
     """
-    logger = get_logger('participant_loader', debug_verbose=True)
     
     try:
         import pandas as pd

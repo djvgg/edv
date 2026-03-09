@@ -4,7 +4,7 @@
 """Service for managing UI feedback (progress dialogs, status messages, etc.)."""
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from utils.logging import get_logger
 from ..styles import COLORS, apply_label_style
 
@@ -139,7 +139,7 @@ class UIFeedbackService:
     
     def set_info_text(self, text):
         """Update info text on file loader screen if available.
-        
+
         Args:
             text (str): Info text to display
         """
@@ -148,3 +148,21 @@ class UIFeedbackService:
         if hasattr(self, 'file_loader_screen') and self.file_loader_screen and \
            self.file_loader_screen.winfo_exists():
             self.file_loader_screen.set_info_text(text)
+
+    def show_error(self, title: str, message: str):
+        """Show an error dialog safely from any thread.
+
+        Uses root.after(0, ...) to post the dialog onto the main thread's
+        event loop, avoiding the tkinter thread-safety violation that occurs
+        when messagebox is called directly from a background thread.
+        """
+        self.root.after(0, lambda: messagebox.showerror(title, message, parent=self.root))
+
+    def show_warning(self, title: str, message: str):
+        """Show a warning dialog safely from any thread.
+
+        Uses root.after(0, ...) to post the dialog onto the main thread's
+        event loop, avoiding the tkinter thread-safety violation that occurs
+        when messagebox is called directly from a background thread.
+        """
+        self.root.after(0, lambda: messagebox.showwarning(title, message, parent=self.root))

@@ -15,11 +15,13 @@ from tkinter import ttk
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+_edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if _edv_backend_path not in sys.path:
+    sys.path.insert(0, _edv_backend_path)
 
-from utils.logging import get_logger
-from backend.data.repositories.config_repository import ConfigRepository
-from ..styles import (
+from utils.logging import get_logger  # noqa: E402
+from backend.data.repositories.config_repository import ConfigRepository  # noqa: E402
+from ..styles import (  # noqa: E402
     COLORS, FONTS,
     SCROLLBAR_STYLE, SCROLLBAR_ACTIVE_STYLE,
     apply_button_style,
@@ -28,8 +30,9 @@ from ..styles import (
     apply_listbox_style,
     create_dark_frame,
 )
-from ..utils.search_utils import filter_items
-from .edit_participant_dialog import Edit_Participants
+from ..utils.search_utils import filter_items  # noqa: E402
+from .edit_participant_dialog import Edit_Participants  # noqa: E402
+from .friendly_match_dialog import FriendlyMatchDialog  # noqa: E402
 
 # Debug flag - set to True for verbose logging
 DEBUG = True
@@ -533,7 +536,6 @@ class GroupPreviewScreen(tk.Frame):
 
     def _display_participants(self, bracket_key):
         """Display participant details for the selected group."""
-        # Clear previous content
         for widget in self.participant_display_frame.winfo_children():
             widget.destroy()
 
@@ -551,20 +553,28 @@ class GroupPreviewScreen(tk.Frame):
             if fighters:
                 self.logger.debug(f"DEBUG: First fighter: {fighters[0]}")
 
-        # Update title
         self.preview_title_var.set(f"{bracket_key} - {count} participants")
 
-        # Parse bracket key for tolerance and weight limit
         gender, age_group, weight_class = self._parse_bracket_key(bracket_key)
-
-        # Tolerance control bar
         self._create_tolerance_bar(self.participant_display_frame, gender, age_group)
 
-        # Create scrollable text widget with auto-hiding styled scrollbars
-        text_frame = create_dark_frame(self.participant_display_frame)
-        text_frame.pack(fill=tk.BOTH, expand=True)
+        text_widget = self._build_scrollable_text(self.participant_display_frame)
+        text_widget.bind('<Double-Button-1>', lambda e: self._on_row_double_click(text_widget, bracket_key, count))
 
-        # Use grid layout for text + scrollbars
+        self._render_participant_rows(text_widget, fighters, count)
+
+        if self.DEBUG:
+            self.logger.debug(f"DEBUG: Text widget created with {count} rows")
+        self.logger.debug(f"Displayed {count} participants for {bracket_key}")
+
+    def _build_scrollable_text(self, parent) -> tk.Text:
+        """Create a read/write Text widget inside parent with auto-hiding styled scrollbars.
+
+        Returns the Text widget so the caller can populate it and add bindings.
+        The widget is left in NORMAL state — callers must set DISABLED when done.
+        """
+        text_frame = create_dark_frame(parent)
+        text_frame.pack(fill=tk.BOTH, expand=True)
         text_frame.grid_rowconfigure(0, weight=1)
         text_frame.grid_columnconfigure(0, weight=1)
 
@@ -573,21 +583,18 @@ class GroupPreviewScreen(tk.Frame):
             wrap=tk.NONE,
             bg=COLORS['bg_panel'],
             fg=COLORS['text_primary'],
-            font=FONTS['list_mono'],  # Monospace font for proper alignment
+            font=FONTS['list_mono'],
             padx=10,
             pady=10,
-            cursor='arrow',  # Keep normal arrow cursor instead of text cursor
+            cursor='arrow',
         )
         text_widget.grid(row=0, column=0, sticky='nsew')
 
-        # Styled vertical scrollbar (dark theme)
         v_scrollbar = ttk.Scrollbar(
             text_frame, orient=tk.VERTICAL,
             command=text_widget.yview,
             style='Dark.Vertical.TScrollbar',
         )
-
-        # Styled horizontal scrollbar (dark theme)
         h_scrollbar = ttk.Scrollbar(
             text_frame, orient=tk.HORIZONTAL,
             command=text_widget.xview,
@@ -598,43 +605,45 @@ class GroupPreviewScreen(tk.Frame):
             yscrollcommand=lambda first, last: self._auto_scroll(v_scrollbar, first, last, 'vertical'),
             xscrollcommand=lambda first, last: self._auto_scroll(h_scrollbar, first, last, 'horizontal'),
         )
-
-        # Shift + Mousewheel for horizontal scrolling
         text_widget.bind('<Shift-MouseWheel>', lambda e: text_widget.xview_scroll(int(-1 * (e.delta / 120)), 'units'))
 
-        # Bind double-click to edit row
-        text_widget.bind('<Double-Button-1>', lambda e: self._on_row_double_click(text_widget, bracket_key, count))
+        return text_widget
 
-        # Column widths (in characters)
-        COL_FIRSTNAME = 15
-        COL_LAST = 15
-        COL_BIRTH = 12
-        COL_CLUB = 25
+    def _render_participant_rows(self, text_widget: tk.Text, fighters: list, count: int):
+        """Populate text_widget with the participant table (header + rows) and configure tags.
+
+        Leaves the widget in DISABLED (read-only) state when done.
+        """
+        COL_FIRSTNAME   = 15
+        COL_LAST        = 15
+        COL_BIRTH       = 12
+        COL_CLUB        = 25
         COL_ASSOCIATION = 15
-        COL_WEIGHT = 12
-        COL_GENDER = 10
-        
-        # Calculate total width for separator line
-        SEPARATOR_LENGTH = COL_FIRSTNAME + COL_LAST + COL_BIRTH + COL_CLUB + COL_ASSOCIATION + COL_WEIGHT + COL_GENDER + 4
+        COL_WEIGHT      = 12
+        COL_GENDER      = 10
+        SEPARATOR_LENGTH = (
+            COL_FIRSTNAME + COL_LAST + COL_BIRTH + COL_CLUB
+            + COL_ASSOCIATION + COL_WEIGHT + COL_GENDER + 4
+        )
 
-        # Header
-        header = f"{'Firstname':<{COL_FIRSTNAME}}{'Lastname':<{COL_LAST}}{'Birthyear':<{COL_BIRTH}}{'Club':<{COL_CLUB}}{'Association':<{COL_ASSOCIATION}}{'Weight':<{COL_WEIGHT}}{'Gender':<{COL_GENDER}}\n"
+        header = (
+            f"{'Firstname':<{COL_FIRSTNAME}}{'Lastname':<{COL_LAST}}"
+            f"{'Birthyear':<{COL_BIRTH}}{'Club':<{COL_CLUB}}"
+            f"{'Association':<{COL_ASSOCIATION}}{'Weight':<{COL_WEIGHT}}"
+            f"{'Gender':<{COL_GENDER}}\n"
+        )
         text_widget.insert(tk.END, header, 'header')
         text_widget.insert(tk.END, "=" * SEPARATOR_LENGTH + "\n")
-        
-        # Removed weight highlight tags (no colored text based on weight limits)
 
-        # Participant rows
-        for idx, fighter in enumerate(fighters, 1): #begin with 1 instead of 0
-            first = str(fighter.get('Firstname', fighter.get('name', 'N/A')))
-            last = str(fighter.get('Lastname', ''))
-            birth = str(fighter.get('Birthyear', fighter.get('BirthYear')))
-            club = str(fighter.get('Club', fighter.get('Verein', fighter.get('club', 'N/A'))))
+        for idx, fighter in enumerate(fighters, 1):
+            first       = str(fighter.get('Firstname', fighter.get('name', 'N/A')))
+            last        = str(fighter.get('Lastname', ''))
+            birth       = str(fighter.get('Birthyear', fighter.get('BirthYear')))
+            club        = str(fighter.get('Club', fighter.get('Verein', fighter.get('club', 'N/A'))))
             association = str(fighter.get('Association', ''))
-            gender_val = str(fighter.get('Gender', ''))
-            weight = fighter.get('Weight', 'N/A')
+            gender_val  = str(fighter.get('Gender', ''))
+            weight      = fighter.get('Weight', 'N/A')
 
-            # Format weight
             if isinstance(weight, (int, float)):
                 weight_str = f"{weight:.4f}".rstrip('0')
                 if weight_str.endswith('.'):
@@ -642,25 +651,20 @@ class GroupPreviewScreen(tk.Frame):
             else:
                 weight_str = str(weight)
 
-            row = f"{first:<{COL_FIRSTNAME}}{last:<{COL_LAST}}{birth:<{COL_BIRTH}}{club:<{COL_CLUB}}{association:<{COL_ASSOCIATION}}{weight_str:<{COL_WEIGHT}}{gender_val:<{COL_GENDER}}\n"
+            row = (
+                f"{first:<{COL_FIRSTNAME}}{last:<{COL_LAST}}{birth:<{COL_BIRTH}}"
+                f"{club:<{COL_CLUB}}{association:<{COL_ASSOCIATION}}"
+                f"{weight_str:<{COL_WEIGHT}}{gender_val:<{COL_GENDER}}\n"
+            )
             text_widget.insert(tk.END, row, f'row_{idx}')
 
-        # Style header
         text_widget.tag_configure('header', font=FONTS['list_mono_bold'], foreground=COLORS['accent_blue'])
-        
-        # Configure row tags for selection styling
         text_widget.tag_configure('row_selected', background=COLORS['accent_blue'], foreground=COLORS['text_primary'])
-        
-        # Configure all row tags
+
         for i in range(1, count + 1):
             text_widget.tag_bind(f'row_{i}', '<Button-1>', lambda e, row_num=i: self._on_row_click(text_widget, row_num, count))
 
-        # Read-only
         text_widget.config(state=tk.DISABLED)
-
-        if self.DEBUG:
-            self.logger.debug(f"DEBUG: Text widget created with {count} rows")
-        self.logger.debug(f"Displayed {count} participants for {bracket_key}")
 
     def _auto_scroll(self, scrollbar, first, last, orientation):
         """Show/hide scrollbar based on whether content overflows the visible area."""
@@ -795,98 +799,9 @@ class GroupPreviewScreen(tk.Frame):
         return new_bracket_key
 
     def _on_friendly_match(self):
-        """Open a window to pair two participants into a friendly match."""
-        try:
-            fm_window = tk.Toplevel(self.main_frame.winfo_toplevel())
-        except AttributeError:
-            fm_window = tk.Toplevel()  # Fallback
-            
-        fm_window.title("Friendly Match")
-        fm_window.geometry("600x450")
-        fm_window.configure(bg=COLORS['bg_dark'])
-        fm_window.transient(self.main_frame.winfo_toplevel() if hasattr(self, 'main_frame') else None)
-        fm_window.grab_set()
-
-        title_label = tk.Label(fm_window, text="Create Friendly Match", bg=COLORS['bg_dark'], fg=COLORS['text_primary'], font=FONTS['preview_title'])
-        title_label.pack(pady=15)
-
-        info_label = tk.Label(fm_window, text="Select exactly 2 fighters from groups with 1-2 participants:", bg=COLORS['bg_dark'], fg=COLORS['text_secondary'], font=FONTS['preview_info'])
-        info_label.pack(pady=(0, 10))
-
-        list_frame = tk.Frame(fm_window, bg=COLORS['bg_dark'])
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=5)
-
-        scrollbar = tk.Scrollbar(list_frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        lb = tk.Listbox(
-            list_frame, 
-            bg=COLORS['bg_input'], 
-            fg=COLORS['text_primary'],
-            font=FONTS['list_ui'],
-            selectmode=tk.MULTIPLE,
-            yscrollcommand=scrollbar.set,
-            bd=0, highlightthickness=1, highlightbackground=COLORS['border'],
-            selectbackground=COLORS['accent_blue'],
-            selectforeground=COLORS['text_primary'],
-            exportselection=False,
-            activestyle='none'
-        )
-        lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.config(command=lb.yview)
-
-        # Collect eligible fighters
-        eligible_fighters = [] # list of (bracket_key, fighter_dict)
-        for b_key in sorted(self.brackets.keys()):
-            # Don't show already created fm brackets here just in case, or show them if they only have 1 (which shouldn't happen)
-            fighters = self.brackets[b_key].get('fighters', [])
-            if len(fighters) in [1, 2] and not b_key.startswith("FM |"):
-                for f in fighters:
-                    eligible_fighters.append((b_key, f))
-                    f_name = f"{f.get('Firstname', '')} {f.get('Lastname', '')}".strip() or f.get('Name', 'Unknown')
-                    f_weight = f.get('Weight', 'N/A')
-                    f_birth = f.get('Birthyear', f.get('age', 'N/A'))
-                    f_club = f.get('Club', f.get('Verein', 'N/A'))
-                    lb.insert(tk.END, f"{b_key}:   {f_name} ({f_weight}kg, {f_birth}yrs, {f_club})")
-
-        btn_frame = tk.Frame(fm_window, bg=COLORS['bg_dark'])
-        btn_frame.pack(fill=tk.X, padx=20, pady=15)
-
-        def pair_fighters():
-            selections = lb.curselection()
-            if len(selections) != 2:
-                tk.messagebox.showwarning("Warning", "Please select exactly 2 fighters.", parent=fm_window)
-                return
-            
-            idx1, idx2 = selections
-            b_key1, f1 = eligible_fighters[idx1]
-            b_key2, f2 = eligible_fighters[idx2]
-
-            # Create new bracket key (Friendly Match)
-            name1 = f"{f1.get('Firstname', '')} {f1.get('Lastname', '')}".strip() or f1.get('Name', 'Unknown')
-            name2 = f"{f2.get('Firstname', '')} {f2.get('Lastname', '')}".strip() or f2.get('Name', 'Unknown')
-            new_bracket_key = f"FM | {name1} vs {name2}"
-            
-            if new_bracket_key not in self.brackets:
-                self.brackets[new_bracket_key] = {'fighters': [], 'bracket': []}
-
-            # Remove from old brackets securely
-            for b_key, f in [(b_key1, f1), (b_key2, f2)]:
-                try:
-                    self.brackets[b_key]['fighters'].remove(f)
-                    self.brackets[new_bracket_key]['fighters'].append(f)
-                except ValueError:
-                    pass
-
-            tk.messagebox.showinfo("Success", f"Friendly match created:\n{f1['Name']} vs {f2['Name']}", parent=fm_window)
-            self._populate_group_list()
-            fm_window.destroy()
-
-        pair_btn = tk.Button(btn_frame, text="Create Match", command=pair_fighters, bg=COLORS['accent_green'], fg=COLORS['text_primary'], font=FONTS['body_md'], bd=0, padx=15, pady=8, cursor='hand2')
-        pair_btn.pack(side=tk.RIGHT)
-
-        cancel_btn = tk.Button(btn_frame, text="Cancel", command=fm_window.destroy, bg=COLORS['bg_panel'], fg=COLORS['text_secondary'], font=FONTS['body_md'], bd=0, padx=15, pady=8, cursor='hand2')
-        cancel_btn.pack(side=tk.RIGHT, padx=10)
+        """Open the friendly match dialog."""
+        parent = self.main_frame.winfo_toplevel() if hasattr(self, 'main_frame') else self
+        FriendlyMatchDialog(parent, self.brackets, on_success=self._populate_group_list)
 
     def _on_back(self):
         """Navigate back."""

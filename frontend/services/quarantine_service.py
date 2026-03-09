@@ -167,178 +167,174 @@ class QuarantineService:
 
     def resort_brackets(self, brackets, edited_fighter=None, group_preview_screen=None):
         """Re-sort brackets after changes in any QUARANTINE_* bracket.
-        
+
         Args:
-            brackets (dict): The brackets dictionary to update
+            brackets (dict): The brackets dictionary to update.
             edited_fighter (dict, optional): The fighter that was just edited.
-                                           If provided, only that fighter is checked for re-sorting.
-                                           If None, all QUARANTINE fighters are checked.
-            group_preview_screen (object, optional): Reference to group preview screen to refresh
-        
-        This method:
-        1. Extracts valid participants from each QUARANTINE_* bracket
-        2. Removes them from their reason-specific quarantine
-        3. Re-generates brackets with all valid participants
-        4. Updates the group preview display
+                If provided, only that fighter is re-validated.
+                If None, all QUARANTINE fighters are checked.
+            group_preview_screen (object, optional): Reference to group preview
+                screen — refreshed after the sort if provided.
         """
         self.logger.debug("RESORT: resort_brackets() called")
-        
-        # Find all quarantine brackets (QUARANTINE_*)
-        quarantine_keys = [k for k in brackets.keys() if k.startswith('QUARANTINE_')]
-        
+
+        quarantine_keys = [k for k in brackets if k.startswith('QUARANTINE_')]
         if not quarantine_keys:
-            self.logger.debug("RESORT: No QUARANTINE_* brackets found in brackets, returning early")
+            self.logger.debug("RESORT: No QUARANTINE_* brackets found, returning early")
             return
-        
-        valid_from_quarantine = []
-        
-        # Process each quarantine bracket by reason
+
+        valid_from_quarantine = self._extract_valid_from_quarantine(
+            brackets, quarantine_keys, edited_fighter)
+
+        if valid_from_quarantine:
+            self._merge_valid_into_brackets(brackets, valid_from_quarantine)
+
+        self.quarantine_brackets = {k: v for k, v in brackets.items() if k.startswith('QUARANTINE_')}
+
+        if group_preview_screen and group_preview_screen.winfo_exists():
+            current_selection = getattr(group_preview_screen, 'current_bracket_key', None)
+            group_preview_screen.load_data(brackets)
+            if current_selection and current_selection in brackets:
+                group_preview_screen._display_participants(current_selection)
+                self.logger.info(f"Group preview refreshed, selection restored to {current_selection}")
+            else:
+                self.logger.info("Group preview refreshed after resort")
+        else:
+            self.logger.debug("RESORT: No group_preview_screen to refresh")
+
+    def _extract_valid_from_quarantine(self, brackets, quarantine_keys, edited_fighter):
+        """Validate fighters in each quarantine bracket; separate valid from still-invalid.
+
+        Mutates brackets in-place (updates fighter lists inside each quarantine bracket).
+        Returns list of fighters that are now valid and should be re-placed in normal brackets.
+
+        Also handles fighters whose rejection reason changed (e.g. age_out_of_bounds → unpaid):
+        those are migrated to the correct QUARANTINE_* bucket rather than left in the wrong one.
+        """
+        valid_fighters = []
+        migrating = []  # [(fighter, new_reason)] — collected and applied after the main loop
+
         for quarantine_key in quarantine_keys:
+            current_reason = quarantine_key.replace('QUARANTINE_', '')
             quarantine_fighters = brackets[quarantine_key].get('fighters', [])
             self.logger.debug(f"RESORT: Found {len(quarantine_fighters)} fighters in {quarantine_key}")
-            
+
             if not quarantine_fighters:
                 self.logger.debug(f"RESORT: {quarantine_key} bracket is empty")
                 continue
-            
-            # Separate valid and still-invalid participants while PRESERVING original list order
+
             still_invalid = []
-            
-            # We iterate over the ORIGINAL quarantine list, so anyone remaining invalid keeps their exact spot
             for base_fighter in quarantine_fighters:
-                
-                # If we're only checking one edited fighter, skip all others
+                # When only one fighter was edited, skip all others unchanged
                 if edited_fighter is not None and base_fighter is not edited_fighter:
                     still_invalid.append(base_fighter)
                     continue
-                    
-                fighter = base_fighter
-                fighter_id = fighter.get('ID')
-                fighter_name = fighter.get('Name', f"Unknown ({fighter_id})")
-                is_valid = True
-                invalid_reason = None
-                
-                self.logger.debug(f"RESORT: Validating {fighter_name} (ID: {fighter.get('ID', '?')})")
-                
-                # Check paid status
-                paid_status = fighter.get('Paid', False)
-                self.logger.debug(f"RESORT:   Paid: {paid_status}")
-                if not paid_status:
-                    is_valid = False
-                    invalid_reason = "unpaid"
-                    self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
-                else:
-                    # Check manual valid flag
-                    is_manually_valid = fighter.get('Valid', True)
-                    self.logger.debug(f"RESORT:   Manual Valid Flag: {is_manually_valid}")
-                    if not is_manually_valid:
-                        is_valid = False
-                        invalid_reason = "marked_invalid"
-                        self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
-                    else:
-                        # Check age validity using unified validation function (SINGLE SOURCE OF TRUTH)
-                        birthyear = fighter.get('Birthyear') or fighter.get('Age')
-                        age_group, calculated_age, age_is_valid, age_rejection_reason = validate_age_from_birthyear(birthyear)
-                        
-                        self.logger.debug(f"RESORT:   Age validation: birthyear={birthyear}, calculated_age={calculated_age}, valid={age_is_valid}, reason={age_rejection_reason}")
-                        
-                        if not age_is_valid:
-                            is_valid = False
-                            invalid_reason = age_rejection_reason
-                            self.logger.debug(f"RESORT:   → INVALID: {invalid_reason}")
-                        else:
-                            self.logger.debug(f"RESORT:   Age bounds OK, age group {age_group} - VALID")
-                
+
+                fighter_name = base_fighter.get('Name', f"Unknown ({base_fighter.get('ID', '?')})")
+                is_valid, reason = self._evaluate_fighter_validity(base_fighter)
+
                 if is_valid:
-                    valid_from_quarantine.append(fighter)
+                    valid_fighters.append(base_fighter)
                     self.logger.info(f"RESORT: ✓ {fighter_name} now valid (fixed)")
+                elif reason != current_reason:
+                    # Rejection reason changed — migrate to the correct quarantine bucket
+                    base_fighter['RejectionReason'] = reason
+                    base_fighter['rejection_reason'] = reason
+                    migrating.append((base_fighter, reason))
+                    self.logger.info(f"RESORT: ↔ {fighter_name} moved {quarantine_key} → QUARANTINE_{reason}")
                 else:
-                    still_invalid.append(fighter)
-                    self.logger.info(f"RESORT: ✗ {fighter_name} remains invalid ({invalid_reason})")
-            
-            # Update quarantine bracket with only still-invalid fighters
-            # KEEP the bracket even if empty, so it persists in the UI
+                    still_invalid.append(base_fighter)
+                    self.logger.info(f"RESORT: ✗ {fighter_name} remains invalid ({reason})")
+
+            # Keep the bracket even if empty so it persists in the UI
             brackets[quarantine_key]['fighters'] = still_invalid
-            
+            moved = len(quarantine_fighters) - len(still_invalid)
             if still_invalid:
-                self.logger.info(f"Re-sorted from {quarantine_key}: {len(quarantine_fighters) - len(still_invalid)} now valid, {len(still_invalid)} remain invalid")
+                self.logger.info(f"Re-sorted from {quarantine_key}: {moved} now valid/migrated, {len(still_invalid)} remain")
             else:
-                self.logger.info(f"Re-sorted all {len(quarantine_fighters)} from {quarantine_key} - now valid (bracket now empty but preserved)")
-        
-        # Re-generate brackets with valid participants
-        if valid_from_quarantine:
-            # Save current brackets (excluding QUARANTINE_*)
-            temp_brackets = {k: v for k, v in brackets.items() if not k.startswith('QUARANTINE_')}
-            # Also save the quarantine brackets we want to preserve
-            quarantine_brackets_to_preserve = {k: v for k, v in brackets.items() if k.startswith('QUARANTINE_')}
-            
-            # Generate brackets for the newly valid fighters
-            new_brackets = export_all_brackets(valid_from_quarantine)
-            
-            # Start brackets with the existing ones
-            brackets.clear()
-            brackets.update(temp_brackets)
-            
-            # Merge the newly valid fighters into the brackets
-            for key, new_bracket_data in new_brackets.items():
-                if key in brackets:
-                    # Bracket already exists, append the new fighters
-                    brackets[key]['fighters'].extend(new_bracket_data.get('fighters', []))
-                    # Reset the fight tree (bracket) so it gets regenerated later if needed
-                    brackets[key]['bracket'] = []
-                    self.logger.debug(f"RESORT: Merged {len(new_bracket_data.get('fighters', []))} fighter(s) into existing bracket {key}")
-                else:
-                    # New bracket, add it entirely
-                    brackets[key] = new_bracket_data
-                    self.logger.debug(f"RESORT: Created new bracket {key} with {len(new_bracket_data.get('fighters', []))} fighter(s)")
-            
-            # IMPORTANT: Restore the quarantine brackets after merge
-            # This ensures quarantine brackets stay in the dict for the UI to display
-            brackets.update(quarantine_brackets_to_preserve)
-            self.logger.debug(f"RESORT: Restored {len(quarantine_brackets_to_preserve)} quarantine bracket(s) to brackets dict")
-            
-            # Log where each fighter was placed
-            for fighter in valid_from_quarantine:
-                fighter_id = fighter.get('ID')
-                fighter_name = fighter.get('Name', f"Unknown ({fighter_id})")
-                
-                # Find which bracket contains this fighter
-                new_bracket_key = None
-                for bracket_key, bracket_data in brackets.items():
-                    if bracket_key.startswith('QUARANTINE_'):
-                        continue
-                    fighters = bracket_data.get('fighters', [])
-                    for f in fighters:
-                        if f.get('ID') == fighter_id:
-                            new_bracket_key = bracket_key
-                            break
-                    if new_bracket_key:
-                        break
-                
-                if new_bracket_key:
-                    self.logger.debug(f"RESORT: {fighter_name} → new bracket: {new_bracket_key}")
-                else:
-                    self.logger.warning(f"RESORT: {fighter_name} could not find assigned bracket after re-sort")
-        
-        # Update preserved quarantine brackets to match current state (including empty ones)
-        self.quarantine_brackets = {k: v for k, v in brackets.items() if k.startswith('QUARANTINE_')}
-        
-        # Refresh the group preview display with updated data
-        if group_preview_screen and group_preview_screen.winfo_exists():
-            # Preserve the currently selected bracket before reloading data
-            current_selection = None
-            if hasattr(group_preview_screen, 'current_bracket_key'):
-                current_selection = group_preview_screen.current_bracket_key
-            
-            # Force reload of the entire display with current brackets data
-            # This ensures updated participant counts are shown
-            group_preview_screen.load_data(brackets)
-            
-            # Restore the selection if it still exists
-            if current_selection and current_selection in brackets:
-                group_preview_screen._display_participants(current_selection)
-                self.logger.info(f"Group preview refreshed with updated data, selection restored to {current_selection}")
+                self.logger.info(f"Re-sorted all {len(quarantine_fighters)} from {quarantine_key} (bracket now empty but preserved)")
+
+        # Apply migrations after the main loop so we don't interfere with ongoing iteration
+        for fighter, new_reason in migrating:
+            new_key = f'QUARANTINE_{new_reason}'
+            if new_key not in brackets:
+                brackets[new_key] = {
+                    'fighters': [],
+                    'bracket': [],
+                    'pool_size': None,
+                    'is_quarantine': True,
+                    'rejection_reason': new_reason,
+                }
+            brackets[new_key]['fighters'].append(fighter)
+
+        return valid_fighters
+
+    def _evaluate_fighter_validity(self, fighter):
+        """Check if a single fighter passes all validity criteria.
+
+        Returns (is_valid: bool, reason: str | None).
+        Checks in order: payment → manual flag → age.
+        """
+        fighter_name = fighter.get('Name', f"Unknown ({fighter.get('ID', '?')})")
+        self.logger.debug(f"RESORT: Validating {fighter_name} (ID: {fighter.get('ID', '?')})")
+
+        if not fighter.get('Paid', False):
+            self.logger.debug("RESORT:   Paid: False → INVALID: unpaid")
+            return False, "unpaid"
+
+        if not fighter.get('Valid', True):
+            self.logger.debug("RESORT:   Manual Valid Flag: False → INVALID: marked_invalid")
+            return False, "marked_invalid"
+
+        birthyear = fighter.get('Birthyear') or fighter.get('Age')
+        age_group, calculated_age, age_is_valid, age_rejection_reason = validate_age_from_birthyear(birthyear)
+        self.logger.debug(
+            f"RESORT:   Age validation: birthyear={birthyear}, calculated_age={calculated_age}, "
+            f"valid={age_is_valid}, reason={age_rejection_reason}"
+        )
+        if not age_is_valid:
+            self.logger.debug(f"RESORT:   → INVALID: {age_rejection_reason}")
+            return False, age_rejection_reason
+
+        self.logger.debug(f"RESORT:   Age bounds OK, age group {age_group} - VALID")
+        return True, None
+
+    def _merge_valid_into_brackets(self, brackets, valid_fighters):
+        """Generate brackets for newly-valid fighters and merge into existing brackets.
+
+        Quarantine brackets are preserved throughout the operation.
+        """
+        temp_brackets = {k: v for k, v in brackets.items() if not k.startswith('QUARANTINE_')}
+        quarantine_to_preserve = {k: v for k, v in brackets.items() if k.startswith('QUARANTINE_')}
+
+        new_brackets = export_all_brackets(valid_fighters)
+
+        brackets.clear()
+        brackets.update(temp_brackets)
+
+        for key, new_data in new_brackets.items():
+            if key in brackets:
+                brackets[key]['fighters'].extend(new_data.get('fighters', []))
+                brackets[key]['bracket'] = []  # reset fight tree — regenerated on demand
+                self.logger.debug(f"RESORT: Merged {len(new_data.get('fighters', []))} fighter(s) into existing bracket {key}")
             else:
-                self.logger.info("Group preview refreshed with updated data after resort")
-        else:
-            self.logger.debug("RESORT: No group_preview_screen to refresh")
+                brackets[key] = new_data
+                self.logger.debug(f"RESORT: Created new bracket {key} with {len(new_data.get('fighters', []))} fighter(s)")
+
+        brackets.update(quarantine_to_preserve)
+        self.logger.debug(f"RESORT: Restored {len(quarantine_to_preserve)} quarantine bracket(s)")
+
+        # Log final placement of each re-sorted fighter
+        for fighter in valid_fighters:
+            fighter_id = fighter.get('ID')
+            fighter_name = fighter.get('Name', f"Unknown ({fighter_id})")
+            placed_in = next(
+                (bk for bk, bd in brackets.items()
+                 if not bk.startswith('QUARANTINE_')
+                 and any(f.get('ID') == fighter_id for f in bd.get('fighters', []))),
+                None
+            )
+            if placed_in:
+                self.logger.debug(f"RESORT: {fighter_name} → {placed_in}")
+            else:
+                self.logger.warning(f"RESORT: {fighter_name} could not find assigned bracket after re-sort")

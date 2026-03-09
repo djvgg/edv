@@ -107,7 +107,8 @@ class TournamentService:
         for selective deletion (e.g. delete fights for one bracket only).
         """
         # Children first → parents last (reverse FK order)
-        for table in ('fights', 'group_participants', 'brackets', 'groups', 'mats', 'participants'):
+        # brackets must come before group_participants: brackets.first/second/third_place are FKs → group_participants
+        for table in ('fights', 'brackets', 'group_participants', 'groups', 'mats', 'participants'):
             self.db.execute(text(f"DELETE FROM {table}"))
         # Reset all sequences so IDs start from 1 on next insert
         for seq in ('fights_id_seq', 'group_participants_id_seq', 'brackets_id_seq',

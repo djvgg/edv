@@ -15,10 +15,12 @@ import tkinter as tk
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+_edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if _edv_backend_path not in sys.path:
+    sys.path.insert(0, _edv_backend_path)
 
-from utils.logging import get_logger
-from ..styles import (
+from utils.logging import get_logger  # noqa: E402
+from ..styles import (  # noqa: E402
     COLORS, FONTS,
     apply_button_style,
     apply_label_style,
