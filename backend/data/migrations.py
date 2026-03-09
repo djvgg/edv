@@ -35,10 +35,11 @@ def apply_migrations(engine, logger) -> int:
         count += _m2_allow_null_group_columns(engine, logger, group_cols)
 
     if 'fights' in tables:
-        fight_col_names = {c['name'] for c in inspector.get_columns('fights')}
+        fight_col_names = {c['name']: c for c in inspector.get_columns('fights')}
         fight_constraints = {c['name'] for c in inspector.get_unique_constraints('fights')}
-        count += _m3_add_fight_metadata_columns(engine, logger, fight_col_names)
-        count += _m4_add_fight_position_unique(engine, logger, fight_col_names, fight_constraints)
+        count += _m3_add_fight_metadata_columns(engine, logger, set(fight_col_names.keys()))
+        count += _m4_add_fight_position_unique(engine, logger, set(fight_col_names.keys()), fight_constraints)
+        count += _m5_allow_null_participant_ids(engine, logger, fight_col_names)
 
     if count:
         logger.info(f"[MIGRATIONS] Applied {count} migration(s)")
@@ -152,4 +153,25 @@ def _m4_add_fight_position_unique(engine, logger,
             " UNIQUE (bracket_id, bracket_phase, round, pos_in_round)"
         ))
     logger.info("[MIGRATIONS] M4: ✓ UNIQUE constraint added")
+    return 1
+
+
+def _m5_allow_null_participant_ids(engine, logger, existing_cols: dict) -> int:
+    """M5 — Drop NOT NULL from fights.participant1_id and participant2_id.
+
+    Required to properly store Freilos (bye) matches where one side has no participant.
+    """
+    nullable_cols = ('participant1_id', 'participant2_id')
+    needs_fix = [
+        col for col in nullable_cols
+        if existing_cols.get(col, {}).get('nullable') is False
+    ]
+    if not needs_fix:
+        return 0
+
+    logger.info(f"[MIGRATIONS] M5: Dropping NOT NULL from {needs_fix} to support Freilos...")
+    for col in needs_fix:
+        with engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE fights ALTER COLUMN {col} DROP NOT NULL"))
+    logger.info("[MIGRATIONS] M5: ✓ Participant IDs updated to allow NULL")
     return 1
