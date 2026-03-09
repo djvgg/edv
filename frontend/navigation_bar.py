@@ -58,7 +58,7 @@ class NavigationBar(tk.Frame):
             text='<',
             width=2,
             height=1,
-            bg=COLORS['bg_medium'],
+            bg=COLORS['bg_darker'],
             fg=COLORS['text_primary'],
             font=FONTS['body_sm'],
             relief=tk.FLAT,
@@ -76,7 +76,7 @@ class NavigationBar(tk.Frame):
             text='>',
             width=2,
             height=1,
-            bg=COLORS['bg_medium'],
+            bg=COLORS['bg_darker'],
             fg=COLORS['text_primary'],
             font=FONTS['body_sm'],
             relief=tk.FLAT,
@@ -155,11 +155,11 @@ class NavigationBar(tk.Frame):
             fg_color = COLORS['text_primary']
             relief = tk.SUNKEN
         elif is_locked:
-            bg_color = COLORS['bg_medium']
+            bg_color = COLORS['bg_darker']
             fg_color = COLORS['text_secondary']
             relief = tk.FLAT
         else:
-            bg_color = COLORS['bg_medium']
+            bg_color = COLORS['bg_panel']
             fg_color = COLORS['text_primary']
             relief = tk.RAISED
         
