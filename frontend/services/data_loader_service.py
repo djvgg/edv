@@ -195,6 +195,8 @@ class DataLoaderService:
             if self.ui_feedback:
                 self.ui_feedback.update_progress(40)
             if self.db_service:
+                self.logger.info("Flushing old data before loading new XLSX...")
+                self.db_service.clear_all_data()
                 self.db_service.save_participants(participants)
                 self.db_service.initialize_all_groups()
 
@@ -476,6 +478,8 @@ class DataLoaderService:
                 return
 
             if self.db_service:
+                self.logger.info("Flushing old data before loading new JSONs...")
+                self.db_service.clear_all_data()
                 self.db_service.save_participants(all_participants)
                 self.db_service.initialize_all_groups()
 

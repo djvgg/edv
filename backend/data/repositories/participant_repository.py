@@ -48,12 +48,24 @@ class ParticipantRepository:
         result = []
         for p in rows:
             age = _calculate_age(p.birth_date) if p.birth_date else None
+            # Need strict mapping back to frontend model here
+            is_valid = p.valid if p.valid is not None else True
+            is_paid = p.paid if p.paid is not None else True
+            gender_mapped = 'male' if p.gender == 'm' else ('female' if p.gender == 'w' else p.gender)
             result.append({
+                'ID': p.id,
+                'Firstname': p.first_name,
+                'Lastname': p.last_name,
                 'Name':    f"{p.first_name} {p.last_name}".strip(),
-                'Gender':  p.gender.upper() if p.gender else '',
+                'Birthyear': p.birth_date.year if p.birth_date else None,
                 'Age':     age,
-                'Weight':  float(p.weight) if p.weight else None,
+                'Club': p.club or '',
                 'Verein':  p.club or '',
+                'Association': p.association or '',
+                'Weight':  float(p.weight) if p.weight else None,
+                'Valid': is_valid,
+                'Paid': is_paid,
+                'Gender': gender_mapped
             })
         return result
 

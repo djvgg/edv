@@ -3,7 +3,6 @@
 
 """KO bracket mixin for FightMonitoringScreen."""
 
-import tkinter as tk
 from ..styles import COLORS, FONTS
 from ..utils import (
     compute_bracket_rounds,
@@ -12,11 +11,12 @@ from ..utils import (
     calculate_loser_positions,
     draw_loser_connectors,
 )
-import os, sys
+import os
+import sys
 _edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
-from utils.logging import get_logger
+from utils.logging import get_logger  # noqa: E402
 logger = get_logger('fight_monitoring')
 
 

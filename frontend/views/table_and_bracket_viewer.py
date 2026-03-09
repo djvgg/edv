@@ -7,7 +7,7 @@ import os
 import sys
 
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import ttk
 
 _edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if _edv_backend_path not in sys.path:
@@ -17,7 +17,6 @@ from utils.logging import get_logger  # noqa: E402
 
 from ..styles import (  # noqa: E402
     COLORS,
-    FONTS,
     apply_button_style,
     apply_entry_style,
     apply_label_style,
@@ -28,8 +27,8 @@ from ..styles import (  # noqa: E402
 
 from ..utils.search_utils import filter_items  # noqa: E402
 
-from ._table_bracket_assignment import _AssignmentMixin
-from ._table_bracket_renderer import _RendererMixin
+from ._table_bracket_assignment import _AssignmentMixin  # noqa: E402
+from ._table_bracket_renderer import _RendererMixin  # noqa: E402
 
 
 class TableAndBracketViewer(_AssignmentMixin, _RendererMixin, tk.Frame):

@@ -17,8 +17,8 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 # Import models so Alembic's autogenerate can detect schema changes.
-import backend.data.models  # noqa: F401
-from backend.data.database import Base, DATABASE_URL
+import backend.data.models  # noqa: F401, E402
+from backend.data.database import Base, DATABASE_URL  # noqa: E402
 
 # ── Alembic Config ─────────────────────────────────────────────────────────────
 config = context.config

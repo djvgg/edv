@@ -7,7 +7,6 @@ from tkinter import messagebox, ttk
 from ..styles import (
     COLORS, FONTS,
     apply_button_style,
-    apply_table_panel_style,
     create_dark_frame,
 )
 

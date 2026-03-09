@@ -29,8 +29,8 @@ if _edv_backend_path not in sys.path:
 from utils.logging import get_logger  # noqa: E402
 logger = get_logger('fight_monitoring')
 
-from ._fight_monitoring_ko import _KOMixin
-from ._fight_monitoring_pool import _PoolMixin
+from ._fight_monitoring_ko import _KOMixin  # noqa: E402
+from ._fight_monitoring_pool import _PoolMixin  # noqa: E402
 
 
 class FightMonitoringScreen(_KOMixin, _PoolMixin, tk.Frame):
