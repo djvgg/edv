@@ -27,8 +27,8 @@ from ..styles import (  # noqa: E402
 
 from ..utils.search_utils import filter_items  # noqa: E402
 
-from ._table_bracket_assignment import _AssignmentMixin
-from ._table_bracket_renderer import _RendererMixin
+from ._table_bracket_assignment import _AssignmentMixin  # noqa: E402
+from ._table_bracket_renderer import _RendererMixin  # noqa: E402
 
 
 class TableAndBracketViewer(_AssignmentMixin, _RendererMixin, tk.Frame):
