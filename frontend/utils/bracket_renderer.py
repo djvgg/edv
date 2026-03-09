@@ -12,7 +12,7 @@ _edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'
 if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
 
-from utils.logging import get_logger
+from utils.logging import get_logger  # noqa: E402
 
 logger = get_logger('bracket_renderer')
 

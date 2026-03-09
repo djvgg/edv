@@ -612,9 +612,14 @@ class FightMonitoringScreen(tk.Frame):
 
         # Layout constants (all scaled by zoom)
         z = self.zoom_level
-        BW = int(200 * z); BH = int(64 * z); XG = int(70 * z); YG = int(28 * z)
-        SX = int(50 * z);  SY = int(50 * z)
-        FS = max(7, int(10 * z)); LW = max(1, int(2 * z))
+        BW = int(200 * z)
+        BH = int(64 * z)
+        XG = int(70 * z)
+        YG = int(28 * z)
+        SX = int(50 * z)
+        SY = int(50 * z)
+        FS = max(7, int(10 * z))
+        LW = max(1, int(2 * z))
         font = ('Consolas', FS)
         label_font = ('Arial', max(8, int(11 * z)), 'bold')
 
@@ -624,10 +629,14 @@ class FightMonitoringScreen(tk.Frame):
         nr = len(rounds)
         for r in range(nr):
             lx = SX + r * (BW + XG) + BW // 2
-            if r == 0:                    label = 'Round 1'
-            elif r == nr - 1:             label = 'Final'
-            elif r == nr - 2 and nr > 2:  label = 'Semi-Final'
-            else:                         label = f'Round {r + 1}'
+            if r == 0:
+                label = 'Round 1'
+            elif r == nr - 1:
+                label = 'Final'
+            elif r == nr - 2 and nr > 2:
+                label = 'Semi-Final'
+            else:
+                label = f'Round {r + 1}'
             self._canvas.create_text(lx, SY // 2, text=label, anchor='c',
                                      fill=COLORS['text_secondary'], font=label_font)
 

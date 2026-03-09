@@ -11,7 +11,7 @@ Shows bracket groups (weight categories) with participant details:
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
 import sys
 import os
 
@@ -19,9 +19,9 @@ _edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'
 if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
 
-from utils.logging import get_logger
-from backend.data.repositories.config_repository import ConfigRepository
-from ..styles import (
+from utils.logging import get_logger  # noqa: E402
+from backend.data.repositories.config_repository import ConfigRepository  # noqa: E402
+from ..styles import (  # noqa: E402
     COLORS, FONTS,
     SCROLLBAR_STYLE, SCROLLBAR_ACTIVE_STYLE,
     apply_button_style,
@@ -30,9 +30,9 @@ from ..styles import (
     apply_listbox_style,
     create_dark_frame,
 )
-from ..search_utils import filter_items
-from .edit_participant_dialog import Edit_Participants
-from .friendly_match_dialog import FriendlyMatchDialog
+from ..search_utils import filter_items  # noqa: E402
+from .edit_participant_dialog import Edit_Participants  # noqa: E402
+from .friendly_match_dialog import FriendlyMatchDialog  # noqa: E402
 
 # Debug flag - set to True for verbose logging
 DEBUG = True

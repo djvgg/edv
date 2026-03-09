@@ -18,9 +18,9 @@ _edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'
 if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
 
-from utils.logging import get_logger
-from backend.data.repositories.config_repository import ConfigRepository
-from ..styles import (
+from utils.logging import get_logger  # noqa: E402
+from backend.data.repositories.config_repository import ConfigRepository  # noqa: E402
+from ..styles import (  # noqa: E402
     COLORS, FONTS,
     apply_button_style,
     apply_entry_style,
@@ -28,7 +28,7 @@ from ..styles import (
     apply_listbox_style,
     create_dark_frame,
 )
-from ..search_utils import filter_items
+from ..search_utils import filter_items  # noqa: E402
 
 # ===== DEBUG CONFIGURATION =====
 # Set to True to print debug logs to console; False to only log to file

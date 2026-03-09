@@ -17,7 +17,7 @@ from utils.logging import get_logger  # noqa: E402
 from backend.services.bracket_service import get_age_group as get_age_group_with_fallback  # noqa: E402
 from backend.services.bracket_service import validate_age_from_birthyear  # noqa: E402
 
-from ..styles import COLORS, FONTS
+from ..styles import COLORS, FONTS  # noqa: E402
 
 # ===== DEBUG CONFIGURATION =====
 DEBUG = True
@@ -348,15 +348,19 @@ class Edit_Participants(tk.Toplevel):
         w = widget
         while w and w != self:
             try:
-                if w.cget('cursor') == 'hand2': return
-            except (tk.TclError, AttributeError): pass
+                if w.cget('cursor') == 'hand2':
+                    return
+            except (tk.TclError, AttributeError):
+                pass
             try:
                 w = w.master
-            except AttributeError: break
+            except AttributeError:
+                break
         self.focus_set()
 
     def _on_weight_changed(self, e=None, show_popup=True):
-        if self.weight_popup_timer[0]: self.after_cancel(self.weight_popup_timer[0])
+        if self.weight_popup_timer[0]:
+            self.after_cancel(self.weight_popup_timer[0])
         self.weight_popup.place_forget()
             
         weight_str_input = self.weight_entry.get().strip().replace(',', '.')
@@ -372,8 +376,10 @@ class Edit_Participants(tk.Toplevel):
                             birth_year_int = int(birth_year_str)
                             calculated_age = datetime.datetime.now().year - birth_year_int
                             fallback_ag = get_age_group_with_fallback(calculated_age)
-                            if fallback_ag: effective_age_group = fallback_ag
-                        except Exception: pass
+                            if fallback_ag:
+                                effective_age_group = fallback_ag
+                        except Exception:
+                            pass
                     
                     detected = self.parent.config_repo.get_weight_class(weight_val - self._group_tolerance, self.gender, effective_age_group)
                     if detected and detected != 'unknown':
@@ -389,15 +395,18 @@ class Edit_Participants(tk.Toplevel):
                             detected_natural_key = self._get_weight_key(detected)
                             allowed_weight_classes = [detected]
                             heavier = [wc for wc in effective_weight_classes if self._get_weight_key(wc) > detected_natural_key]
-                            if heavier: allowed_weight_classes.append(heavier[0])
+                            if heavier:
+                                allowed_weight_classes.append(heavier[0])
                             allowed_weight_classes.sort(key=self._get_weight_key)
                             self.options_to_show.clear()
                             self.options_to_show.extend(allowed_weight_classes)
                             self.weight_class_var.set(detected)
-            except Exception: pass
+            except Exception:
+                pass
 
     def _on_birth_year_changed(self, e=None, show_popup=True):
-        if self.age_popup_timer[0]: self.after_cancel(self.age_popup_timer[0])
+        if self.age_popup_timer[0]:
+            self.after_cancel(self.age_popup_timer[0])
         self.age_popup.place_forget()
         
         birth_year_str = self.birth_year_entry.get().strip()
@@ -418,7 +427,8 @@ class Edit_Participants(tk.Toplevel):
                         if self.is_adult_category:
                             if auto_age_group == '18+':
                                 self.dropdown_enabled[0] = True
-                                if self.dropdown_info_label: self.dropdown_info_label.pack_forget()
+                                if self.dropdown_info_label:
+                                    self.dropdown_info_label.pack_forget()
                                 self.dropdown_btn.config(cursor='hand2')
                                 self.text_label.config(fg=COLORS['text_primary'])
                                 self.arrow_label.config(fg=COLORS['accent_blue'])
@@ -443,34 +453,41 @@ class Edit_Participants(tk.Toplevel):
                                     self.dropdown_info_label.pack(anchor=tk.W, pady=(4, 0))
                             else:
                                 self.dropdown_enabled[0] = True
-                                if self.dropdown_info_label: self.dropdown_info_label.pack_forget()
+                                if self.dropdown_info_label:
+                                    self.dropdown_info_label.pack_forget()
                                 self.dropdown_btn.config(cursor='hand2')
                                 self.text_label.config(fg=COLORS['text_primary'])
                                 self.arrow_label.config(fg=COLORS['accent_blue'])
                     
                     self._on_weight_changed(show_popup=False)
-            except Exception: pass
+            except Exception:
+                pass
 
     # --- Dropdown Logic ---
     
     def _handle_dropdown_click(self, e):
-        if not self.dropdown_enabled[0]: return
+        if not self.dropdown_enabled[0]:
+            return
         self._on_dropdown_leave(None)
         self._show_dropdown_menu()
 
     def _on_dropdown_enter(self, e):
-        if not self.dropdown_enabled[0]: return
+        if not self.dropdown_enabled[0]:
+            return
         p = self.popup_ref[0]
-        if p and p.winfo_exists() and p.winfo_viewable(): return
+        if p and p.winfo_exists() and p.winfo_viewable():
+            return
         self.dropdown_border.config(bg=COLORS['accent_blue'])
         self.dropdown_btn.config(bg=COLORS['bg_panel'])
         self.text_label.config(bg=COLORS['bg_panel'])
         self.arrow_label.config(bg=COLORS['bg_panel'])
         
     def _on_dropdown_leave(self, e):
-        if e and e.widget != self.dropdown_btn and e.widget.winfo_containing(e.x_root, e.y_root) in (self.dropdown_btn, self.text_label, self.arrow_label): return
+        if e and e.widget != self.dropdown_btn and e.widget.winfo_containing(e.x_root, e.y_root) in (self.dropdown_btn, self.text_label, self.arrow_label):
+            return
         p = self.popup_ref[0]
-        if p and p.winfo_exists() and p.winfo_viewable(): return
+        if p and p.winfo_exists() and p.winfo_viewable():
+            return
         self.dropdown_border.config(bg=COLORS['border'])
         self.dropdown_btn.config(bg=COLORS['bg_input'])
         self.text_label.config(bg=COLORS['bg_input'])
@@ -487,13 +504,15 @@ class Edit_Participants(tk.Toplevel):
         list_frame.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
         
         scrollbar = tk.Scrollbar(list_frame, width=10) if len(self.options_to_show) > 8 else None
-        if scrollbar: scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        if scrollbar:
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         lb = tk.Listbox(list_frame, bg=COLORS['bg_input'], fg=COLORS['text_primary'], font=FONTS['preview_text'], 
                         bd=0, highlightthickness=0, selectbackground=COLORS['accent_blue'], selectforeground=COLORS['text_primary'], 
                         activestyle='none', yscrollcommand=scrollbar.set if scrollbar else None, cursor='hand2')
         lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        if scrollbar: scrollbar.config(command=lb.yview)
+        if scrollbar:
+            scrollbar.config(command=lb.yview)
         
         for opt in self.options_to_show:
             lb.insert(tk.END, f"  {opt}")
@@ -547,29 +566,42 @@ class Edit_Participants(tk.Toplevel):
     # --- Validation ---
     
     def _validate_name(self, action, value_if_allowed):
-        if action == '0': return True
-        if not NAME_PATTERN.match(value_if_allowed): return False
-        if '--' in value_if_allowed or value_if_allowed.startswith('-'): return False
+        if action == '0':
+            return True
+        if not NAME_PATTERN.match(value_if_allowed):
+            return False
+        if '--' in value_if_allowed or value_if_allowed.startswith('-'):
+            return False
         return True
 
     def _validate_weight(self, action, value_if_allowed):
-        if action == '0': return True
-        if len(value_if_allowed) > MAX_WEIGHT_LENGTH: return False
+        if action == '0':
+            return True
+        if len(value_if_allowed) > MAX_WEIGHT_LENGTH:
+            return False
         normalized = value_if_allowed.replace(',', '.')
-        if normalized.count('.') > 1: return False
+        if normalized.count('.') > 1:
+            return False
         parts = normalized.split('.')
-        if len(parts[0]) > 3: return False
-        if not all(c.isdigit() for c in parts[0] if c != ''): return False
+        if len(parts[0]) > 3:
+            return False
+        if not all(c.isdigit() for c in parts[0] if c != ''):
+            return False
         if len(parts) == 2:
-            if len(parts[1]) > 4: return False
-            if parts[1] and not parts[1].isdigit(): return False
+            if len(parts[1]) > 4:
+                return False
+            if parts[1] and not parts[1].isdigit():
+                return False
         for c in value_if_allowed:
-            if c not in '0123456789.,': return False
+            if c not in '0123456789.,':
+                return False
         return True
 
     def _validate_birthyear(self, action, value_if_allowed):
-        if action == '0': return True
-        if len(value_if_allowed) > MAX_BIRTHYEAR_LENGTH: return False
+        if action == '0':
+            return True
+        if len(value_if_allowed) > MAX_BIRTHYEAR_LENGTH:
+            return False
         return value_if_allowed.isdigit()
 
     def _create_field(self, parent_frame, label_text, entry_var=None, is_readonly=False, validation_command=None, hint_text=None):
@@ -585,7 +617,8 @@ class Edit_Participants(tk.Toplevel):
         _flash_timer_id = [None]
         def _on_invalid():
             border_frame.config(bg=COLORS['accent_red'])
-            if _flash_timer_id[0]: self.after_cancel(_flash_timer_id[0])
+            if _flash_timer_id[0]:
+                self.after_cancel(_flash_timer_id[0])
             _flash_timer_id[0] = self.after(350, lambda: border_frame.config(bg=COLORS['accent_blue'] if entry == self.focus_get() else COLORS['border']))
 
         invalid_input_command = (self.register(lambda: _on_invalid() or False),)
@@ -607,23 +640,27 @@ class Edit_Participants(tk.Toplevel):
             tk.Label(field_frame, text=hint_text, bg=COLORS['bg_dark'], fg=COLORS['text_muted'], 
                      font=FONTS['preview_hint']).pack(anchor=tk.W, pady=(3, 0))
 
-        if not hasattr(self, '_all_borders'): self._all_borders = []
+        if not hasattr(self, '_all_borders'):
+            self._all_borders = []
         self._all_borders.append(border_frame)
 
         def on_focus_in(e, b=border_frame):
             if not is_readonly:
-                for ob in getattr(self, '_all_borders', []): ob.config(bg=COLORS['border'])
+                for ob in getattr(self, '_all_borders', []):
+                    ob.config(bg=COLORS['border'])
                 b.config(bg=COLORS['accent_blue'])
 
         def on_focus_out(e, b=border_frame):
-            if not is_readonly: b.config(bg=COLORS['border'])
+            if not is_readonly:
+                b.config(bg=COLORS['border'])
         
         entry.bind("<FocusIn>", on_focus_in)
         entry.bind("<FocusOut>", on_focus_out)
         return entry
 
     def _insert_value(self, entry, value):
-        if value: entry.insert(0, value)
+        if value:
+            entry.insert(0, value)
 
     # --- Save orchestration ---
 
@@ -889,14 +926,18 @@ class Edit_Participants(tk.Toplevel):
         try:
             current_idx = AGE_CLASS_ORDER.index(current_age_group)
             return AGE_CLASS_ORDER[current_idx + 1:]
-        except ValueError: return []
+        except ValueError:
+            return []
 
     @staticmethod
     def _get_weight_key(weight_class_str):
-        if weight_class_str == 'no-class': return (0, 0)
+        if weight_class_str == 'no-class':
+            return (0, 0)
         num_str = weight_class_str.replace('kg', '').replace('-', '').replace('+', '')
-        try: num = float(num_str)
-        except ValueError: return (999, 0)
+        try:
+            num = float(num_str)
+        except ValueError:
+            return (999, 0)
         return (num, 1 if weight_class_str.startswith('+') else 0)
 
     def _get_available_weight_classes(self, gender, age_group):
@@ -905,17 +946,22 @@ class Edit_Participants(tk.Toplevel):
         if self.parent.config_repo:
             try:
                 gender_norm = str(gender).lower().strip()
-                if gender_norm in ('m', 'male', 'maennlich', 'männlich'): gender_norm = 'm'
-                elif gender_norm in ('w', 'f', 'female', 'weiblich', 'frau'): gender_norm = 'w'
+                if gender_norm in ('m', 'male', 'maennlich', 'männlich'):
+                    gender_norm = 'm'
+                elif gender_norm in ('w', 'f', 'female', 'weiblich', 'frau'):
+                    gender_norm = 'w'
                 df = self.parent.config_repo.weight_classes
                 filtered = df[(df['Gender'] == gender_norm) & (df['AgeGroup'] == age_group)]
                 available_classes = filtered['Label'].tolist()
-            except Exception: pass
+            except Exception:
+                pass
         if not available_classes:
             used_fallback = True
             for bracket_key in self.parent.brackets.keys():
                 parts = [p.strip() for p in bracket_key.split('|')]
                 if len(parts) >= 3 and parts[0] == gender and parts[1] == age_group:
-                    if parts[2] not in available_classes: available_classes.append(parts[2])
-        if used_fallback: available_classes.sort(key=self._get_weight_key)
+                    if parts[2] not in available_classes:
+                        available_classes.append(parts[2])
+        if used_fallback:
+            available_classes.sort(key=self._get_weight_key)
         return available_classes
