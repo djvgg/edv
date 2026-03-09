@@ -195,6 +195,8 @@ class DataLoaderService:
                 self.ui_feedback.update_progress(40)
             if self.db_service:
                 self.db_service.save_participants(participants)
+                # Single Source of Truth: Fetch back from DB to eliminate any duplicates that were skipped
+                participants = self.db_service.fetch_participants() or participants
                 self.db_service.initialize_all_groups()
 
             # Filter out unpaid participants
@@ -477,6 +479,8 @@ class DataLoaderService:
 
             if self.db_service:
                 self.db_service.save_participants(all_participants)
+                # Single Source of Truth: Fetch back from DB to eliminate any duplicates that were skipped
+                all_participants = self.db_service.fetch_participants() or all_participants
                 self.db_service.initialize_all_groups()
 
             if self.ui_feedback:

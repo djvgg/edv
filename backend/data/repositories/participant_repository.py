@@ -49,11 +49,19 @@ class ParticipantRepository:
         for p in rows:
             age = _calculate_age(p.birth_date) if p.birth_date else None
             result.append({
-                'Name':    f"{p.first_name} {p.last_name}".strip(),
-                'Gender':  p.gender.upper() if p.gender else '',
-                'Age':     age,
-                'Weight':  float(p.weight) if p.weight else None,
-                'Verein':  p.club or '',
+                'ID':          p.id,
+                'Firstname':   p.first_name,
+                'Lastname':    p.last_name,
+                'Name':        f"{p.first_name} {p.last_name}".strip(),
+                'Gender':      'male' if p.gender == 'm' else 'female' if p.gender == 'w' else '',
+                'Age':         age,
+                'Birthyear':   p.birth_date.year if p.birth_date else None,
+                'Club':        p.club or '',
+                'Association': p.association or '',
+                'Weight':      float(p.weight) if p.weight else 0.0,
+                'Paid':        p.paid,
+                'Doublestart': p.doublestart or 'nein',
+                'Valid':       p.valid,
             })
         return result
 
