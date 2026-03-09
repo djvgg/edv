@@ -143,6 +143,10 @@ class DatabaseService:
         self.logger.info(f"[FLUSH] {'OK' if result else 'FAILED'}")
         return result is True
 
+    def clear_all_data(self) -> bool:
+        """Wipe all tournament data (used before importing new data to ensure a clean slate)."""
+        return self.flush_database()
+
     def fetch_participants(self) -> Optional[list]:
         """
         Fetch all participants from database.
