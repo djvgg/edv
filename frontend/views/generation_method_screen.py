@@ -20,6 +20,7 @@ if _edv_backend_path not in sys.path:
 
 from utils.logging import get_logger  # noqa: E402
 from backend.data.repositories.config_repository import ConfigRepository  # noqa: E402
+from ..utils.search_utils import filter_items  # noqa: E402
 from ..styles import (  # noqa: E402
     COLORS, FONTS,
     apply_button_style,
@@ -28,8 +29,6 @@ from ..styles import (  # noqa: E402
     apply_listbox_style,
     create_dark_frame,
 )
-from ..utils.search_utils import filter_items
-
 # ===== DEBUG CONFIGURATION =====
 # Set to True to print debug logs to console; False to only log to file
 DEBUG = True

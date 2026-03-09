@@ -30,7 +30,7 @@ from ..styles import (  # noqa: E402
     apply_listbox_style,
     create_dark_frame,
 )
-from ..search_utils import filter_items  # noqa: E402
+from ..utils.search_utils import filter_items  # noqa: E402
 from .edit_participant_dialog import Edit_Participants  # noqa: E402
 from .friendly_match_dialog import FriendlyMatchDialog  # noqa: E402
 

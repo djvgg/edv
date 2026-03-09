@@ -12,7 +12,6 @@ Extracted from main_window.py:
 
 import json
 import os
-import threading
 from tkinter import filedialog
 
 from utils.logging import get_logger
