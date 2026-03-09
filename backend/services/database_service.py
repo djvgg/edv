@@ -29,9 +29,6 @@ from .bracket_reconstruction_service import BracketReconstructionService  # noqa
 
 logger = get_logger('database_service')
 
-# Track database availability (set to False if connection fails)
-DB_AVAILABLE = True
-
 
 class DatabaseService:
     """
@@ -47,10 +44,10 @@ class DatabaseService:
 
     def __init__(self):
         """Initialize database service and schema."""
-        global DB_AVAILABLE
         self.logger = logger
         self._initialized = False
-        
+        self._db_available = True
+
         try:
             self.logger.info("Initializing database schema...")
             _init_db()
@@ -59,18 +56,18 @@ class DatabaseService:
         except Exception as e:
             error_msg = str(e).lower()
             if 'connection refused' in error_msg or 'could not connect' in error_msg:
-                DB_AVAILABLE = False
+                self._db_available = False
                 self.logger.warning(f"Database unavailable at startup: {e}")
             else:
                 self.logger.error(f"Failed to initialize database: {e}")
-                DB_AVAILABLE = False
+                self._db_available = False
         
         # Initialize bracket reconstruction service
         self.bracket_reconstruction = BracketReconstructionService(self)
 
     def is_available(self) -> bool:
         """Check if database is available."""
-        return DB_AVAILABLE
+        return self._db_available
 
     def _execute_with_session(self, fn: Callable[[TournamentService], Any]) -> Optional[Any]:
         """
@@ -87,12 +84,10 @@ class DatabaseService:
         - Connection errors
         - Transaction rollback on failure
         """
-        global DB_AVAILABLE
-        
-        if not DB_AVAILABLE:
+        if not self._db_available:
             self.logger.debug("Database unavailable, skipping operation")
             return None
-        
+
         db = None
         try:
             db = SessionLocal()
@@ -102,7 +97,7 @@ class DatabaseService:
         except Exception as e:
             error_msg = str(e).lower()
             if 'connection refused' in error_msg or 'could not connect' in error_msg:
-                DB_AVAILABLE = False
+                self._db_available = False
                 self.logger.error(f"Database connection lost, disabling DB operations: {e}")
             else:
                 # Other errors - log but don't disable DB
@@ -469,18 +464,16 @@ class DatabaseService:
         Returns:
             True if successful, False otherwise
         """
-        global DB_AVAILABLE
-        
         try:
             self.logger.warning("Reinitializing database schema (all data will be lost)")
             Base.metadata.drop_all(engine)
             _init_db()
-            DB_AVAILABLE = True
+            self._db_available = True
             self.logger.info("Database schema reinitialized successfully")
             return True
         except Exception as e:
             self.logger.error(f"Failed to reinitialize schema: {e}")
-            DB_AVAILABLE = False
+            self._db_available = False
             return False
 
 

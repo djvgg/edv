@@ -19,17 +19,14 @@ _edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'
 if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
 
-from utils.logging import get_logger  # noqa: E402
+from utils.logging import get_logger, DEBUG_VERBOSE  # noqa: E402
 from ..styles import (  # noqa: E402
     COLORS, FONTS,
     apply_button_style,
     apply_label_style,
 )
 
-# Debug flag - set to True for verbose logging
-DEBUG = True
-
-logger = get_logger('file_loader_screen', debug_verbose=DEBUG)
+logger = get_logger('file_loader_screen', debug_verbose=DEBUG_VERBOSE)
 
 
 class FileLoaderScreen(tk.Frame):
@@ -43,8 +40,7 @@ class FileLoaderScreen(tk.Frame):
     - Gender split utility (XLSX → JSON)
     """
 
-    # Debug flag - set to True for verbose logging
-    DEBUG = DEBUG
+    DEBUG = DEBUG_VERBOSE
 
     def __init__(self, parent, **kwargs):
         super().__init__(parent, **kwargs)

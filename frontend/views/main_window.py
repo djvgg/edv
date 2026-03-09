@@ -11,10 +11,11 @@ import threading
 import tkinter as tk
 from tkinter import messagebox, filedialog, ttk
 
-# Setup sys.path for backend imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+_edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if _edv_backend_path not in sys.path:
+    sys.path.insert(0, _edv_backend_path)
 
-from utils.logging import get_logger  # noqa: E402
+from utils.logging import get_logger, DEBUG_VERBOSE  # noqa: E402
 from backend.services.bracket_service import (  # noqa: E402
     make_bracket,
     set_bracket_config,
@@ -23,6 +24,7 @@ from backend.services.database_service import get_database_service  # noqa: E402
 
 from utils.task_runner import TaskRunner  # noqa: E402
 from ..services.bracket_manager import regenerate_stale_ko_brackets  # noqa: E402
+from ..state import TournamentState  # noqa: E402
 
 from ..styles import (  # noqa: E402
     COLORS,
@@ -44,54 +46,25 @@ from ..services.ui_feedback_service import UIFeedbackService  # noqa: E402
 from ..services.data_loader_service import DataLoaderService  # noqa: E402
 
 # ====================================================================
-# !!!!! CLAUDE: REFACTORING INSTRUCTIONS !!!!!
+# BracketViewerApp — architecture notes
 # ====================================================================
-# This file is a GOD CLASS with 44 methods doing 9 different jobs.
-# REFACTOR BY EXTRACTING SERVICES - DO NOT hack around in main_window.
+# This class is the application root (tk.Tk). It owns:
+#   - self.state         : TournamentState — all bracket/fight data
+#   - self.db_service    : DatabaseService — all DB operations
+#   - self.task_runner   : TaskRunner      — background threads
+#   - self.data_loader   : DataLoaderService — XLSX/JSON/DB loading
+#   - self.quarantine_service : QuarantineService
+#   - self.ui_feedback   : UIFeedbackService
 #
-# Available Infrastructure:
+# Navigation flow:
+#   FileLoaderScreen → GroupPreviewScreen → GenerationMethodScreen
+#     → TableAndBracketViewer → FightMonitoringScreen
 #
-# 1. DATABASE ACCESS (use instead of SessionLocal):
-#    - self.db_service = get_database_service()
-#    - Methods: save_participants(), save_groups_and_brackets(),
-#              assign_bracket_to_table(), create_fights_for_bracket()
-#    - NEVER call TournamentService or import SessionLocal directly
-#
-# 2. BACKGROUND THREADING (use instead of manual Thread spawning):
-#    - self.task_runner = TaskRunner(num_workers=2)
-#    - Submit tasks: self.task_runner.submit_task(
-#        task_id='load_xlsx',
-#        fn=lambda on_progress: self._perform_load(..., on_progress),
-#        on_progress=self.update_progress,
-#        on_complete=self.after(500, self.show_next_screen),
-#        on_error=self.show_error_dialog
-#      )
-#    - This enables: parallel DB init + file load, fine-grained progress,
-#      task cancellation, centralized error handling
-#
-# REFACTORING TARGETS (in priority order):
-# 1. DataLoaderService    - Extracts: load_and_generate, load_from_database,
-#                          load_json_and_generate, split_gender_to_json,
-#                          _load_*_thread (all variants), filter_*,
-#                          _create_quarantine_bracket (300+ lines)
-# 2. BracketManagerService - assign_to_table, unassign_bracket,
-#                           auto_assign_tables, resort_brackets,
-#                           update_bracket_list, update_table_panels,
-#                           calculate_number_of_fights (150+ lines)
-# 3. BracketRendererService - render_bracket, _render_pool, zoom_*,
-#                            update_zoom_label, _on_mousewheel (200+ lines)
-# 4. UIFeedbackService - show_loading_progress, update_progress,
-#                       hide_loading_progress, set_status, set_info_text (100+ lines)
-# 5. ScreenManagerService - show_* methods (just delegates to new screens)
-#
-# DO NOT add more logic to main_window. Wire services to callbacks instead.
+# Rules:
+#   - NEVER import SessionLocal or call TournamentService directly here.
+#   - NEVER add rendering logic here — use the viewer/monitoring screens.
+#   - New features → add a service, wire via callbacks, not inline methods.
 # ====================================================================
-
-# ===== DEBUG CONFIGURATION =====
-# Set to True to print debug logs to console; False to only log to file
-DEBUG = True
-# ==============================
-
 
 class BracketViewerApp(tk.Tk):
     """Main application window for bracket viewing and management."""
@@ -100,10 +73,68 @@ class BracketViewerApp(tk.Tk):
     SCROLLBAR_VERTICAL = 'Vertical.TScrollbar'
     SCROLLBAR_HORIZONTAL = 'Horizontal.TScrollbar'
 
+    # ------------------------------------------------------------------
+    # State property delegation — all state lives in self.state
+    # External code (table_and_bracket_viewer, fight_monitoring, etc.)
+    # continues to use self.brackets, self.match_results, etc. unchanged.
+    # ------------------------------------------------------------------
+
+    @property
+    def brackets(self) -> dict:
+        return self.state.brackets
+
+    @brackets.setter
+    def brackets(self, value: dict):
+        self.state.brackets = value
+
+    @property
+    def bracket_generation_methods(self) -> dict:
+        return self.state.bracket_generation_methods
+
+    @bracket_generation_methods.setter
+    def bracket_generation_methods(self, value: dict):
+        self.state.bracket_generation_methods = value
+
+    @property
+    def bracket_table_assignment(self) -> dict:
+        return self.state.bracket_table_assignment
+
+    @bracket_table_assignment.setter
+    def bracket_table_assignment(self, value: dict):
+        self.state.bracket_table_assignment = value
+
+    @property
+    def match_results(self) -> dict:
+        return self.state.match_results
+
+    @match_results.setter
+    def match_results(self, value: dict):
+        self.state.match_results = value
+
+    @property
+    def loser_match_results(self) -> dict:
+        return self.state.loser_match_results
+
+    @loser_match_results.setter
+    def loser_match_results(self, value: dict):
+        self.state.loser_match_results = value
+
+    @property
+    def pool_cell_values(self) -> dict:
+        return self.state.pool_cell_values
+
+    @property
+    def ko_bracket_data(self) -> dict:
+        return self.state.ko_bracket_data
+
+    @property
+    def ko_match_results(self) -> dict:
+        return self.state.ko_match_results
+
     def __init__(self):
         super().__init__()
         # Initialize logger
-        self.logger = get_logger('main_window', debug_verbose=DEBUG)
+        self.logger = get_logger('main_window', debug_verbose=DEBUG_VERBOSE)
         
         self.title('Combat Control')
         self.geometry('520x520')
@@ -144,22 +175,8 @@ class BracketViewerApp(tk.Tk):
         # Start database service initialization in background thread
         self._init_database_service_thread()
 
-        # Data
-        self.brackets = {}  # {bracket_key: Bracket data}
-        self.bracket_generation_methods = {}  # {bracket_key: method_name}
-        self.bracket_table_assignment = {}  # {bracket_key: table_number or None}
-
-        # Fight monitoring state – persists across window open/close
-        # {bracket_key: {(round_idx, match_idx): winner_name}}
-        self.match_results = {}
-        # {bracket_key: {(lb_round, lb_match): winner_name}}
-        self.loser_match_results = {}
-        # {bracket_key: {(pool_idx, row, fight_num): score}}
-        self.pool_cell_values = {}
-        # {bracket_key: {'p0_1st': name, 'p0_2nd': name, ...}}
-        self.ko_bracket_data = {}
-        # {bracket_key: {(round, match): winner_name}}
-        self.ko_match_results = {}
+        # All mutable tournament data in one place
+        self.state = TournamentState()
 
         # Start with file loading UI
         self.show_file_loader()
@@ -355,35 +372,33 @@ class BracketViewerApp(tk.Tk):
         # Proceed to bracket viewer
         self.show_bracket_viewer()
 
-    def show_tables(self):
-        """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
+    def _prepare_monitoring_fights(self) -> int:
+        """Regenerate stale KO brackets and sync fight rows to DB for all assigned brackets.
 
-    def show_bracket_view(self, bracket_key):
-        """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
-
-    def show_new_bracket_viewer(self):
-        """Show the NEW TableAndBracketViewer implementation (full screen)."""
-        self.logger.info("Switching to NEW implementation (TableAndBracketViewer)")
-        
-        # Prepare data
+        Called before opening any monitoring view. Returns the number of brackets processed.
+        """
         regenerate_stale_ko_brackets(
             self.brackets, self.bracket_generation_methods, make_bracket)
-        
+
         processed = 0
         for bracket_key, table_num in self.bracket_table_assignment.items():
             if table_num and bracket_key in self.brackets:
                 bracket_data = self.brackets[bracket_key]
                 bracket_type = self.bracket_generation_methods.get(bracket_key, 'ko')
-                fight_pairs = bracket_data.get('bracket', [])
-                fighters = bracket_data.get('fighters', [])
-                pool_size = bracket_data.get('pool_size')
                 self.db_service.create_fights_for_bracket(
-                    bracket_key, fight_pairs, bracket_type=bracket_type,
-                    fighters=fighters, pool_size=pool_size)
+                    bracket_key,
+                    bracket_data.get('bracket', []),
+                    bracket_type=bracket_type,
+                    fighters=bracket_data.get('fighters', []),
+                    pool_size=bracket_data.get('pool_size'),
+                )
                 processed += 1
+        return processed
 
+    def show_new_bracket_viewer(self):
+        """Show the NEW TableAndBracketViewer implementation (full screen)."""
+        self.logger.info("Switching to NEW implementation (TableAndBracketViewer)")
+        processed = self._prepare_monitoring_fights()
         self.logger.info(f"Processed {processed} brackets for NEW viewer")
         self.geometry('1200x750')
         
@@ -397,24 +412,7 @@ class BracketViewerApp(tk.Tk):
     def show_fight_monitoring_comparison(self):
         """Show OLD vs NEW implementation side by side for comparison."""
         self.logger.info("Showing comparison: OLD implementation (left) vs NEW (right)")
-        
-        # Prepare data
-        regenerate_stale_ko_brackets(
-            self.brackets, self.bracket_generation_methods, make_bracket)
-        
-        processed = 0
-        for bracket_key, table_num in self.bracket_table_assignment.items():
-            if table_num and bracket_key in self.brackets:
-                bracket_data = self.brackets[bracket_key]
-                bracket_type = self.bracket_generation_methods.get(bracket_key, 'ko')
-                fight_pairs = bracket_data.get('bracket', [])
-                fighters = bracket_data.get('fighters', [])
-                pool_size = bracket_data.get('pool_size')
-                self.db_service.create_fights_for_bracket(
-                    bracket_key, fight_pairs, bracket_type=bracket_type,
-                    fighters=fighters, pool_size=pool_size)
-                processed += 1
-
+        processed = self._prepare_monitoring_fights()
         self.logger.info(f"Processed {processed} brackets for comparison view")
         self.geometry('1800x800')
         
@@ -472,26 +470,7 @@ class BracketViewerApp(tk.Tk):
     def show_fight_monitoring_screen(self):
         """Switch to the Fight Monitoring screen."""
         self.logger.info("show_fight_monitoring_screen() called")
-
-        # Prepare data
-        regenerate_stale_ko_brackets(
-            self.brackets, self.bracket_generation_methods, make_bracket)
-        self.logger.debug("Regenerated stale KO brackets")
-
-        # Create fight rows in DB for every assigned bracket
-        processed = 0
-        for bracket_key, table_num in self.bracket_table_assignment.items():
-            if table_num and bracket_key in self.brackets:
-                bracket_data = self.brackets[bracket_key]
-                bracket_type = self.bracket_generation_methods.get(bracket_key, 'ko')
-                fight_pairs = bracket_data.get('bracket', [])
-                fighters = bracket_data.get('fighters', [])
-                pool_size = bracket_data.get('pool_size')
-                self.db_service.create_fights_for_bracket(
-                    bracket_key, fight_pairs, bracket_type=bracket_type,
-                    fighters=fighters, pool_size=pool_size)
-                processed += 1
-
+        processed = self._prepare_monitoring_fights()
         self.logger.info(f"Processed {processed} brackets for fight monitoring")
 
         # Show fight monitoring screen fullscreen
@@ -611,61 +590,11 @@ class BracketViewerApp(tk.Tk):
         
         return num_fights
 
-    def assign_to_table(self, table_num):
-        """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
-
-    def unassign_bracket(self, bracket_key=None):
-        """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
-
-    def auto_assign_tables(self):
-        """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
-
-    def update_table_panels(self):
-        """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
-
-    def _get_loser_from_match(self, match):
-        """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
-
-    def _compute_first_loser_round(self, wb_rounds):
-        """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
-
-    def _create_injection_matches(self, lb_prev_winners, wb_losers):
-        """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
-
-    def _create_reduction_matches(self, lb_prev_winners):
-        """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
-
-    def _compute_regular_loser_round(self, wb_losers, lb_prev_winners):
-        """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
-
-    def _compute_final_loser_round(self, lb_prev_winners, wb_losers):
-        """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
-
-    def _compute_loser_rounds_for_preview(self, wb_rounds):
-        """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
-
-    def on_bracket_double_click(self, event):
-        """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
-
     def _flush_database(self):
         """Handle Flush Database button — wipe all tournament data."""
         success = self.db_service.flush_database()
         if success:
-            self.brackets = {}
-            self.match_results = {}
-            self.loser_match_results = {}
+            self.state.reset()
             if self.file_loader_screen:
                 self.file_loader_screen.set_status_text(
                     "Database flushed successfully.", 'status_success'
@@ -823,23 +752,6 @@ class BracketViewerApp(tk.Tk):
         self.task_runner.shutdown(wait=False)  # Don't block UI, let tasks finish in background
         self.logger.close()  # Close file handlers for proper cleanup
         self.destroy()
-
-    def update_bracket_list(self, *args):
-        """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
-
-    def render_bracket(self, bracket_key):
-        """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
-
-    def _draw_loser_bracket_on_canvas(self, bracket, bracket_key, wb_positions, 
-                                     box_height, start_x, zoom_level):
-        """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
-
-    def _render_pool(self, bracket_key, participants, pool_size=None, generation_method=None):
-        """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
 
 def main():
     """

@@ -18,38 +18,7 @@ _edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'
 if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
 from utils.logging import get_logger  # noqa: E402
-
-
-def _parse_bracket_key(bracket_key: str):
-    """Parse 'M | U13 | -50kg' → ('M', 'U13', '-50kg')."""
-    parts = [p.strip() for p in bracket_key.split('|')]
-    if len(parts) == 3:
-        return parts[0], parts[1], parts[2]
-    raise ValueError(f"Cannot parse bracket key: {bracket_key!r}")
-
-
-def _split_name(full_name: str):
-    """
-    Split 'Vorname Nachname' → (first_name, last_name).
-    Uses rsplit so multi-word first names are preserved:
-      'John Doe'          → ('John', 'Doe')
-      'John Van Der Berg' → ('John Van Der', 'Berg')
-    Must match the logic used in _map_participant_data() so lookups are consistent.
-    """
-    parts = full_name.rsplit(' ', 1)
-    if len(parts) == 2:
-        return parts[0], parts[1]
-    return full_name, ''
-
-
-def _normalize_gender(raw: str) -> str:
-    """Normalize any gender string to 'm' or 'w'."""
-    v = str(raw).lower().strip()
-    if v in ('m', 'male', 'maennlich', 'männlich','mann'):
-        return 'm'
-    if v in ('w', 'f', 'female', 'weiblich', 'frau'):
-        return 'w'
-    return v[0] if v else 'm'  # best-effort fallback
+from utils.helpers import normalize_gender as _normalize_gender, split_name as _split_name, parse_bracket_key as _parse_bracket_key  # noqa: E402
 
 
 class TournamentService:

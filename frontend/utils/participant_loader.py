@@ -3,9 +3,10 @@
 
 """Participant loading and normalization from spreadsheet files."""
 
-from utils.logging import get_logger
+from utils.logging import get_logger, DEBUG_VERBOSE
+from utils.helpers import normalize_gender
 
-logger = get_logger('participant_loader', debug_verbose=True)
+logger = get_logger('participant_loader', debug_verbose=DEBUG_VERBOSE)
 
 
 def load_participants_from_xlsx(file_path):
@@ -85,10 +86,9 @@ def load_participants_from_xlsx(file_path):
                 col_lower = col.lower()
                 if ('männlich' in col_lower or 'weiblich' in col_lower or 'geschlecht' in col_lower):
                     if pd.notna(row[col]):
-                        gender_val = str(row[col]).strip().lower()
-                        # Take first character: m, w, f, etc.
+                        gender_val = str(row[col]).strip()
                         if gender_val:
-                            gender = gender_val[0]
+                            gender = normalize_gender(gender_val)
                         if gender:
                             break
             

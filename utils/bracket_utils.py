@@ -5,13 +5,13 @@ import math
 import os
 import sys
 
-# Add parent directory to path for libraries access
-_parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-if _parent_dir not in sys.path:
-    sys.path.insert(0, _parent_dir)
+_edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if _edv_backend_path not in sys.path:
+    sys.path.insert(0, _edv_backend_path)
 
 from utils.logging import get_logger  # noqa: E402
-from edv_backend.backend.data.repositories.config_repository import (  # noqa: E402
+from utils.helpers import normalize_gender  # noqa: E402
+from backend.data.repositories.config_repository import (  # noqa: E402
     ConfigRepository,
 )
 
@@ -199,13 +199,7 @@ def export_all_brackets(participants, event_year=None):
         doublestart = str(p.get('Doublestart', p.get('doublestart', 'nein'))).strip().lower()
 
         # Normalize gender to 'm'/'w' to match config group names
-        _g = str(raw_gender).lower().strip()
-        if _g in ('m', 'male', 'maennlich', 'männlich'):
-            gender_norm = 'm'
-        elif _g in ('w', 'f', 'female', 'weiblich', 'frau'):
-            gender_norm = 'w'
-        else:
-            gender_norm = _g or 'Unknown'
+        gender_norm = normalize_gender(raw_gender) if raw_gender else 'Unknown'
 
         # Determine age group
         age_group = None

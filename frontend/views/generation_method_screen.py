@@ -18,7 +18,7 @@ _edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'
 if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
 
-from utils.logging import get_logger  # noqa: E402
+from utils.logging import get_logger, DEBUG_VERBOSE  # noqa: E402
 from backend.data.repositories.config_repository import ConfigRepository  # noqa: E402
 from ..utils.search_utils import filter_items  # noqa: E402
 from ..styles import (  # noqa: E402
@@ -29,19 +29,7 @@ from ..styles import (  # noqa: E402
     apply_listbox_style,
     create_dark_frame,
 )
-# ===== DEBUG CONFIGURATION =====
-# Set to True to print debug logs to console; False to only log to file
-DEBUG = True
-# ==============================
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-
-# ===== DEBUG CONFIGURATION =====
-# Set to True to print debug logs to console; False to only log to file
-DEBUG = True
-# ==============================
-
-logger = get_logger('generation_method_screen', debug_verbose=DEBUG)
+logger = get_logger('generation_method_screen', debug_verbose=DEBUG_VERBOSE)
 
 
 class GenerationMethodScreen(tk.Frame):
@@ -56,7 +44,7 @@ class GenerationMethodScreen(tk.Frame):
     """
 
     # Debug flag - set to True for verbose logging
-    DEBUG = DEBUG
+    DEBUG = DEBUG_VERBOSE
 
     # Method constants
     METHOD_POOLS = 'pools'

@@ -5,6 +5,7 @@
 pandas
 openpyxl
 pytest
+alembic
 psycopg2-binary
 sqlalchemy
 python-dotenv

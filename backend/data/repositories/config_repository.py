@@ -5,6 +5,17 @@
 
 import pandas as pd
 
+
+def _normalize_gender(raw) -> str:
+    """Normalize gender string to 'm' or 'w' for config lookups."""
+    v = str(raw).lower().strip()
+    if v in ('m', 'male', 'maennlich', 'männlich'):
+        return 'm'
+    if v in ('w', 'f', 'female', 'weiblich', 'frau'):
+        return 'w'
+    return v[0] if v else 'm'
+
+
 class ConfigRepository:
     def __init__(self, excel_path):
         self.excel_path = excel_path
@@ -100,15 +111,7 @@ class ConfigRepository:
         if age_group in ('U9', 'U11'):
             return 'no-class'
         
-        # Normalize gender: m/M/Male -> 'm', w/W/Female/F -> 'w'
-        gender_str = str(gender).lower().strip()
-        if gender_str in ('m', 'male', 'maennlich', 'männlich'):
-            gender = 'm'
-        elif gender_str in ('w', 'f', 'female', 'weiblich', 'frau'):
-            gender = 'w'
-        else:
-            # Fallback: take first character
-            gender = gender_str[0] if gender_str else 'm'
+        gender = _normalize_gender(gender)
         
         # If age_group is provided, use it to filter weight classes
         if age_group:
@@ -185,11 +188,7 @@ class ConfigRepository:
         if weight_class_label and weight_class_label.startswith('+'):
             return None
 
-        gender_str = str(gender).lower().strip()
-        if gender_str in ('m', 'male', 'maennlich', 'männlich'):
-            gender = 'm'
-        elif gender_str in ('w', 'f', 'female', 'weiblich', 'frau'):
-            gender = 'w'
+        gender = _normalize_gender(gender)
 
         df = self.weight_classes[
             (self.weight_classes['Gender'] == gender) &

@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: 2026 TOP Team Combat Control
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "edv-backend"
+version = "0.1.0"
+description = "Tournament management desktop app for Judo competitions"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas",
+    "openpyxl",
+    "psycopg2-binary",
+    "sqlalchemy",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "alembic"]
+
+[project.scripts]
+edv-backend = "main:main"
+
+[tool.setuptools.packages.find]
+# All importable packages live directly under the project root (flat layout):
+# utils/, backend/, frontend/, config/
+where = ["."]
+exclude = ["tests*", "logs*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# conftest.py at the root handles sys.path — no extra pythonpath config needed
+
+[tool.setuptools.package-data]
+"*" = ["*.xlsx", "*.toml", "*.env.example"]

@@ -11,19 +11,12 @@ All actual bracket logic is in bracket_utils; this module just delegates to it.
 import os
 import sys
 
-# Add parent directory to path for libraries access
-_parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-if _parent_dir not in sys.path:
-    sys.path.insert(0, _parent_dir)
-
-from utils.logging import get_logger  # noqa: E402
-from ..data.repositories.config_repository import ConfigRepository  # noqa: E402
-
-# Import bracket_utils from the utils package at edv_backend level
-# We're in backend/services/, so go up 2 levels to edv_backend/
 _edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
+
+from utils.logging import get_logger  # noqa: E402
+from ..data.repositories.config_repository import ConfigRepository  # noqa: E402
 
 from utils.bracket_utils import (  # noqa: E402
     export_all_brackets as _export_all_brackets,
