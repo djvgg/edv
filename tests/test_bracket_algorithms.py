@@ -8,7 +8,6 @@ and the pool scheduling logic in frontend/utils/pool_renderer.py.
 These are pure-function tests — no database, no config file, no Tkinter.
 """
 
-import pytest
 from utils.bracket_utils import (
     _next_pow2,
     _generate_seed_order,

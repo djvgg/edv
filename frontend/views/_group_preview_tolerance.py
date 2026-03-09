@@ -6,11 +6,11 @@
 import tkinter as tk
 from tkinter import ttk
 from ..styles import COLORS, FONTS, apply_button_style, apply_label_style, create_dark_frame
-import os, sys
+import os
+import sys
 _edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
-from utils.logging import get_logger, DEBUG_VERBOSE
 
 
 class _ToleranceMixin:

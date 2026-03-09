@@ -11,9 +11,9 @@ _edv_backend_path = os.path.dirname(__file__)
 if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
 
-from utils.logging import get_logger
-from .backend.services.database_service import get_database_service
-from .frontend.views.main_window import main
+from utils.logging import get_logger  # noqa: E402
+from .backend.services.database_service import get_database_service  # noqa: E402
+from .frontend.views.main_window import main  # noqa: E402
 
 logger = get_logger('main')
 

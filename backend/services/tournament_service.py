@@ -610,9 +610,9 @@ class TournamentService:
                     # If not decided yet, both are candidates
                     third_place_gps.add(f.participant1_id)
                     third_place_gps.add(f.participant2_id)
-            # Remove byes (where p1==p2) and already-placed people
-            third_place_gps -= {first_gp, second_gp}
-            third_list = sorted(third_place_gps)
+            # Remove already-placed people and Freilos/None values
+            third_place_gps -= {first_gp, second_gp, None}
+            third_list = sorted(x for x in third_place_gps if x is not None)
             third_1 = third_list[0] if len(third_list) > 0 else None
             third_2 = third_list[1] if len(third_list) > 1 else None
 
