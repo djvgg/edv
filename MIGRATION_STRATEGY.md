@@ -295,3 +295,65 @@ alembic upgrade head
 - `alembic/versions/20260224_0002_add_groups_name.py`
 - `alembic/versions/20260303_0003_fight_metadata_and_placements.py`
 
+---
+
+## Quick Reference: When to Run Alembic
+
+### Developer Workflow
+
+| Scenario | Command | When |
+|----------|---------|------|
+| **First time setup** | `alembic upgrade head` | Installing project locally |
+| **After git pull** | `alembic current` then `alembic upgrade head` if needed | New migrations from team |
+| **Creating migration** | `alembic revision --autogenerate -m "msg"` | After changing models |
+| **Applying migration** | `alembic upgrade head` | After creating migration |
+| **Check status** | `alembic current` | Any time |
+| **View history** | `alembic history` | To see all migrations |
+| **Rollback** | `alembic downgrade -1` | Undo last migration |
+
+### Production Deployment
+
+```bash
+# 1. Backup database first!
+# 2. Stop application
+# 3. Pull new code
+# 4. Run migrations:
+cd edv_backend
+alembic upgrade head
+# 5. Start application
+```
+
+### Troubleshooting
+
+**Problem:** Alembic commands return "command not found"  
+**Solution:** Activate virtual environment first
+```bash
+# Windows
+venv\Scripts\activate
+# Linux/Mac
+source venv/bin/activate
+```
+
+**Problem:** "Can't locate revision"  
+**Solution:** Your database is out of sync, stamp it:
+```bash
+alembic stamp head
+```
+
+**Problem:** Want to see what SQL will run without executing  
+**Solution:** Use --sql flag
+```bash
+alembic upgrade head --sql
+```
+
+---
+
+## Conclusion
+
+✅ **Implementation Status:** COMPLETE  
+✅ **Migration System:** Alembic only  
+✅ **Documentation:** Complete in README.md  
+✅ **Production Ready:** Yes  
+
+**Next Steps:** None required - system is ready for use.
+

@@ -70,42 +70,91 @@ pytest tests/
 
 This project uses **Alembic** for database schema migrations.
 
-### After Pulling New Code
+### Why Alembic?
 
-If new schema changes were added:
+Alembic manages database schema changes in a controlled, versioned way:
+- ✅ **Version Control** - Track all schema changes over time
+- ✅ **Rollback Support** - Undo migrations if needed
+- ✅ **Team Collaboration** - Everyone applies the same schema changes
+- ✅ **Production Safety** - Apply changes incrementally without data loss
+
+### When Do You Need to Run Alembic?
+
+#### Scenario 1: First Time Setup (New Installation)
+**When:** Installing the application for the first time  
+**Command:**
 ```bash
 alembic upgrade head
 ```
+This creates all database tables and applies all migrations.
 
-### Creating New Migrations
-
-When you modify database models:
+#### Scenario 2: After Pulling Code (Updates from Git)
+**When:** You `git pull` and see changes in `alembic/versions/`  
+**Command:**
 ```bash
-# Auto-generate migration from model changes
-alembic revision --autogenerate -m "Description of changes"
+alembic upgrade head
+```
+This applies any new schema changes from other developers.
 
-# Review the generated file in alembic/versions/
-# Edit if needed, then apply:
+#### Scenario 3: Existing Database (Migration System Change)
+**When:** Upgrading from the old custom migration system  
+**Command:**
+```bash
+alembic stamp head
+```
+This marks your database as up-to-date without re-running migrations.
+
+#### Scenario 4: You Modified Database Models
+**When:** You changed files in `backend/data/models.py`  
+**Commands:**
+```bash
+# 1. Generate migration automatically
+alembic revision --autogenerate -m "Add new column to fights table"
+
+# 2. Review the generated file in alembic/versions/
+# 3. Edit if needed (Alembic can't detect everything)
+
+# 4. Apply the migration
 alembic upgrade head
 ```
 
-### Migration Commands
+### Common Commands
 
 ```bash
-# Check current migration version
+# Check current database version
 alembic current
 
-# View migration history
-alembic history
+# View all migrations and history
+alembic history --verbose
+
+# Apply all pending migrations
+alembic upgrade head
 
 # Rollback one migration
 alembic downgrade -1
 
 # Rollback to specific version
-alembic downgrade <revision>
+alembic downgrade <revision_id>
 
-# Upgrade to latest
-alembic upgrade head
+# See SQL without executing
+alembic upgrade head --sql
+```
+
+### Troubleshooting
+
+**Error: "Can't locate revision identified by 'XXX'"**
+- Your database is out of sync with migrations
+- Solution: `alembic stamp head` (if you know your schema is current)
+
+**Error: "Table already exists"**
+- Database has tables but Alembic thinks it's empty
+- Solution: `alembic stamp head`
+
+**How to check if migrations are needed?**
+```bash
+alembic current  # Shows current version
+alembic heads    # Shows latest available version
+# If they don't match, run: alembic upgrade head
 ```
 
 ### Migration History
@@ -113,6 +162,14 @@ alembic upgrade head
 - `0001` - Initial schema (groups, group_participants, brackets, fights, etc.)
 - `0002` - Add groups.name column, allow NULL in gender/age_group/weight_class
 - `0003` - Add fight metadata columns (bracket_phase, round, pos_in_round, etc.)
+
+### Important Notes
+
+⚠️ **Always backup your database before running migrations in production!**
+
+⚠️ **Never edit migration files after they've been applied** - create a new migration instead
+
+✅ **Migrations run automatically in order** - you don't need to specify which ones
 
 ---
 
