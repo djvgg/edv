@@ -167,9 +167,6 @@ class BracketViewerApp(tk.Tk):
         self.brackets = {}  # {bracket_key: Bracket data}
         self.bracket_generation_methods = {}  # {bracket_key: method_name}
         self.bracket_table_assignment = {}  # {bracket_key: table_number or None}
-        self.viewer_shown = False
-        self.zoom_level = 1.0  # Zoom level for bracket visualization
-        self.current_bracket_key = None  # Track currently displayed bracket
 
         # Fight monitoring state – persists across window open/close
         # {bracket_key: {(round_idx, match_idx): winner_name}}
@@ -182,11 +179,6 @@ class BracketViewerApp(tk.Tk):
         self.ko_bracket_data = {}
         # {bracket_key: {(round, match): winner_name}}
         self.ko_match_results = {}
-
-        # Preview window state
-        self.group_listbox_map = {}
-        self.preview_search_var = None
-        self.preview_count_var = None
 
         # Start with file loading UI
         self.show_file_loader()
@@ -275,8 +267,7 @@ class BracketViewerApp(tk.Tk):
         preview_screen = GroupPreviewScreen(self, quarantine_service=self.quarantine_service, db_service=self.db_service)
         preview_screen.pack(fill=tk.BOTH, expand=True)
 
-        # Store reference and set up callbacks
-        self.group_preview_screen = preview_screen
+        # Set up callbacks
         preview_screen.on_back = self.show_file_loader
         preview_screen.on_continue = self.show_generation_method_screen
         preview_screen.on_resort = lambda edited_fighter: self.quarantine_service.resort_brackets(
@@ -312,9 +303,6 @@ class BracketViewerApp(tk.Tk):
         # Create the generation method screen
         gen_screen = GenerationMethodScreen(self)
         gen_screen.pack(fill=tk.BOTH, expand=True)
-
-        # Store reference for access
-        self.generation_method_screen = gen_screen
 
         # Prepare bracket data for the screen
         # Convert brackets to the format expected by GenerationMethodScreen
@@ -857,11 +845,6 @@ class BracketViewerApp(tk.Tk):
 
     def update_bracket_list(self, *args):
         """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
-        pass
-
-    def on_bracket_select(self, event):
-        """Called when user clicks a bracket in the list."""
-        # Just select, don't show yet (use double-click or table assignment)
         pass
 
     def render_bracket(self, bracket_key):
