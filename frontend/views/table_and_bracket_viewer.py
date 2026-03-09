@@ -19,8 +19,6 @@ from backend.services.bracket_service import make_bracket  # noqa: E402
 from ..styles import (  # noqa: E402
     COLORS,
     FONTS,
-    SCROLLBAR_STYLE,
-    SCROLLBAR_ACTIVE_STYLE,
     apply_button_style,
     apply_entry_style,
     apply_label_style,

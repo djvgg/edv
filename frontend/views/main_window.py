@@ -7,7 +7,6 @@
 import os
 import sys
 import threading
-import traceback
 
 import tkinter as tk
 from tkinter import messagebox, filedialog, ttk
@@ -27,29 +26,12 @@ from ..services.bracket_manager import regenerate_stale_ko_brackets  # noqa: E40
 
 from ..styles import (  # noqa: E402
     COLORS,
-    FONTS,
     SCROLLBAR_STYLE,
     SCROLLBAR_ACTIVE_STYLE,
-    apply_button_style,
-    apply_entry_style,
-    apply_label_style,
-    apply_listbox_style,
-    apply_table_panel_style,
     create_dark_frame,
 )
 
-# Import frontend utilities
-from ..utils import (  # noqa: E402
-    calculate_box_size,
-    draw_pools_on_canvas,
-    build_bracket_rounds,
-    draw_bracket_on_canvas,
-    compute_bracket_rounds,
-    calculate_loser_positions,
-    draw_loser_connectors,
-)
-
-# Import generation method screen
+# Import screen components
 from .generation_method_screen import GenerationMethodScreen  # noqa: E402
 from .file_loader_screen import FileLoaderScreen  # noqa: E402
 from .group_preview_screen import GroupPreviewScreen  # noqa: E402
@@ -57,7 +39,6 @@ from .fight_monitoring_window import FightMonitoringScreen  # noqa: E402
 from .rejection_summary_window import RejectionSummaryWindow  # noqa: E402
 from .tolerance_config_dialog import ToleranceConfigDialog  # noqa: E402
 from .table_and_bracket_viewer import TableAndBracketViewer  # noqa: E402
-from ..utils.search_utils import filter_items  # noqa: E402
 from ..services.quarantine_service import QuarantineService  # noqa: E402
 from ..services.ui_feedback_service import UIFeedbackService  # noqa: E402
 from ..services.data_loader_service import DataLoaderService  # noqa: E402
