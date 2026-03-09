@@ -413,29 +413,28 @@ class TournamentService:
                 gp2 = self._find_group_participant(group.id, name2)
 
                 if is_phantom:
-                    self.logger.debug(f"  pos {i}: Phantom match (Freilos vs Freilos) — skipped")
+                    self.logger.debug(f"  pos {i}: Phantom match (Freilos vs Freilos) — skipping DB-entry")
                     continue
 
                 if is_bye:
                     # Bye match: one real fighter, one Freilos
-                    real_gp = gp1 or gp2
+                    # Set the missing participant (Freilos) to None in DB
+                    p1_id = gp1.id if gp1 else None
+                    p2_id = gp2.id if gp2 else None
+                    
                     real_name = name1 if gp1 else name2
-                    if not real_gp:
-                        self.logger.warning(f"  pos {i}: Bye match but no real fighter found ({name1} vs {name2})")
-                        continue
-                    # Store bye: both participant slots point to the real fighter
-                    # (Freilos has no DB entry). winner_id set immediately.
+
                     enriched.append({
-                        'p1': real_gp.id,
-                        'p2': real_gp.id,
+                        'p1': p1_id,
+                        'p2': p2_id,
                         'bracket_phase': 'wb',
                         'round': 0,
                         'pos_in_round': i,
                         'pool_index': None,
                         'status': 'bye',
-                        'winner_id': real_gp.id,
+                        'winner_id': (gp1.id if gp1 else gp2.id),
                     })
-                    self.logger.info(f"  pos {i}: BYE — {real_name} advances automatically")
+                    self.logger.info(f"  pos {i}: BYE — {real_name} advances automatically (DB: {p1_id} vs {p2_id})")
                     continue
 
                 if not gp1 or not gp2:

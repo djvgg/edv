@@ -121,7 +121,24 @@ def init_db():
                     "ALTER TABLE fights ADD CONSTRAINT uix_fight_position"
                     " UNIQUE (bracket_id, bracket_phase, round, pos_in_round)"
                 ))
-            logger.info("[DATABASE] Migration 4/4: ✓ UNIQUE constraint added")
+            logger.info("[DATABASE] Migration 4/5: ✓ UNIQUE constraint added")
+            migration_count += 1
+
+        # Migration 5: Allow NULL participants (fixed bye handling)
+        migration_5_needed = False
+        fights_cols_info = {c['name']: c for c in inspector.get_columns('fights')}
+        for col in ('participant1_id', 'participant2_id'):
+            if fights_cols_info.get(col, {}).get('nullable') is False:
+                migration_5_needed = True
+                break
+        
+        if migration_5_needed:
+            logger.info("[DATABASE] Migration 5/5: Allowing NULL participant IDs for byes...")
+            with engine.begin() as conn:
+                for col in ('participant1_id', 'participant2_id'):
+                    if fights_cols_info.get(col, {}).get('nullable') is False:
+                        conn.execute(text(f"ALTER TABLE fights ALTER COLUMN {col} DROP NOT NULL"))
+            logger.info("[DATABASE] Migration 5/5: ✓ Participant IDs are now nullable")
             migration_count += 1
     
     if migration_count > 0:
