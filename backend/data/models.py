@@ -99,8 +99,8 @@ class Fight(Base):
 
     id              = Column(Integer, primary_key=True)
     bracket_id      = Column(Integer, ForeignKey('brackets.id'),          nullable=False)
-    participant1_id = Column(Integer, ForeignKey('group_participants.id'), nullable=False)
-    participant2_id = Column(Integer, ForeignKey('group_participants.id'), nullable=False)
+    participant1_id = Column(Integer, ForeignKey('group_participants.id'), nullable=True)
+    participant2_id = Column(Integer, ForeignKey('group_participants.id'), nullable=True)
     fight_number    = Column(Integer)
     score1          = Column(String(20))
     score2          = Column(String(20))
