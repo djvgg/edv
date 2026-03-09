@@ -14,7 +14,9 @@ import sys
 import os
 import threading
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+_edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if _edv_backend_path not in sys.path:
+    sys.path.insert(0, _edv_backend_path)
 
 from utils.logging import get_logger
 from backend.data.repositories.config_repository import ConfigRepository
@@ -27,13 +29,6 @@ from ..styles import (
     create_dark_frame,
 )
 from ..search_utils import filter_items
-
-# ===== DEBUG CONFIGURATION =====
-# Set to True to print debug logs to console; False to only log to file
-DEBUG = True
-# ==============================
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 # ===== DEBUG CONFIGURATION =====
 # Set to True to print debug logs to console; False to only log to file

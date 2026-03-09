@@ -26,6 +26,7 @@ import os
 import sys
 import queue
 import threading
+import traceback
 from typing import Callable, Optional
 
 # Add edv_backend to path
@@ -223,7 +224,7 @@ class TaskRunner:
             except Exception as e:
                 # Log and notify error
                 task.error = str(e)
-                self.logger.error(f"Task '{task.task_id}' failed: {e}", exc_info=True)
+                self.logger.error(f"Task '{task.task_id}' failed: {e}\n{traceback.format_exc()}")
                 
                 if task.on_error:
                     try:

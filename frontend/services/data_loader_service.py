@@ -13,7 +13,7 @@ Extracted from main_window.py:
 import json
 import os
 import threading
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
 
 from utils.logging import get_logger
 from backend.services.bracket_service import export_all_brackets, validate_age_from_birthyear
@@ -283,7 +283,7 @@ class DataLoaderService:
                 if self.ui_feedback:
                     self.ui_feedback.set_status("Error: No participants found in database.", '#cc0000')
                     self.ui_feedback.hide_loading_progress()
-                messagebox.showwarning("No Data", "No participants found in database.")
+                    self.ui_feedback.show_warning("No Data", "No participants found in database.")
                 return
 
             # Filter out unpaid participants
@@ -305,7 +305,7 @@ class DataLoaderService:
                 if self.ui_feedback:
                     self.ui_feedback.set_status("Error: No valid participants found in database.", '#cc0000')
                     self.ui_feedback.hide_loading_progress()
-                messagebox.showwarning("No Data", "No valid participants found in database.")
+                    self.ui_feedback.show_warning("No Data", "No valid participants found in database.")
                 return
 
             total_fighters = len(participants)
@@ -336,7 +336,7 @@ class DataLoaderService:
             if self.ui_feedback:
                 self.ui_feedback.set_status(f"Database Error: {e}", '#cc0000')
                 self.ui_feedback.hide_loading_progress()
-            messagebox.showerror("Database Error", f"Failed to load from database:\n{str(e)}")
+                self.ui_feedback.show_error("Database Error", f"Failed to load from database:\n{str(e)}")
 
     def load_json_and_generate(self, filepaths, callbacks):
         """Load participants from 2 JSON files (male/female) and generate brackets.
@@ -381,7 +381,7 @@ class DataLoaderService:
                     if self.ui_feedback:
                         self.ui_feedback.hide_loading_progress()
                         self.ui_feedback.set_status(error_msg, '#cc0000')
-                    messagebox.showerror("Invalid JSON Format", error_msg)
+                        self.ui_feedback.show_error("Invalid JSON Format", error_msg)
                     return
 
                 self.logger.debug(f"[File {file_idx}] Found {len(data)} entries")
@@ -395,7 +395,7 @@ class DataLoaderService:
                         if self.ui_feedback:
                             self.ui_feedback.hide_loading_progress()
                             self.ui_feedback.set_status(error_msg, '#cc0000')
-                        messagebox.showerror("Invalid Participant", error_msg)
+                            self.ui_feedback.show_error("Invalid Participant", error_msg)
                         return
 
                     # Check for required core fields
@@ -406,7 +406,7 @@ class DataLoaderService:
                         if self.ui_feedback:
                             self.ui_feedback.hide_loading_progress()
                             self.ui_feedback.set_status(error_msg, '#cc0000')
-                        messagebox.showerror("Missing Required Fields", error_msg)
+                            self.ui_feedback.show_error("Missing Required Fields", error_msg)
                         return
 
                     # Validate field types and values
@@ -445,7 +445,7 @@ class DataLoaderService:
                         if self.ui_feedback:
                             self.ui_feedback.hide_loading_progress()
                             self.ui_feedback.set_status(error_msg, '#cc0000')
-                        messagebox.showerror("Validation Error", error_msg)
+                            self.ui_feedback.show_error("Validation Error", error_msg)
                         return
 
                     # Construct Name field from Firstname + Lastname if not present
@@ -543,21 +543,21 @@ class DataLoaderService:
             if self.ui_feedback:
                 self.ui_feedback.set_status(error_msg, '#cc0000')
                 self.ui_feedback.hide_loading_progress()
-            messagebox.showerror("JSON Error", f"Failed to parse JSON file:\n{str(e)}")
+                self.ui_feedback.show_error("JSON Error", f"Failed to parse JSON file:\n{str(e)}")
         except FileNotFoundError as e:
             error_msg = f"File not found: {e}"
             self.logger.error(error_msg)
             if self.ui_feedback:
                 self.ui_feedback.set_status(error_msg, '#cc0000')
                 self.ui_feedback.hide_loading_progress()
-            messagebox.showerror("File Error", f"Could not find file:\n{str(e)}")
+                self.ui_feedback.show_error("File Error", f"Could not find file:\n{str(e)}")
         except Exception as e:
             error_msg = f"Unexpected error: {e}"
-            self.logger.error(error_msg, exc_info=True)
+            self.logger.error(error_msg)
             if self.ui_feedback:
                 self.ui_feedback.set_status(error_msg, '#cc0000')
                 self.ui_feedback.hide_loading_progress()
-            messagebox.showerror("Error", f"Failed to load JSON files:\n{str(e)}")
+                self.ui_feedback.show_error("Error", f"Failed to load JSON files:\n{str(e)}")
     def split_gender_to_json_with_tolerances(self, input_file, save_dir, configured_tolerances=None):
         """Split tournament registration XLSX by gender and save with tolerance configuration.
         

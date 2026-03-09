@@ -479,6 +479,9 @@ class FightMonitoringScreen(tk.Frame):
         # ── Draw connectors using imported utility ──────────────────────────
         draw_loser_connectors(self._canvas, lb_pos, loser_rounds, z, COLORS)
 
+        ck_font = ('Arial', FS + 1, 'bold')
+        sm_font = ('Arial', max(6, FS - 1))
+
         # ── Match boxes ──────────────────────────────────────────────────
         for r, matches in enumerate(loser_rounds):
             is_last = (r == nr - 1)
@@ -525,27 +528,15 @@ class FightMonitoringScreen(tk.Frame):
                     x, my, x2, my,
                     fill=COLORS['border'], width=1, dash=(4, 3))
 
-                def _col(name, won):
-                    if name == 'Freilos':
-                        return COLORS['text_disabled']
-                    if name == 'TBD':
-                        return COLORS['text_muted']
-                    if won:
-                        return COLORS['accent_green']
-                    if decided and not won:
-                        return COLORS['accent_red']
-                    return COLORS['text_primary']
-
                 self._canvas.create_text(
                     x + 8, y + BH // 4,
                     text=(p1[:24] if len(p1) > 24 else p1),
-                    anchor='w', fill=_col(p1, p1w), font=font)
+                    anchor='w', fill=self._name_color(p1, p1w, decided), font=font)
                 self._canvas.create_text(
                     x + 8, y + 3 * BH // 4,
                     text=(p2[:24] if len(p2) > 24 else p2),
-                    anchor='w', fill=_col(p2, p2w), font=font)
+                    anchor='w', fill=self._name_color(p2, p2w, decided), font=font)
 
-                ck_font = ('Arial', FS + 1, 'bold')
                 if p1w:
                     self._canvas.create_text(
                         x2 - 10, y + BH // 4, text='✓',
@@ -555,7 +546,6 @@ class FightMonitoringScreen(tk.Frame):
                         x2 - 10, y + 3 * BH // 4, text='✓',
                         anchor='c', fill=COLORS['accent_green'], font=ck_font)
 
-                sm_font = ('Arial', max(6, FS - 1))
                 both_real = (p1 not in ('Freilos', 'TBD')
                              and p2 not in ('Freilos', 'TBD'))
                 if both_real and not decided:
@@ -607,10 +597,8 @@ class FightMonitoringScreen(tk.Frame):
         logger.debug(f"Rendering KO bracket '{bracket_key}' with {len(pairs)} pairs from self.brackets")
         if not pairs:
             logger.warning(f"No bracket data in self.brackets for '{bracket_key}'")
-            self._canvas.create_text(300, 200,
-                                     text='No bracket data available.',
-                                     fill=COLORS['text_muted'],
-                                     font=FONTS['heading_md'])
+            self._canvas.create_text(300, 200, text='No bracket data available.',
+                                     fill=COLORS['text_muted'], font=FONTS['heading_md'])
             return
 
         results = self.match_results.get(bracket_key, {})
@@ -619,62 +607,123 @@ class FightMonitoringScreen(tk.Frame):
         if not rounds:
             return
 
-        # Sync auto-bye winners back to global results (Freilos matches auto-advance)
+        self._sync_bye_results(bracket_key, rounds, results, 'wb')
+        self.match_results[bracket_key] = results
+
+        # Layout constants (all scaled by zoom)
+        z = self.zoom_level
+        BW = int(200 * z); BH = int(64 * z); XG = int(70 * z); YG = int(28 * z)
+        SX = int(50 * z);  SY = int(50 * z)
+        FS = max(7, int(10 * z)); LW = max(1, int(2 * z))
+        font = ('Consolas', FS)
+        label_font = ('Arial', max(8, int(11 * z)), 'bold')
+
+        pos, ymid = calculate_ko_positions(rounds, z, SX, SY)
+
+        # WB round labels
+        nr = len(rounds)
+        for r in range(nr):
+            lx = SX + r * (BW + XG) + BW // 2
+            if r == 0:                    label = 'Round 1'
+            elif r == nr - 1:             label = 'Final'
+            elif r == nr - 2 and nr > 2:  label = 'Semi-Final'
+            else:                         label = f'Round {r + 1}'
+            self._canvas.create_text(lx, SY // 2, text=label, anchor='c',
+                                     fill=COLORS['text_secondary'], font=label_font)
+
+        draw_ko_connectors(self._canvas, pos, rounds, z, COLORS)
+        self._draw_wb_matches(rounds, pos, BW, BH, LW, FS, font)
+
+        if pos:
+            wb_max_x = max(p[0] for p in pos.values()) + BW + XG + SX
+            wb_max_y = max(p[1] for p in pos.values()) + BH + YG + SY
+        else:
+            wb_max_x = SX + BW + SX
+            wb_max_y = SY + BH + SY
+
+        # Loser bracket
+        lb_results = self.loser_match_results.get(bracket_key, {})
+        loser_rounds = self._compute_loser_rounds(rounds, lb_results)
+
+        self._sync_bye_results(bracket_key, loser_rounds, lb_results, 'lb')
+        self._sync_lb_final_byes(bracket_key, loser_rounds, lb_results)
+        self.loser_match_results[bracket_key] = lb_results
+
+        total_height = wb_max_y
+        total_width = wb_max_x
+
+        if loser_rounds:
+            SECTION_GAP = int(60 * z)
+            lb_y_start = wb_max_y + SECTION_GAP
+            div_y = wb_max_y + SECTION_GAP // 2
+            self._canvas.create_line(SX, div_y, wb_max_x - SX, div_y,
+                                     fill=COLORS['accent_orange'], width=1, dash=(6, 4))
+            self._canvas.create_text(SX, div_y - int(10 * z), text='Losers Bracket',
+                                     anchor='w', fill=COLORS['accent_orange'],
+                                     font=('Arial', max(8, int(11 * z)), 'bold'))
+            lb_max_y = self._render_loser_bracket(loser_rounds, lb_y_start,
+                                                   z, BW, BH, XG, YG, SX, FS, LW)
+            lb_max_x = SX + len(loser_rounds) * (BW + XG) + SX
+            total_height = lb_max_y + SY
+            total_width = max(wb_max_x, lb_max_x)
+
+        self._canvas.configure(scrollregion=(0, 0, total_width, total_height))
+
+    def _sync_bye_results(self, bracket_key, rounds, results, bracket_type):
+        """Sync Freilos auto-advance winners into results dict and DB.
+
+        For every match where one side is a bye (Freilos) and no result is
+        recorded yet, the real fighter is automatically advanced and persisted
+        to the DB once (tracked via _bye_db_synced to avoid duplicate writes).
+        Mutates results in-place.
+        """
         for r, matches in enumerate(rounds):
             for m, match in enumerate(matches):
                 if (r, m) not in results and match['winner'] is not None:
                     results[(r, m)] = match['winner']
-                    # Also sync to DB if we have db_service (skip if already synced)
-                    bye_key = (bracket_key, 'wb', r, m)
-                    if self.db_service and bye_key not in self._bye_db_synced and (match['p1'] == 'Freilos' or match['p2'] == 'Freilos'):
+                    bye_key = (bracket_key, bracket_type, r, m)
+                    if (self.db_service and bye_key not in self._bye_db_synced
+                            and (match['p1'] == 'Freilos' or match['p2'] == 'Freilos')):
                         p1, p2 = match['p1'], match['p2']
                         if p1 != 'Freilos' and p2 == 'Freilos':
-                            p1_name = p1
-                            p2_name = 'Freilos'
+                            p1_name, p2_name = p1, 'Freilos'
                         else:
-                            p1_name = p2
-                            p2_name = 'Freilos'
+                            p1_name, p2_name = p2, 'Freilos'
                         self.db_service.record_fight_result(
-                            bracket_key, 'wb', r, m, match['winner'],
+                            bracket_key, bracket_type, r, m, match['winner'],
                             p1_name=p1_name, p2_name=p2_name)
                         self._bye_db_synced.add(bye_key)
-        self.match_results[bracket_key] = results
 
-        z = self.zoom_level
-        BW = int(200 * z)   # box width
-        BH = int(64 * z)    # box height
-        XG = int(70 * z)    # x gap between rounds
-        YG = int(28 * z)    # y gap between matches
-        SX = int(50 * z)    # start x
-        SY = int(50 * z)    # start y
-        FS = max(7, int(10 * z))
-        LW = max(1, int(2 * z))
-        font = ('Consolas', FS)
-        label_font = ('Arial', max(8, int(11 * z)), 'bold')
+    def _sync_lb_final_byes(self, bracket_key, loser_rounds, lb_results):
+        """Auto-advance fighters in the final LB round if their opponent is a bye.
 
-        # Calculate positions for all rounds (using imported utility)
-        pos, ymid = calculate_ko_positions(rounds, z, SX, SY)
+        Only triggered when the last round has ≤2 matches, meaning no more
+        opponents can arrive from the WB. Mutates lb_results in-place.
+        """
+        if not loser_rounds or len(loser_rounds[-1]) > 2:
+            return
+        last_round_idx = len(loser_rounds) - 1
+        for m, match in enumerate(loser_rounds[last_round_idx]):
+            key = (last_round_idx, m)
+            if (key not in lb_results
+                    and match['winner'] is not None
+                    and (match['p1'] in ('Freilos', 'TBD') or match['p2'] in ('Freilos', 'TBD'))):
+                lb_results[key] = match['winner']
+                bye_key = (bracket_key, 'lb', last_round_idx, m)
+                if self.db_service and bye_key not in self._bye_db_synced:
+                    p1, p2 = match['p1'], match['p2']
+                    p1_name = p1 if p1 not in ('Freilos', 'TBD') else 'Freilos'
+                    p2_name = p2 if p2 not in ('Freilos', 'TBD') else 'Freilos'
+                    self.db_service.record_fight_result(
+                        bracket_key, 'lb', last_round_idx, m,
+                        match['winner'], p1_name=p1_name, p2_name=p2_name)
+                    self._bye_db_synced.add(bye_key)
 
-        # Round labels
-        nr = len(rounds)
-        for r in range(nr):
-            lx = SX + r * (BW + XG) + BW // 2
-            if r == 0:
-                label = 'Round 1'
-            elif r == nr - 1:
-                label = 'Final'
-            elif r == nr - 2 and nr > 2:
-                label = 'Semi-Final'
-            else:
-                label = f'Round {r + 1}'
-            self._canvas.create_text(lx, SY // 2, text=label, anchor='c',
-                                     fill=COLORS['text_secondary'],
-                                     font=label_font)
+    def _draw_wb_matches(self, rounds, pos, BW, BH, LW, FS, font):
+        """Draw all WB match boxes onto the canvas and populate self._match_boxes."""
+        ck_font = ('Arial', FS + 1, 'bold')
+        sm_font = ('Arial', max(6, FS - 1))
 
-        # Draw connectors between rounds (using imported utility)
-        draw_ko_connectors(self._canvas, pos, rounds, z, COLORS)
-
-        # Match boxes
         for r, matches in enumerate(rounds):
             for m, match in enumerate(matches):
                 p1, p2, winner = match['p1'], match['p2'], match['winner']
@@ -691,150 +740,61 @@ class FightMonitoringScreen(tk.Frame):
                 # Box background
                 self._canvas.create_rectangle(x, y, x2, y2,
                                               fill=COLORS['bg_panel'],
-                                              outline=COLORS['border_light'],
-                                              width=LW)
+                                              outline=COLORS['border_light'], width=LW)
 
-                # Winner/loser halves
+                # Winner/loser half highlights
                 if p1w:
-                    self._canvas.create_rectangle(
-                        x + LW, y + LW, x2 - LW, my, fill='#1a3d1a', outline='')
+                    self._canvas.create_rectangle(x + LW, y + LW, x2 - LW, my,
+                                                  fill='#1a3d1a', outline='')
                 elif decided and not p1w and p1 not in ('Freilos', 'TBD'):
-                    self._canvas.create_rectangle(
-                        x + LW, y + LW, x2 - LW, my, fill='#3d1a1a', outline='')
-
+                    self._canvas.create_rectangle(x + LW, y + LW, x2 - LW, my,
+                                                  fill='#3d1a1a', outline='')
                 if p2w:
-                    self._canvas.create_rectangle(
-                        x + LW, my, x2 - LW, y2 - LW, fill='#1a3d1a', outline='')
+                    self._canvas.create_rectangle(x + LW, my, x2 - LW, y2 - LW,
+                                                  fill='#1a3d1a', outline='')
                 elif decided and not p2w and p2 not in ('Freilos', 'TBD'):
-                    self._canvas.create_rectangle(
-                        x + LW, my, x2 - LW, y2 - LW, fill='#3d1a1a', outline='')
+                    self._canvas.create_rectangle(x + LW, my, x2 - LW, y2 - LW,
+                                                  fill='#3d1a1a', outline='')
 
-                # Separator
+                # Separator line
                 self._canvas.create_line(x, my, x2, my,
-                                         fill=COLORS['border'], width=1,
-                                         dash=(4, 3))
+                                         fill=COLORS['border'], width=1, dash=(4, 3))
 
-                # Name colours
-                def _col(name, won):
-                    if name == 'Freilos':
-                        return COLORS['text_disabled']
-                    if name == 'TBD':
-                        return COLORS['text_muted']
-                    if won:
-                        return COLORS['accent_green']
-                    if decided and not won:
-                        return COLORS['accent_red']
-                    return COLORS['text_primary']
-
+                # Player names
                 self._canvas.create_text(x + 8, y + BH // 4,
                                          text=(p1[:24] if len(p1) > 24 else p1),
-                                         anchor='w', fill=_col(p1, p1w), font=font)
+                                         anchor='w', fill=self._name_color(p1, p1w, decided),
+                                         font=font)
                 self._canvas.create_text(x + 8, y + 3 * BH // 4,
                                          text=(p2[:24] if len(p2) > 24 else p2),
-                                         anchor='w', fill=_col(p2, p2w), font=font)
+                                         anchor='w', fill=self._name_color(p2, p2w, decided),
+                                         font=font)
 
-                # Checkmarks
-                ck_font = ('Arial', FS + 1, 'bold')
+                # Checkmarks for winner
                 if p1w:
                     self._canvas.create_text(x2 - 10, y + BH // 4, text='✓',
-                                             anchor='c', fill=COLORS['accent_green'],
-                                             font=ck_font)
+                                             anchor='c', fill=COLORS['accent_green'], font=ck_font)
                 if p2w:
                     self._canvas.create_text(x2 - 10, y + 3 * BH // 4, text='✓',
-                                             anchor='c', fill=COLORS['accent_green'],
-                                             font=ck_font)
+                                             anchor='c', fill=COLORS['accent_green'], font=ck_font)
 
                 # "← pick" hint for undecided real matches
-                sm_font = ('Arial', max(6, FS - 1))
-                both_real = p1 not in ('Freilos', 'TBD') and p2 not in ('Freilos', 'TBD')
-                if both_real and winner is None:
+                if p1 not in ('Freilos', 'TBD') and p2 not in ('Freilos', 'TBD') and winner is None:
                     self._canvas.create_text(x2 - 6, my, text='← pick',
-                                             anchor='e', fill=COLORS['text_muted'],
-                                             font=sm_font)
+                                             anchor='e', fill=COLORS['text_muted'], font=sm_font)
 
-        if pos:
-            wb_max_x = max(p[0] for p in pos.values()) + BW + XG + SX
-            wb_max_y = max(p[1] for p in pos.values()) + BH + YG + SY
-        else:
-            wb_max_x = SX + BW + SX
-            wb_max_y = SY + BH + SY
-
-        # ── Losers Bracket ───────────────────────────────────────────────
-        lb_results = self.loser_match_results.get(bracket_key, {})
-        loser_rounds = self._compute_loser_rounds(rounds, lb_results)
-
-        # Sync auto-bye winners back to global results (Freilos matches auto-advance)
-        for r, matches in enumerate(loser_rounds):
-            for m, match in enumerate(matches):
-                if (r, m) not in lb_results and match['winner'] is not None:
-                    lb_results[(r, m)] = match['winner']
-                    # Also sync to DB if we have db_service (skip if already synced)
-                    bye_key = (bracket_key, 'lb', r, m)
-                    if self.db_service and bye_key not in self._bye_db_synced and (match['p1'] == 'Freilos' or match['p2'] == 'Freilos'):
-                        p1, p2 = match['p1'], match['p2']
-                        if p1 != 'Freilos' and p2 == 'Freilos':
-                            p1_name = p1
-                            p2_name = 'Freilos'
-                        else:
-                            p1_name = p2
-                            p2_name = 'Freilos'
-                        self.db_service.record_fight_result(
-                            bracket_key, 'lb', r, m, match['winner'],
-                            p1_name=p1_name, p2_name=p2_name)
-                        self._bye_db_synced.add(bye_key)
-
-        # Auto-advance bye/TBD matches in final LB round (prevents infinite waiting)
-        # Only if: last round has ≤2 matches (meaning no more opponents can come from WB)
-        if loser_rounds and len(loser_rounds[-1]) <= 2:
-            last_round_idx = len(loser_rounds) - 1
-            last_round = loser_rounds[last_round_idx]
-            for m, match in enumerate(last_round):
-                key = (last_round_idx, m)
-                # Auto-advance if fighting bye/TBD and this is the final round
-                if (key not in lb_results and
-                    match['winner'] is not None and
-                    (match['p1'] in ('Freilos', 'TBD') or match['p2'] in ('Freilos', 'TBD'))):
-                    lb_results[key] = match['winner']
-                    # Sync to DB (skip if already synced)
-                    bye_key = (bracket_key, 'lb', last_round_idx, m)
-                    if self.db_service and bye_key not in self._bye_db_synced:
-                        p1, p2 = match['p1'], match['p2']
-                        p1_name = p1 if p1 not in ('Freilos', 'TBD') else 'Freilos'
-                        p2_name = p2 if p2 not in ('Freilos', 'TBD') else 'Freilos'
-                        self.db_service.record_fight_result(
-                            bracket_key, 'lb', last_round_idx, m,
-                            match['winner'], p1_name=p1_name, p2_name=p2_name)
-                        self._bye_db_synced.add(bye_key)
-
-        self.loser_match_results[bracket_key] = lb_results
-
-        total_height = wb_max_y
-        total_width = wb_max_x
-
-        if loser_rounds:
-            SECTION_GAP = int(60 * z)
-            lb_y_start = wb_max_y + SECTION_GAP
-
-            # Section divider
-            div_y = wb_max_y + SECTION_GAP // 2
-            self._canvas.create_line(
-                SX, div_y, wb_max_x - SX, div_y,
-                fill=COLORS['accent_orange'], width=1, dash=(6, 4))
-            self._canvas.create_text(
-                SX, div_y - int(10 * z),
-                text='Losers Bracket',
-                anchor='w', fill=COLORS['accent_orange'],
-                font=('Arial', max(8, int(11 * z)), 'bold'))
-
-            lb_max_y = self._render_loser_bracket(
-                loser_rounds, lb_y_start,
-                z, BW, BH, XG, YG, SX, FS, LW)
-
-            lb_max_x = SX + len(loser_rounds) * (BW + XG) + SX
-            total_height = lb_max_y + SY
-            total_width = max(wb_max_x, lb_max_x)
-
-        self._canvas.configure(scrollregion=(0, 0, total_width, total_height))
+    @staticmethod
+    def _name_color(name, won, decided):
+        """Return the display colour for a fighter name based on match state."""
+        if name == 'Freilos':
+            return COLORS['text_disabled']
+        if name == 'TBD':
+            return COLORS['text_muted']
+        if won:
+            return COLORS['accent_green']
+        if decided and not won:
+            return COLORS['accent_red']
+        return COLORS['text_primary']
 
     # ------------------------------------------------------------ clicking
 
@@ -847,73 +807,82 @@ class FightMonitoringScreen(tk.Frame):
             logger.debug("Click handler: no current bracket key")
             return
 
-        logger.debug(f"Canvas click on bracket '{self.current_bracket_key}' at ({event.x}, {event.y})")
-        method = self.bracket_generation_methods.get(self.current_bracket_key)
-        if method in ('pools', 'double'):
-            cx = self._canvas.canvasx(event.x)
-            cy = self._canvas.canvasy(event.y)
-
-            # KO bracket boxes (clickable like regular KO)
-            for (r, m), (x1, y1, x2, y2, p1, p2) in self._ko_match_boxes.items():
-                if not (x1 <= cx <= x2 and y1 <= cy <= y2):
-                    continue
-                # Only block if BOTH are missing or TBD
-                if not p1 or not p2:
-                    return
-                if p1 == 'TBD' and p2 == 'TBD':
-                    return
-
-                # If clicking TBD opponent, only select the real person
-                if p1 == 'TBD':
-                    clicked = p2
-                elif p2 == 'TBD':
-                    clicked = p1
-                else:
-                    clicked = p1 if cy <= (y1 + y2) / 2 else p2
-                bkey = self.current_bracket_key
-                results = self.ko_match_results.setdefault(bkey, {})
-                current = results.get((r, m))
-                if current == clicked:
-                    del results[(r, m)]
-                    if r == 0:
-                        # Undoing a semi invalidates the final
-                        if self.db_service:
-                            self.db_service.delete_fight_position(bkey, 'wb', 1, 0)
-                        results.pop((1, 0), None)
-                    if self.db_service:
-                        self.db_service.reset_fight_result(bkey, 'wb', r, m)
-                else:
-                    if current is not None and r == 0:
-                        # Changing a semi: the final gets new participants
-                        if self.db_service:
-                            self.db_service.delete_fight_position(bkey, 'wb', 1, 0)
-                        results.pop((1, 0), None)
-                    results[(r, m)] = clicked
-                    logger.info(f"Fight result set: bracket='{bkey}', wb r{r} m{m}: {p1} vs {p2} -> Winner: {clicked}")
-                    if self.db_service:
-                        logger.debug(f"Recording fight result to DB for '{bkey}'")
-                        self.db_service.record_fight_result(
-                            bkey, 'wb', r, m, clicked, p1_name=p1, p2_name=p2)
-                self._render(bkey)
-                return
-
-            # Pool score cells
-            for cell_key, (x1, y1, x2, y2) in self._pool_cells.items():
-                if x1 <= cx <= x2 and y1 <= cy <= y2:
-                    self._start_cell_edit(cell_key, x1, y1, x2, y2)
-                    return
-            return
-
+        bkey = self.current_bracket_key
         cx = self._canvas.canvasx(event.x)
         cy = self._canvas.canvasy(event.y)
+        logger.debug(f"Canvas click on bracket '{bkey}' at ({event.x}, {event.y})")
 
-        # Check losers bracket boxes first (they sit below WB, no overlap)
+        method = self.bracket_generation_methods.get(bkey)
+        if method in ('pools', 'double'):
+            self._handle_pool_click(cx, cy, bkey)
+        else:
+            if not self._handle_lb_click(cx, cy, bkey):
+                self._handle_wb_click(cx, cy, bkey)
+
+    def _handle_pool_click(self, cx, cy, bkey):
+        """Handle a click when the current bracket uses the pool/double method.
+
+        Checks KO phase match boxes first, then falls through to score cell edits.
+        """
+        # KO bracket boxes (pool KO phase — clickable like regular KO)
+        for (r, m), (x1, y1, x2, y2, p1, p2) in self._ko_match_boxes.items():
+            if not (x1 <= cx <= x2 and y1 <= cy <= y2):
+                continue
+            if not p1 or not p2:
+                return
+            if p1 == 'TBD' and p2 == 'TBD':
+                return
+
+            if p1 == 'TBD':
+                clicked = p2
+            elif p2 == 'TBD':
+                clicked = p1
+            else:
+                clicked = p1 if cy <= (y1 + y2) / 2 else p2
+
+            results = self.ko_match_results.setdefault(bkey, {})
+            current = results.get((r, m))
+            if current == clicked:
+                del results[(r, m)]
+                if r == 0:
+                    # Undoing a semi invalidates the final
+                    if self.db_service:
+                        self.db_service.delete_fight_position(bkey, 'wb', 1, 0)
+                    results.pop((1, 0), None)
+                if self.db_service:
+                    self.db_service.reset_fight_result(bkey, 'wb', r, m)
+            else:
+                if current is not None and r == 0:
+                    # Changing a semi: the final gets new participants
+                    if self.db_service:
+                        self.db_service.delete_fight_position(bkey, 'wb', 1, 0)
+                    results.pop((1, 0), None)
+                results[(r, m)] = clicked
+                logger.info(f"Fight result set: bracket='{bkey}', wb r{r} m{m}: {p1} vs {p2} -> Winner: {clicked}")
+                if self.db_service:
+                    logger.debug(f"Recording fight result to DB for '{bkey}'")
+                    self.db_service.record_fight_result(bkey, 'wb', r, m, clicked, p1_name=p1, p2_name=p2)
+            self._render(bkey)
+            return
+
+        # Pool score cells
+        for cell_key, (x1, y1, x2, y2) in self._pool_cells.items():
+            if x1 <= cx <= x2 and y1 <= cy <= y2:
+                self._start_cell_edit(cell_key, x1, y1, x2, y2)
+                return
+
+    def _handle_lb_click(self, cx, cy, bkey) -> bool:
+        """Handle a click in the loser bracket area.
+
+        Returns True if a loser bracket box was hit (consumed), False if the
+        click missed all LB boxes and should fall through to the WB handler.
+        """
         for (r, m), (x1, y1, x2, y2, p1, p2) in self._loser_match_boxes.items():
             if not (x1 <= cx <= x2 and y1 <= cy <= y2):
                 continue
             if p1 in ('Freilos', 'TBD') and p2 in ('Freilos', 'TBD'):
                 logger.debug(f"LB click ignored: both slots are '{p1}'/'{p2}' at R{r} pos{m}")
-                return
+                return True
 
             if p1 in ('Freilos', 'TBD'):
                 clicked = p2
@@ -921,10 +890,9 @@ class FightMonitoringScreen(tk.Frame):
                 clicked = p1
             else:
                 clicked = p1 if cy <= (y1 + y2) / 2 else p2
-            bkey = self.current_bracket_key
+
             lb_results = self.loser_match_results.setdefault(bkey, {})
             current = lb_results.get((r, m))
-
             logger.info(
                 f"[LB CLICK] '{bkey}' R{r} pos{m}: '{p1}' vs '{p2}' | "
                 f"clicked='{clicked}', current_winner='{current}'"
@@ -954,35 +922,34 @@ class FightMonitoringScreen(tk.Frame):
                     logger.info(f"[LB CLICK] Setting winner '{clicked}' at R{r} pos{m}")
                 lb_results[(r, m)] = clicked
                 if self.db_service:
-                    self.db_service.record_fight_result(
-                        bkey, 'lb', r, m, clicked, p1_name=p1, p2_name=p2)
-
+                    self.db_service.record_fight_result(bkey, 'lb', r, m, clicked, p1_name=p1, p2_name=p2)
                     # Re-compute placements (3rd places come from LB)
                     self._maybe_compute_placements(bkey)
 
             self._render(bkey)
-            return
+            return True
 
+        return False
+
+    def _handle_wb_click(self, cx, cy, bkey):
+        """Handle a click in the winner bracket area."""
         for (r, m), (x1, y1, x2, y2, p1, p2) in self._match_boxes.items():
             if not (x1 <= cx <= x2 and y1 <= cy <= y2):
                 continue
             # Only block if BOTH are bye/unknown (can't click pure-bye match)
-            # Allow clicking if one side is real (auto-advance that person)
             if p1 in ('Freilos', 'TBD') and p2 in ('Freilos', 'TBD'):
                 logger.debug(f"WB click ignored: both slots are '{p1}'/'{p2}' at R{r} pos{m}")
                 return
 
-            # If clicking TBD opponent, only select the real person
             if p1 in ('Freilos', 'TBD'):
                 clicked = p2
             elif p2 in ('Freilos', 'TBD'):
                 clicked = p1
             else:
                 clicked = p1 if cy <= (y1 + y2) / 2 else p2
-            bkey = self.current_bracket_key
+
             results = self.match_results.setdefault(bkey, {})
             current = results.get((r, m))
-
             logger.info(
                 f"[WB CLICK] '{bkey}' R{r} pos{m}: '{p1}' vs '{p2}' | "
                 f"clicked='{clicked}', current_winner='{current}'"
@@ -1017,9 +984,7 @@ class FightMonitoringScreen(tk.Frame):
                     logger.info(f"[WB CLICK] Setting winner '{clicked}' at R{r} pos{m}")
                 results[(r, m)] = clicked
                 if self.db_service:
-                    self.db_service.record_fight_result(
-                        bkey, 'wb', r, m, clicked, p1_name=p1, p2_name=p2)
-
+                    self.db_service.record_fight_result(bkey, 'wb', r, m, clicked, p1_name=p1, p2_name=p2)
                     # Check if this was the final — if so, compute placements
                     self._maybe_compute_placements(bkey)
 

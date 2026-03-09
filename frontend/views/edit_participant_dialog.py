@@ -10,7 +10,9 @@ from tkinter import messagebox
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+_edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if _edv_backend_path not in sys.path:
+    sys.path.insert(0, _edv_backend_path)
 from utils.logging import get_logger  # noqa: E402
 from backend.services.bracket_service import get_age_group as get_age_group_with_fallback  # noqa: E402
 from backend.services.bracket_service import validate_age_from_birthyear  # noqa: E402
@@ -756,6 +758,18 @@ class Edit_Participants(tk.Toplevel):
 
         moved_fighter = old_fighters.pop(self.fighter_idx)
         self.parent.brackets[self.bracket_key]['bracket'] = []
+
+        # Explicitly set rejection_reason so create_quarantine_bracket places the
+        # fighter in the correct QUARANTINE_* bucket instead of falling back to 'unknown'.
+        # self.fighter is already updated by _apply_to_fighter at this point.
+        if not moved_fighter.get('Paid', False):
+            moved_fighter['rejection_reason'] = 'unpaid'
+        elif not moved_fighter.get('Valid', True):
+            moved_fighter['rejection_reason'] = 'marked_invalid'
+        else:
+            birthyear = moved_fighter.get('Birthyear') or moved_fighter.get('Age')
+            _, _, _, reason = validate_age_from_birthyear(birthyear)
+            moved_fighter['rejection_reason'] = reason
 
         display_key = None
         if self.parent.quarantine_service:

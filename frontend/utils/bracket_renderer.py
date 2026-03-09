@@ -8,7 +8,9 @@ import os
 import tkinter as tk
 
 # Setup path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+_edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if _edv_backend_path not in sys.path:
+    sys.path.insert(0, _edv_backend_path)
 
 from utils.logging import get_logger
 
