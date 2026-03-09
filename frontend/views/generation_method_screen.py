@@ -28,7 +28,14 @@ from ..styles import (  # noqa: E402
     apply_listbox_style,
     create_dark_frame,
 )
-from ..search_utils import filter_items  # noqa: E402
+from ..utils.search_utils import filter_items
+
+# ===== DEBUG CONFIGURATION =====
+# Set to True to print debug logs to console; False to only log to file
+DEBUG = True
+# ==============================
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 # ===== DEBUG CONFIGURATION =====
 # Set to True to print debug logs to console; False to only log to file
