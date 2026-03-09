@@ -728,8 +728,6 @@ class Edit_Participants(tk.Toplevel):
 
         target_key = None
         for bk, bd in self.parent.brackets.items():
-            if bk.startswith('QUARANTINE_'):
-                continue
             for f in bd.get('fighters', []):
                 if f.get('_tracking_id') == tracking_id:
                     target_key = bk
