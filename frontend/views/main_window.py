@@ -44,6 +44,7 @@ from ..services.ui_feedback_service import UIFeedbackService  # noqa: E402
 from ..services.data_loader_service import DataLoaderService  # noqa: E402
 from ..navigation_bar import NavigationBar  # noqa: E402
 from ..screen_manager import ScreenManager  # noqa: E402
+from ..data_transformation_pipeline import DataTransformationPipeline  # noqa: E402
 
 # ====================================================================
 # !!!!! CLAUDE: REFACTORING INSTRUCTIONS !!!!!
@@ -176,6 +177,13 @@ class BracketViewerApp(tk.Tk):
         # Create screen manager (controls navigation and lifecycle)
         self.screen_manager = ScreenManager(self, self.nav_bar)
         self.logger.debug("Screen manager created")
+
+        # Create data transformation pipeline (orchestrates business logic)
+        # headless=False means include UI-only operations (normal mode)
+        self.data_pipeline = DataTransformationPipeline(self, headless=False)
+        self.screen_manager.set_data_pipeline(self.data_pipeline)
+        self.logger.debug("Data transformation pipeline created and wired to ScreenManager")
+
 
         # Define factory functions for screens with complex initialization
         def bracket_viewer_factory(main_window):

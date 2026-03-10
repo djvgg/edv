@@ -35,16 +35,19 @@ class ScreenManager:
     - Handle screen transitions with validation
     """
     
-    def __init__(self, main_window, nav_bar):
+    def __init__(self, main_window, nav_bar, data_pipeline=None):
         """
         Initialize ScreenManager.
         
         Args:
             main_window: The main application window (BracketViewerApp)
             nav_bar: The NavigationBar component
+            data_pipeline: Optional DataTransformationPipeline instance.
+                          If None, will be created later or not used.
         """
         self.main_window = main_window
         self.nav_bar = nav_bar
+        self.data_pipeline = data_pipeline
         self.logger = logger
         
         # Screen management
@@ -69,6 +72,18 @@ class ScreenManager:
         self.nav_bar.on_tab_click = self.navigate_to
         
         self.logger.debug("ScreenManager initialized")
+    
+    def set_data_pipeline(self, data_pipeline):
+        """
+        Set the data transformation pipeline.
+        Called by main_window after pipeline is created.
+        
+        Args:
+            data_pipeline: DataTransformationPipeline instance
+        """
+        self.data_pipeline = data_pipeline
+        self.logger.debug("DataTransformationPipeline attached to ScreenManager")
+    
     
     def register_screen(self, screen_key, screen_class, label, locked=False, screen_factory=None):
         """
@@ -191,6 +206,18 @@ class ScreenManager:
                 self.logger.error(f"Error in on_hide(): {e}")
                 return False
         
+        # Execute data transformations before showing new screen
+        if self.data_pipeline:
+            try:
+                wait_for_db = getattr(self.main_window, 'wait_for_db_service', None)
+                success = self.data_pipeline.transform_before_entering(screen_key, wait_for_db)
+                if not success:
+                    self.logger.warning(f"Data transformations failed for {screen_key}")
+                    # Don't block navigation, just warn - allow screen to handle missing data
+            except Exception as e:
+                self.logger.error(f"Error in data transformations for {screen_key}: {e}")
+                # Don't block navigation for transformation errors
+        
         # Hide current screen content (don't destroy it - just unpack)
         if current_screen:
             try:
@@ -198,6 +225,7 @@ class ScreenManager:
                 self.logger.debug(f"Unpacked screen: {self.current_screen_key}")
             except Exception as e:
                 self.logger.error(f"Error unpacking screen: {e}")
+
         
         # Show new screen (pack into content_frame)
         try:
@@ -268,6 +296,28 @@ class ScreenManager:
             True if screen is stale, False otherwise
         """
         return self.screen_staleness.get(screen_key, False)
+    
+    def is_screen_stale(self, screen_key) -> bool:
+        """
+        Check if a screen has stale data.
+        
+        Args:
+            screen_key: The screen to check
+            
+        Returns:
+            True if screen is stale (needs data refresh)
+        """
+        return self.screen_staleness.get(screen_key, False)
+    
+    def mark_screen_stale(self, screen_key):
+        """
+        Mark a screen as stale.
+        
+        Args:
+            screen_key: The screen to mark as stale
+        """
+        self.screen_staleness[screen_key] = True
+        self.logger.debug(f"Marked as stale: {screen_key}")
     
     def mark_screen_clean(self, screen_key):
         """
