@@ -18,38 +18,17 @@ _edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'
 if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
 from utils.logging import get_logger  # noqa: E402
+from utils.helpers import normalize_gender as _normalize_gender, split_name as _split_name, parse_bracket_key as _parse_bracket_key  # noqa: E402
 
+import re as _re
 
-def _parse_bracket_key(bracket_key: str):
-    """Parse 'M | U13 | -50kg' → ('M', 'U13', '-50kg')."""
-    parts = [p.strip() for p in bracket_key.split('|')]
-    if len(parts) == 3:
-        return parts[0], parts[1], parts[2]
-    raise ValueError(f"Cannot parse bracket key: {bracket_key!r}")
+def _is_pool_key(key: str) -> bool:
+    """Return True for 'U9 | Pool N' or 'U11 | Pool N' style bracket keys."""
+    return bool(_re.match(r'^(U9|U11) \| Pool \d+$', key))
 
-
-def _split_name(full_name: str):
-    """
-    Split 'Vorname Nachname' → (first_name, last_name).
-    Uses rsplit so multi-word first names are preserved:
-      'John Doe'          → ('John', 'Doe')
-      'John Van Der Berg' → ('John Van Der', 'Berg')
-    Must match the logic used in _map_participant_data() so lookups are consistent.
-    """
-    parts = full_name.rsplit(' ', 1)
-    if len(parts) == 2:
-        return parts[0], parts[1]
-    return full_name, ''
-
-
-def _normalize_gender(raw: str) -> str:
-    """Normalize any gender string to 'm' or 'w'."""
-    v = str(raw).lower().strip()
-    if v in ('m', 'male', 'maennlich', 'männlich','mann'):
-        return 'm'
-    if v in ('w', 'f', 'female', 'weiblich', 'frau'):
-        return 'w'
-    return v[0] if v else 'm'  # best-effort fallback
+def _parent_key_for_pool(pool_key: str) -> str:
+    """Extract age-group prefix: 'U11 | Pool 3' → 'U11'."""
+    return pool_key.split(' | ')[0]
 
 
 class TournamentService:
@@ -296,11 +275,24 @@ class TournamentService:
         Write brackets table only. Groups and group_participants must already exist.
         Upserts: creates new bracket rows or updates bracket_type if the row already exists.
         Skips brackets that have no assigned method yet.
+
+        Pool brackets ('U9 | Pool N' / 'U11 | Pool N') have no pre-existing group row —
+        their parent was stored as 'U9'/'U11'. We create a pool-specific group here and
+        populate its group_participants from the in-memory fighters slice.
         """
         for bracket_key, bracket_data in brackets_dict.items():
             group = self.groups.get_by_name(bracket_key)
             if not group:
-                continue
+                if not _is_pool_key(bracket_key):
+                    continue  # skip Unassigned / unknown keys
+                # Pool bracket: materialise a group row for this pool
+                age_group = _parent_key_for_pool(bracket_key)
+                group = self.groups.get_or_create(name=bracket_key, age_group=age_group)
+                # Link this pool's fighters to the new group
+                for fighter in bracket_data.get('fighters', []):
+                    participant = self._find_participant(fighter)
+                    if participant:
+                        self.groups.add_participant(group.id, participant.id)
 
             method = generation_methods.get(bracket_key)
             if not method:
@@ -641,9 +633,9 @@ class TournamentService:
                     # If not decided yet, both are candidates
                     third_place_gps.add(f.participant1_id)
                     third_place_gps.add(f.participant2_id)
-            # Remove byes (where p1==p2) and already-placed people
-            third_place_gps -= {first_gp, second_gp}
-            third_list = sorted(third_place_gps)
+            # Remove already-placed people and Freilos/None values
+            third_place_gps -= {first_gp, second_gp, None}
+            third_list = sorted(x for x in third_place_gps if x is not None)
             third_1 = third_list[0] if len(third_list) > 0 else None
             third_2 = third_list[1] if len(third_list) > 1 else None
 

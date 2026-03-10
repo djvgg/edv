@@ -15,6 +15,7 @@ import os
 from tkinter import filedialog
 
 from utils.logging import get_logger
+from utils.helpers import normalize_gender, split_name
 from utils.task_runner import TaskRunner
 from backend.services.bracket_service import export_all_brackets, validate_age_from_birthyear
 from frontend.utils import (
@@ -194,6 +195,8 @@ class DataLoaderService:
             if self.ui_feedback:
                 self.ui_feedback.update_progress(40)
             if self.db_service:
+                self.logger.info("Flushing old data before loading new XLSX...")
+                self.db_service.clear_all_data()
                 self.db_service.save_participants(participants)
                 # Single Source of Truth: Fetch back from DB to eliminate any duplicates that were skipped
                 participants = self.db_service.fetch_participants() or participants
@@ -436,13 +439,12 @@ class DataLoaderService:
                         except (ValueError, TypeError):
                             validation_errors.append(f"Weight must be number, got: {weight}")
                     
-                    gender = str(participant.get('Gender', '')).strip().lower()
-                    if gender in ['m', 'male', 'maennlich', 'männlich']:
-                        participant['Gender'] = 'male'
-                    elif gender in ['w', 'f', 'female', 'weiblich', 'frau']:
-                        participant['Gender'] = 'female'
+                    gender_raw = str(participant.get('Gender', '')).strip()
+                    gender_norm = normalize_gender(gender_raw) if gender_raw else ''
+                    if gender_norm in ('m', 'w'):
+                        participant['Gender'] = gender_norm
                     else:
-                        validation_errors.append(f"Gender must be male/female/männlich/weiblich, got: {gender}")
+                        validation_errors.append(f"Gender must be m/w/männlich/weiblich, got: {gender_raw}")
                     
                     if validation_errors:
                         error_msg = f"Participant {idx} validation failed:\n" + "\n".join(f"  • {err}" for err in validation_errors) + f"\nFile: {filename}"
@@ -478,6 +480,8 @@ class DataLoaderService:
                 return
 
             if self.db_service:
+                self.logger.info("Flushing old data before loading new JSONs...")
+                self.db_service.clear_all_data()
                 self.db_service.save_participants(all_participants)
                 # Single Source of Truth: Fetch back from DB to eliminate any duplicates that were skipped
                 all_participants = self.db_service.fetch_participants() or all_participants
@@ -621,11 +625,10 @@ class DataLoaderService:
                             break
                 
                 # Normalize gender
-                if gender in ['m', 'male', 'männlich', 'maennlich']:
-                    gender_normalized = 'male'
-                elif gender in ['w', 'female', 'weiblich', 'f']:
-                    gender_normalized = 'female'
-                else:
+                gender_normalized = normalize_gender(gender) if gender else ''
+                if gender_normalized not in ('m', 'w'):
+                    gender_normalized = ''
+                if not gender_normalized:
                     # Skip participants with missing gender
                     participant_name = p.get('Name', f"ID {idx}")
                     skipped_participants.append({
@@ -637,10 +640,7 @@ class DataLoaderService:
                     continue
                 
                 # Split full name
-                full_name = p.get('Name', '')
-                name_parts = full_name.split(' ', 1)
-                firstname = name_parts[0] if len(name_parts) > 0 else ''
-                lastname = name_parts[1] if len(name_parts) > 1 else ''
+                firstname, lastname = split_name(p.get('Name', ''))
                 
                 # Extract birthyear
                 birthyear = None
@@ -676,7 +676,7 @@ class DataLoaderService:
                     'Paid': paid
                 }
                 
-                if gender_normalized == 'male':
+                if gender_normalized == 'm':
                     male_contestants.append(contestant)
                 else:
                     female_contestants.append(contestant)
