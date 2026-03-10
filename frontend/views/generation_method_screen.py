@@ -82,6 +82,10 @@ class GenerationMethodScreen(tk.Frame):
         self.search_entry = None
         self.tables = {}  # {method: {listbox, unassign_btn}}
         
+        # Callbacks (for new navigation system)
+        self.on_back_callback = None  # Callback when back button clicked
+        self.on_generation_complete = None  # Callback when generation complete with final assignments
+        
         # Load method labels from config
         self.method_labels = {}  # {method_key: {'ButtonLabel': str, 'DisplayLabel': str}}
         self._load_method_labels()
@@ -368,7 +372,12 @@ class GenerationMethodScreen(tk.Frame):
     def on_back(self):
         """Go back to group preview screen."""
         self.logger.info("User navigated back to group preview")
-        self.master.show_group_preview_window()
+        # Use new callback if available
+        if self.on_back_callback and callable(self.on_back_callback):
+            self.on_back_callback()
+        # Fallback for backward compatibility
+        elif hasattr(self.master, 'show_group_preview_window'):
+            self.master.show_group_preview_window()
 
     def on_search(self):
         """Filter unassigned brackets by search term (supports multiple terms with AND logic)."""
@@ -635,8 +644,11 @@ class GenerationMethodScreen(tk.Frame):
                 methods_count[method] = methods_count.get(method, 0) + 1
             self.logger.debug(f"DEBUG: Final distribution - {methods_count}")
 
-        # Call callback if available
-        if hasattr(self.master, 'on_generation_methods_selected'):
+        # Call callback if available (new callback system)
+        if self.on_generation_complete:
+            self.on_generation_complete(final_brackets)
+        # Fallback for backward compatibility with old system
+        elif hasattr(self.master, 'on_generation_methods_selected'):
             self.master.on_generation_methods_selected(final_brackets)
         else:
             self.logger.warning("No callback set for generation method selection")

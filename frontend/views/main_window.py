@@ -43,6 +43,7 @@ from ..services.quarantine_service import QuarantineService  # noqa: E402
 from ..services.ui_feedback_service import UIFeedbackService  # noqa: E402
 from ..services.data_loader_service import DataLoaderService  # noqa: E402
 from ..navigation_bar import NavigationBar  # noqa: E402
+from ..screen_manager import ScreenManager  # noqa: E402
 
 # ====================================================================
 # !!!!! CLAUDE: REFACTORING INSTRUCTIONS !!!!!
@@ -167,12 +168,57 @@ class BracketViewerApp(tk.Tk):
         self.nav_bar.pack(fill=tk.X, side=tk.TOP, padx=0, pady=0)
         self.logger.debug("Navigation bar created")
 
-        # Add initial tab for file loader
-        self.nav_bar.add_tab('file_loader', 'File Loader')
-        self.nav_bar.set_active_tab('file_loader')
+        # Create content frame for screens (below nav bar)
+        self.content_frame = tk.Frame(self, bg=COLORS['bg_dark'])
+        self.content_frame.pack(fill=tk.BOTH, expand=True, side=tk.TOP)
+        self.logger.debug("Content frame created")
+
+        # Create screen manager (controls navigation and lifecycle)
+        self.screen_manager = ScreenManager(self, self.nav_bar)
+        self.logger.debug("Screen manager created")
+
+        # Define factory functions for screens with complex initialization
+        def bracket_viewer_factory(main_window):
+            """Factory for TableAndBracketViewer - requires main_window reference"""
+            return TableAndBracketViewer(self.content_frame, main_window=self)
+        
+        def fight_monitoring_factory(main_window):
+            """Factory for FightMonitoringScreen - requires data from main_window"""
+            return FightMonitoringScreen(
+                parent=self.content_frame,
+                brackets=self.brackets,
+                bracket_table_assignment=self.bracket_table_assignment,
+                bracket_generation_methods=self.bracket_generation_methods,
+                match_results=self.match_results,
+                loser_match_results=self.loser_match_results,
+                pool_cell_values=self.pool_cell_values,
+                ko_bracket_data=self.ko_bracket_data,
+                ko_match_results=self.ko_match_results,
+                db_service=self.db_service,
+            )
+
+        # Register all screens
+        self.screen_manager.register_screen(
+            'file_loader', FileLoaderScreen, 'File Loader', locked=False
+        )
+        self.screen_manager.register_screen(
+            'group_preview', GroupPreviewScreen, 'Group Preview', locked=False
+        )
+        self.screen_manager.register_screen(
+            'generation_method', GenerationMethodScreen, 'Generation Method', locked=False
+        )
+        self.screen_manager.register_screen(
+            'bracket_viewer', None, 'Bracket Viewer', locked=False, 
+            screen_factory=bracket_viewer_factory
+        )
+        self.screen_manager.register_screen(
+            'fight_monitoring', None, 'Fight Monitoring', locked=False,
+            screen_factory=fight_monitoring_factory
+        )
+        self.logger.debug("All screens registered with ScreenManager")
 
         # Start with file loading UI
-        self.show_file_loader()
+        self.screen_manager.navigate_to('file_loader')
 
     def _init_database_service_thread(self):
         """Initialize database service in a background thread to avoid blocking UI."""
@@ -217,116 +263,162 @@ class BracketViewerApp(tk.Tk):
                  background=[('active', SCROLLBAR_ACTIVE_STYLE['background'])],
                  arrowcolor=[('active', SCROLLBAR_ACTIVE_STYLE['arrowcolor'])])
 
-    def show_file_loader(self):
-        """Show file loading screen."""
-        # Update nav bar
-        self.nav_bar.set_active_tab('file_loader')
-
-        # Clear any existing widgets (except nav bar)
-        for widget in self.winfo_children():
-            if widget != self.nav_bar:
-                widget.destroy()
-
-        # Create the file loader screen
-        loader_screen = FileLoaderScreen(self)
-        loader_screen.pack(fill=tk.BOTH, expand=True)
-
-        # Store reference and set up callbacks
-        self.file_loader_screen = loader_screen
-        loader_screen.on_load_xlsx = self.load_and_generate
-        loader_screen.on_load_database = self.load_from_database
-        loader_screen.on_load_json = self.load_json_and_generate
-        loader_screen.on_split_gender = self.split_gender_to_json
-        loader_screen.on_flush_database = self._flush_database
+    def check_screen_prerequisites(self, screen_key):
+        """
+        Check if a screen can be navigated to based on available data.
         
-        # Register variables with ui_feedback service if they exist
-        if hasattr(loader_screen, 'status_var') and hasattr(loader_screen, 'status_label'):
-            self.ui_feedback.set_status_label_reference(loader_screen.status_label, loader_screen.status_var)
-        if hasattr(loader_screen, 'info_var'):
-            self.ui_feedback.set_info_var_reference(loader_screen.info_var)
-        self.ui_feedback.set_file_loader_screen_reference(loader_screen)
+        Args:
+            screen_key: The screen identifier
+            
+        Returns:
+            True if navigation is allowed, False if prerequisites not met
+        """
+        # file_loader can always be navigated to
+        if screen_key == 'file_loader':
+            return True
+        
+        # All other screens require brackets to be loaded
+        if not self.brackets:
+            self.logger.warning(f"Cannot navigate to {screen_key}: no brackets loaded")
+            self.logger.info("Redirecting to file_loader to load data first")
+            # Redirect to file_loader
+            if self.screen_manager.current_screen_key != 'file_loader':
+                self.screen_manager.navigate_to('file_loader')
+            return False
+        
+        return True
 
-        self.logger.debug("File loader screen displayed")
+    def setup_screen_callbacks(self, screen_key, screen):
+        """
+        Wire up callbacks for a screen based on its type.
+        Called by ScreenManager after screen creation.
+        
+        Args:
+            screen_key: The screen identifier (e.g., 'file_loader')
+            screen: The screen instance
+        """
+        if screen_key == 'file_loader':
+            # FileLoaderScreen callbacks
+            screen.on_load_xlsx = self.load_and_generate
+            screen.on_load_database = self.load_from_database
+            screen.on_load_json = self.load_json_and_generate
+            screen.on_split_gender = self.split_gender_to_json
+            screen.on_flush_database = self._flush_database
+            
+            # Register UI feedback references
+            if hasattr(screen, 'status_var') and hasattr(screen, 'status_label'):
+                self.ui_feedback.set_status_label_reference(screen.status_label, screen.status_var)
+            if hasattr(screen, 'info_var'):
+                self.ui_feedback.set_info_var_reference(screen.info_var)
+            self.ui_feedback.set_file_loader_screen_reference(screen)
+            
+            self.logger.debug("Wired FileLoaderScreen callbacks")
+        
+        elif screen_key == 'group_preview':
+            # GroupPreviewScreen callbacks and data loading
+            screen.on_back = lambda: self.screen_manager.navigate_to('file_loader')
+            screen.on_continue = lambda: self.screen_manager.navigate_to('generation_method')
+            screen.on_resort = lambda edited_fighter: self.quarantine_service.resort_brackets(
+                self.brackets, edited_fighter, screen
+            )
+            
+            # Data loading and preparation
+            from utils.bracket_utils import merge_u9_u11_pools
+            self.brackets = merge_u9_u11_pools(self.brackets)
+            self.quarantine_service.restore_quarantine(self.brackets)
+            screen.load_data(self.brackets)
+            
+            # Resize window for this screen
+            self.geometry('1000x600')
+            
+            self.logger.debug("Wired GroupPreviewScreen callbacks and loaded data")
+        
+        elif screen_key == 'generation_method':
+            # GenerationMethodScreen callbacks and data transformation
+            screen.on_generation_complete = self.on_generation_methods_selected
+            screen.on_back_callback = lambda: self.screen_manager.navigate_to('group_preview')
+            
+            # Data transformation before showing
+            self.db_service.save_groups(self.brackets)
+            self.quarantine_service.extract_quarantine(self.brackets)
+            
+            from utils.bracket_utils import split_u9_u11_into_pools
+            self.brackets = split_u9_u11_into_pools(self.brackets)
+            
+            # Prepare bracket data for the screen
+            brackets_dict = {}
+            for bracket_key, bracket_data in self.brackets.items():
+                fighters = bracket_data.get('fighters', [])
+                cached_method = self.bracket_generation_methods.get(bracket_key)
+                brackets_dict[bracket_key] = {
+                    'tuple': fighters,
+                    'method': cached_method,
+                }
+            
+            screen.load_data(brackets_dict)
+            
+            self.logger.debug("Wired GenerationMethodScreen callbacks and loaded data")
+        
+        elif screen_key == 'bracket_viewer':
+            # TableAndBracketViewer - prepare data
+            from backend.services.bracket_service import make_bracket
+            regenerate_stale_ko_brackets(
+                self.brackets, self.bracket_generation_methods, make_bracket)
+            
+            processed = 0
+            for bracket_key, table_num in self.bracket_table_assignment.items():
+                if table_num and bracket_key in self.brackets:
+                    bracket_data = self.brackets[bracket_key]
+                    bracket_type = self.bracket_generation_methods.get(bracket_key, 'ko')
+                    fight_pairs = bracket_data.get('bracket', [])
+                    fighters = bracket_data.get('fighters', [])
+                    pool_size = bracket_data.get('pool_size')
+                    self.db_service.create_fights_for_bracket(
+                        bracket_key, fight_pairs, bracket_type=bracket_type,
+                        fighters=fighters, pool_size=pool_size)
+                    processed += 1
+            
+            self.geometry('1200x750')
+            self.logger.debug(f"Set up BracketViewer with {processed} brackets")
+        
+        elif screen_key == 'fight_monitoring':
+            # FightMonitoringScreen callbacks and data preparation
+            screen.on_back = lambda: self.screen_manager.navigate_to('bracket_viewer')
+            
+            from backend.services.bracket_service import make_bracket
+            regenerate_stale_ko_brackets(
+                self.brackets, self.bracket_generation_methods, make_bracket)
+            
+            processed = 0
+            for bracket_key, table_num in self.bracket_table_assignment.items():
+                if table_num and bracket_key in self.brackets:
+                    bracket_data = self.brackets[bracket_key]
+                    bracket_type = self.bracket_generation_methods.get(bracket_key, 'ko')
+                    fight_pairs = bracket_data.get('bracket', [])
+                    fighters = bracket_data.get('fighters', [])
+                    pool_size = bracket_data.get('pool_size')
+                    self.db_service.create_fights_for_bracket(
+                        bracket_key, fight_pairs, bracket_type=bracket_type,
+                        fighters=fighters, pool_size=pool_size)
+                    processed += 1
+            
+            # Initialize the display by showing matten view
+            screen.show_matten_view()
+            
+            self.geometry('1200x750')
+            self.logger.debug(f"Wired FightMonitoringScreen with {processed} brackets and initialized display")
+
+    def show_file_loader(self):
+        """DEPRECATED: Use screen_manager.navigate_to('file_loader') instead."""
+        self.screen_manager.navigate_to('file_loader')
 
     def show_group_preview_window(self):
-        """Show group preview screen."""
-        # Resize window
-        self.geometry('1000x600')
-        self.configure(bg=COLORS['bg_dark'])
-
-        # Update nav bar
-        self.nav_bar.add_tab('group_preview', 'Group Preview')
-        self.nav_bar.set_active_tab('group_preview')
-
-        # Clear existing widgets (except nav bar)
-        for widget in self.winfo_children():
-            if widget != self.nav_bar:
-                widget.destroy()
-
-        # Create and display preview screen
-        preview_screen = GroupPreviewScreen(self, quarantine_service=self.quarantine_service, db_service=self.db_service)
-        preview_screen.pack(fill=tk.BOTH, expand=True)
-
-        # Set up callbacks
-        preview_screen.on_back = self.show_file_loader
-        preview_screen.on_continue = self.show_generation_method_screen
-        preview_screen.on_resort = lambda edited_fighter: self.quarantine_service.resort_brackets(
-            self.brackets, edited_fighter, preview_screen
-        )
-
-        # Re-merge any split U9/U11 pools back into single buckets for the preview
-        from utils.bracket_utils import merge_u9_u11_pools
-        self.brackets = merge_u9_u11_pools(self.brackets)
-
-        # Load bracket data (QuarantineService restores preserved brackets if available)
-        self.quarantine_service.restore_quarantine(self.brackets)
-        preview_screen.load_data(self.brackets)
-
-        self.logger.debug("Group preview screen displayed")
+        """DEPRECATED: Use screen_manager.navigate_to('group_preview') instead."""
+        self.screen_manager.navigate_to('group_preview')
 
     def show_generation_method_screen(self):
-        """Show the generation method selection screen."""
-        # Sync any group preview edits to DB before proceeding
-        self.db_service.save_groups(self.brackets)
-
-        # Update nav bar
-        self.nav_bar.add_tab('generation_method', 'Generation Method')
-        self.nav_bar.set_active_tab('generation_method')
-
-        # Clear existing widgets (except nav bar)
-        for widget in self.winfo_children():
-            if widget != self.nav_bar:
-                widget.destroy()
-
-        # QuarantineService handles extraction and preservation of QUARANTINE bracket
-        self.quarantine_service.extract_quarantine(self.brackets)
-
-        # Split U9/U11 single-bucket into individual pools (fighters already sorted by weight)
-        from utils.bracket_utils import split_u9_u11_into_pools
-        self.brackets = split_u9_u11_into_pools(self.brackets)
-
-        # Create the generation method screen
-        gen_screen = GenerationMethodScreen(self)
-        gen_screen.pack(fill=tk.BOTH, expand=True)
-
-        # Prepare bracket data for the screen
-        # Convert brackets to the format expected by GenerationMethodScreen
-        # Merge with cached assignments if they exist
-        brackets_dict = {}
-        for bracket_key, bracket_data in self.brackets.items():
-            fighters = bracket_data.get('fighters', [])
-            # Use cached assignment if available, otherwise None
-            cached_method = self.bracket_generation_methods.get(bracket_key)
-            brackets_dict[bracket_key] = {
-                'tuple': fighters,
-                'method': cached_method,  # Load cached assignment or None
-            }
-
-        # Load the data into the screen
-        gen_screen.load_data(brackets_dict)
-
-        # Set up callback for when generation methods are selected
-        gen_screen.on_generation_complete = self.on_generation_methods_selected
+        """DEPRECATED: Use screen_manager.navigate_to('generation_method') instead."""
+        self.screen_manager.navigate_to('generation_method')
 
     def _log_bracket_summary(self):
         """Log a detailed summary of generated brackets."""
@@ -359,8 +451,8 @@ class BracketViewerApp(tk.Tk):
 
 
     def show_bracket_viewer(self):
-        """Show bracket viewer - delegates to TableAndBracketViewer implementation."""
-        self.show_new_bracket_viewer()
+        """DEPRECATED: Use screen_manager.navigate_to('bracket_viewer') instead."""
+        self.screen_manager.navigate_to('bracket_viewer')
 
 
     def on_generation_methods_selected(self, final_assignments):
@@ -376,8 +468,8 @@ class BracketViewerApp(tk.Tk):
         self.bracket_generation_methods = final_assignments
         self.db_service.save_brackets(self.brackets, final_assignments)
 
-        # Proceed to bracket viewer
-        self.show_bracket_viewer()
+        # Proceed to bracket viewer using new navigation system
+        self.screen_manager.navigate_to('bracket_viewer')
 
     def show_tables(self):
         """DEPRECATED: This method has been moved to TableAndBracketViewer component."""
@@ -501,63 +593,8 @@ class BracketViewerApp(tk.Tk):
         old_screen.on_back = _go_back
 
     def show_fight_monitoring_screen(self):
-        """Switch to the Fight Monitoring screen."""
-        self.logger.info("show_fight_monitoring_screen() called")
-
-        # Prepare data
-        regenerate_stale_ko_brackets(
-            self.brackets, self.bracket_generation_methods, make_bracket)
-        self.logger.debug("Regenerated stale KO brackets")
-
-        # Create fight rows in DB for every assigned bracket
-        processed = 0
-        for bracket_key, table_num in self.bracket_table_assignment.items():
-            if table_num and bracket_key in self.brackets:
-                bracket_data = self.brackets[bracket_key]
-                bracket_type = self.bracket_generation_methods.get(bracket_key, 'ko')
-                fight_pairs = bracket_data.get('bracket', [])
-                fighters = bracket_data.get('fighters', [])
-                pool_size = bracket_data.get('pool_size')
-                self.db_service.create_fights_for_bracket(
-                    bracket_key, fight_pairs, bracket_type=bracket_type,
-                    fighters=fighters, pool_size=pool_size)
-                processed += 1
-
-        self.logger.info(f"Processed {processed} brackets for fight monitoring")
-
-        # Update nav bar
-        self.nav_bar.add_tab('fight_monitoring', 'Fight Monitoring')
-        self.nav_bar.set_active_tab('fight_monitoring')
-
-        # Show fight monitoring screen fullscreen
-        self.geometry('1200x750')
-        
-        for widget in self.winfo_children():
-            if widget != self.nav_bar:
-                widget.destroy()
-
-        screen = FightMonitoringScreen(
-            parent=self,
-            brackets=self.brackets,
-            bracket_table_assignment=self.bracket_table_assignment,
-            bracket_generation_methods=self.bracket_generation_methods,
-            match_results=self.match_results,
-            loser_match_results=self.loser_match_results,
-            pool_cell_values=self.pool_cell_values,
-            ko_bracket_data=self.ko_bracket_data,
-            ko_match_results=self.ko_match_results,
-            db_service=self.db_service,
-        )
-        screen.pack(fill=tk.BOTH, expand=True)
-        
-        # Back button goes back to bracket viewer
-        def _go_back_to_bracket_viewer():
-            for widget in self.winfo_children():
-                widget.destroy()
-            self.show_bracket_viewer()
-        
-        screen.on_back = _go_back_to_bracket_viewer
-        screen.show_matten_view()
+        """DEPRECATED: Use screen_manager.navigate_to('fight_monitoring') instead."""
+        self.screen_manager.navigate_to('fight_monitoring')
 
     def auto_unassign_finished_brackets(self):
         """Automatically unassign brackets where all fights are finished."""
@@ -855,7 +892,12 @@ class BracketViewerApp(tk.Tk):
 
     def on_closing(self):
         """Handle window closing - cleanup resources."""
-        self.logger.info("Application closing, shutting down task runner...")
+        self.logger.info("Application closing, shutting down...")
+        
+        # Let screen manager handle screen cleanup
+        self.screen_manager.close_app()
+        
+        # Shutdown task runner
         self.task_runner.shutdown(wait=False)  # Don't block UI, let tasks finish in background
         self.logger.close()  # Close file handlers for proper cleanup
         self.destroy()
