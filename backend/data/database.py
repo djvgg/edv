@@ -1,6 +1,25 @@
 # SPDX-FileCopyrightText: 2026 TOP Team Combat Control
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+"""
+Database initialization and configuration.
+
+**IMPORTANT DESIGN NOTE:**
+This system is used only 2 days per year (tournament period). The database is
+completely cleared after the tournament ends. Because of this ephemeral nature:
+
+- Fresh database is created each year from ORM models (Base.metadata.create_all)
+- Alembic migrations are TECHNICALLY UNNECESSARY but kept for:
+  * Future flexibility if system evolves to year-round operation
+  * Schema version history/documentation
+  * Best-practice consistency
+
+If Alembic becomes maintenance burden, can be safely removed since we only ever
+have fresh database installations (no data preservation across versions).
+
+For now: keep it simple, use ORM models as source of truth, Alembic as optional.
+"""
+
 import os
 import sys
 from sqlalchemy import create_engine
@@ -26,13 +45,17 @@ SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
 def init_db():
-    """Create all tables. Called once at startup.
+    """Create all tables from ORM models.
     
-    For schema migrations, use Alembic:
-        alembic upgrade head
+    Since database is cleared annually (ephemeral system), we always start fresh
+    from ORM model definitions. No data preservation needed during schema changes.
     
-    Base.metadata.create_all() is used for test databases and new installations.
-    For existing databases, Alembic migrations handle schema changes.
+    **Alembic Note:** Alembic migrations are available but optional for this use case.
+    They're kept for documentation and future-proofing if system becomes year-round.
+    
+    For one-time setup or debugging:
+        Base.metadata.drop_all(engine)  # Optional: clear old schema
+        Base.metadata.create_all(engine)  # Create fresh from models
     """
     logger.info("[DATABASE] Initializing database schema...")
     import backend.data.models  # noqa: F401 — models must be imported before create_all
@@ -40,12 +63,11 @@ def init_db():
     Base.metadata.create_all(engine)
     logger.info("[DATABASE] Base tables created/verified")
     
-    # Schema migrations are managed by Alembic.
-    # Run 'alembic upgrade head' after pulling new code with schema changes.
-    # For new installations, Base.metadata.create_all() above handles initial schema.
+    # NOTE: Alembic migrations would normally handle schema evolution of existing data.
+    # Since this system clears its database annually (ephemeral), all upgrades start fresh.
+    # Alembic is kept for documentation and future flexibility if system design changes.
     
     logger.info("[DATABASE] ✓ Database initialized successfully")
-    logger.info("[DATABASE] Note: Run 'alembic upgrade head' to apply any pending migrations")
 
 
 def get_db():

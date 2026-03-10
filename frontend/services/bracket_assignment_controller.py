@@ -25,6 +25,19 @@ class BracketAssignmentController:
     
     Manages both in-memory state (TournamentState) and persistence (DatabaseService)
     to ensure they stay synchronized.
+    
+    **Architectural Note:**
+    This class is separate from BracketService (backend) and TournamentService (backend)
+    to maintain a dedicated UI-facing coordination layer. While it *could* be merged into
+    an existing backend service, keeping it separate provides:
+    
+    - Future flexibility: Assignment logic can evolve independently (e.g., async operations,
+      retry strategies, caching, multiple assignment strategies without bloating core services)
+    - Clear UI/Backend boundary: Frontend services handle UI-specific coordination concerns
+    - Testability: Can mock/test assignment flows without backend service complexity
+    - Extensibility: Future features (validation rules, conflict resolution) stay localized
+    
+    If this accumulates more assignment-related methods, consider moving back to BracketService.
     """
     
     def __init__(self, state, db_service):
