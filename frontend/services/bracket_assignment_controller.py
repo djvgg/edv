@@ -9,7 +9,8 @@ ensuring state and database stay in sync.
 """
 
 from typing import Optional, Tuple
-import os, sys
+import os
+import sys
 
 _edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if _edv_backend_path not in sys.path:
