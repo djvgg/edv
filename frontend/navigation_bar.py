@@ -44,6 +44,9 @@ class NavigationBar(tk.Frame):
         self.tabs = {}
         self.active_tab = None
         
+        # Callback for tab clicks (will be set by ScreenManager)
+        self.on_tab_click = None
+        
         # UI state
         self.scroll_offset = 0  # For scrolling if too many tabs
         self.tab_width = 120  # Base width per tab
@@ -197,10 +200,17 @@ class NavigationBar(tk.Frame):
         self.logger.debug(f"Created tab widget: {screen_key} (active={is_active}, locked={is_locked})")
     
     def _on_tab_click(self, screen_key):
-        """Handle tab click (placeholder - callback will be wired later)."""
+        """Handle tab click - navigate to the clicked screen."""
         self.logger.debug(f"Tab clicked: {screen_key}")
-        # Callback will be set by ScreenManager
-        pass
+        
+        # Call the callback if it's set (by ScreenManager)
+        if self.on_tab_click and callable(self.on_tab_click):
+            try:
+                self.on_tab_click(screen_key)
+            except Exception as e:
+                self.logger.error(f"Error in tab click callback: {e}")
+        else:
+            self.logger.warning(f"No callback set for tab click on {screen_key}")
     
     def _scroll_left(self):
         """Scroll tabs left (for when too many tabs)."""

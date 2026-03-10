@@ -245,13 +245,13 @@ class TableAndBracketViewer(tk.Frame):
     
     def _on_back_to_generation(self):
         """Handle back button to generation setup."""
-        if self.main_window and hasattr(self.main_window, 'show_generation_method_screen'):
-            self.main_window.show_generation_method_screen()
+        if self.main_window:
+            self.main_window.screen_manager.navigate_to('generation_method')
     
     def _on_monitoring_clicked(self):
         """Handle fight monitoring button click."""
-        if self.main_window and hasattr(self.main_window, 'show_fight_monitoring_screen'):
-            self.main_window.show_fight_monitoring_screen()
+        if self.main_window:
+            self.main_window.screen_manager.navigate_to('fight_monitoring')
 
     def show_tables(self):
         """Show table assignment view."""

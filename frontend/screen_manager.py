@@ -65,6 +65,9 @@ class ScreenManager:
             'fight_monitoring': [],
         }
         
+        # Wire NavigationBar tab clicks to navigation
+        self.nav_bar.on_tab_click = self.navigate_to
+        
         self.logger.debug("ScreenManager initialized")
     
     def register_screen(self, screen_key, screen_class, label, locked=False, screen_factory=None):
