@@ -226,7 +226,9 @@ def export_all_brackets(participants, event_year=None):
                         age_group = 'U11'
                     else:
                         age_group = 'U9'
-                    logger.warning(f"Excel mapping missing for birth_year {birth_year!r}, mathematically fallback to '{age_group}'")
+                    # Adults (18+) are intentionally absent from the youth eligibility config — expected
+                    log_fn = logger.debug if age_group == '18+' else logger.warning
+                    log_fn(f"Birth year {birth_year!r} not in age eligibility config, fallback to '{age_group}'")
                 except Exception:
                     logger.warning(f"Missing/unknown birth year {birth_year!r} for {name!r}, defaulting to '18+'")
                     age_group = '18+'

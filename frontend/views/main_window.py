@@ -28,6 +28,7 @@ from ..state import TournamentState  # noqa: E402
 
 from ..styles import (  # noqa: E402
     COLORS,
+
     SCROLLBAR_STYLE,
     SCROLLBAR_ACTIVE_STYLE,
     create_dark_frame,

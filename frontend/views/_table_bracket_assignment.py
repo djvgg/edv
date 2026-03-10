@@ -172,9 +172,9 @@ class _AssignmentMixin:
             scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
             canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-            # Add assigned brackets to this table
-            for bracket_key, assigned_table in self.main_window.bracket_table_assignment.items():
-                if assigned_table == table_num and len(self.main_window.brackets[bracket_key].get('fighters', [])) > 0:
+            # Add assigned brackets to this table (read via controller)
+            for bracket_key in self.main_window.bracket_controller.get_brackets_for_table(table_num):
+                if len(self.main_window.brackets.get(bracket_key, {}).get('fighters', [])) > 0:
                     # Create row frame
                     row_frame = create_dark_frame(content_frame)
                     row_frame.pack(fill=tk.X, pady=2, padx=4)

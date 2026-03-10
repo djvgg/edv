@@ -20,6 +20,16 @@ if _edv_backend_path not in sys.path:
 from utils.logging import get_logger  # noqa: E402
 from utils.helpers import normalize_gender as _normalize_gender, split_name as _split_name, parse_bracket_key as _parse_bracket_key  # noqa: E402
 
+import re as _re
+
+def _is_pool_key(key: str) -> bool:
+    """Return True for 'U9 | Pool N' or 'U11 | Pool N' style bracket keys."""
+    return bool(_re.match(r'^(U9|U11) \| Pool \d+$', key))
+
+def _parent_key_for_pool(pool_key: str) -> str:
+    """Extract age-group prefix: 'U11 | Pool 3' → 'U11'."""
+    return pool_key.split(' | ')[0]
+
 
 class TournamentService:
     """
@@ -265,11 +275,24 @@ class TournamentService:
         Write brackets table only. Groups and group_participants must already exist.
         Upserts: creates new bracket rows or updates bracket_type if the row already exists.
         Skips brackets that have no assigned method yet.
+
+        Pool brackets ('U9 | Pool N' / 'U11 | Pool N') have no pre-existing group row —
+        their parent was stored as 'U9'/'U11'. We create a pool-specific group here and
+        populate its group_participants from the in-memory fighters slice.
         """
         for bracket_key, bracket_data in brackets_dict.items():
             group = self.groups.get_by_name(bracket_key)
             if not group:
-                continue
+                if not _is_pool_key(bracket_key):
+                    continue  # skip Unassigned / unknown keys
+                # Pool bracket: materialise a group row for this pool
+                age_group = _parent_key_for_pool(bracket_key)
+                group = self.groups.get_or_create(name=bracket_key, age_group=age_group)
+                # Link this pool's fighters to the new group
+                for fighter in bracket_data.get('fighters', []):
+                    participant = self._find_participant(fighter)
+                    if participant:
+                        self.groups.add_participant(group.id, participant.id)
 
             method = generation_methods.get(bracket_key)
             if not method:
