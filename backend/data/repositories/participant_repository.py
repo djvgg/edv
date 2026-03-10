@@ -53,19 +53,20 @@ class ParticipantRepository:
             is_paid = p.paid if p.paid is not None else True
             gender_mapped = 'male' if p.gender == 'm' else ('female' if p.gender == 'w' else p.gender)
             result.append({
-                'ID': p.id,
-                'Firstname': p.first_name,
-                'Lastname': p.last_name,
-                'Name':    f"{p.first_name} {p.last_name}".strip(),
-                'Birthyear': p.birth_date.year if p.birth_date else None,
-                'Age':     age,
-                'Club': p.club or '',
-                'Verein':  p.club or '',
+                'ID':          p.id,
+                'Firstname':   p.first_name,
+                'Lastname':    p.last_name,
+                'Name':        f"{p.first_name} {p.last_name}".strip(),
+                'Birthyear':   p.birth_date.year if p.birth_date else None,
+                'Age':         age,
+                'Club':        p.club or '',
+                'Verein':      p.club or '',
                 'Association': p.association or '',
-                'Weight':  float(p.weight) if p.weight else None,
-                'Valid': is_valid,
-                'Paid': is_paid,
-                'Gender': gender_mapped
+                'Weight':      float(p.weight) if p.weight else 0.0,
+                'Valid':       is_valid,
+                'Paid':        is_paid,
+                'Gender':      gender_mapped,
+                'Doublestart': p.doublestart or 'nein',
             })
         return result
 
