@@ -178,6 +178,9 @@ class BracketViewerApp(tk.Tk):
         self.screen_manager = ScreenManager(self, self.nav_bar)
         self.logger.debug("Screen manager created")
 
+        # Inject screen manager into nav bar for staleness tracking
+        self.nav_bar.set_screen_manager(self.screen_manager)
+
         # Create data transformation pipeline (orchestrates business logic)
         # headless=False means include UI-only operations (normal mode)
         self.data_pipeline = DataTransformationPipeline(self, headless=False)

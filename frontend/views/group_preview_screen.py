@@ -125,6 +125,21 @@ class GroupPreviewScreen(tk.Frame):
             arrowcolor=[('active', SCROLLBAR_ACTIVE_STYLE['arrowcolor'])],
         ) 
         
+    def on_show(self, force_reload=False):
+        """Called when screen is shown. Reload data if marked as stale.
+        
+        Args:
+            force_reload: True if screen was marked as stale and needs data refresh
+        """
+        if force_reload:
+            # Get fresh brackets from main_window's cache
+            main_window = self.master.master  # Navigate up the widget hierarchy
+            if hasattr(main_window, 'brackets'):
+                self.logger.info("[RELOAD] Group Preview detected stale data, reloading from cache")
+                self.load_data(main_window.brackets)
+            else:
+                self.logger.warning("[RELOAD] Cannot reload: main_window.brackets not found")
+        
     def load_data(self, brackets):
         """Load bracket data."""
         self.brackets = brackets

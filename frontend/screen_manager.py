@@ -235,11 +235,20 @@ class ScreenManager:
             self.logger.error(f"Error packing new screen: {e}")
             return False
         
-        # Call on_show on new screen
+        # Check if screen was stale (before we mark it clean)
+        was_stale = self.screen_staleness.get(screen_key, False)
+        
+        # Call on_show on new screen - pass staleness info so it can reload if needed
         if hasattr(new_screen, 'on_show'):
             try:
-                new_screen.on_show()
-                self.logger.debug(f"Called on_show: {screen_key}")
+                # Try calling on_show with force_reload parameter (for staleness-aware screens)
+                try:
+                    new_screen.on_show(force_reload=was_stale)
+                    self.logger.debug(f"Called on_show(force_reload={was_stale}): {screen_key}")
+                except TypeError:
+                    # Screen doesn't accept force_reload parameter, call without it
+                    new_screen.on_show()
+                    self.logger.debug(f"Called on_show: {screen_key} (was_stale={was_stale} but screen doesn't support force_reload)")
             except Exception as e:
                 self.logger.error(f"Error in on_show(): {e}")
         

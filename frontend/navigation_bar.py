@@ -43,6 +43,8 @@ class NavigationBar(tk.Frame):
         # Store tab data: {screen_key: {'label': str, 'widget': tk.Frame, 'locked': bool}}
         self.tabs = {}
         self.active_tab = None
+        self.screen_manager = None  # Will be injected later
+
         
         # Callback for tab clicks (will be set by ScreenManager)
         self.on_tab_click = None
@@ -88,6 +90,15 @@ class NavigationBar(tk.Frame):
         self.right_arrow.pack(side=tk.LEFT, padx=2)
         
         self.logger.debug("NavigationBar initialized")
+    
+    def set_screen_manager(self, screen_manager):
+        """Inject screen manager reference for staleness tracking.
+        
+        Args:
+            screen_manager: ScreenManager instance to query staleness status
+        """
+        self.screen_manager = screen_manager
+        self.logger.debug("Screen manager injected into NavigationBar")
     
     def add_tab(self, screen_key, label, locked=False):
         """
@@ -197,7 +208,14 @@ class NavigationBar(tk.Frame):
                        lambda e, key=screen_key: self._on_tab_click(key) 
                        if not is_locked else None)
         
-        self.logger.debug(f"Created tab widget: {screen_key} (active={is_active}, locked={is_locked})")
+        # Get staleness status from screen manager if available
+        is_stale = False
+        if self.screen_manager:
+            is_stale = self.screen_manager.is_screen_stale(screen_key)
+        
+        self.logger.debug(
+            f"Created tab widget: {screen_key} (active={is_active}, locked={is_locked}, stale={is_stale})"
+        )
     
     def _on_tab_click(self, screen_key):
         """Handle tab click - navigate to the clicked screen."""
