@@ -16,7 +16,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from utils.logging import get_logger  # noqa: E402
 from backend.services.bracket_service import (  # noqa: E402
-    make_bracket,
     set_bracket_config,
 )
 from backend.services.database_service import get_database_service  # noqa: E402

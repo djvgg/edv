@@ -88,7 +88,7 @@ Bracket Viewer → Fight Monitoring:
   2. create_fights()
 """
 
-from typing import Dict, Any
+# No additional typing imports needed
 import sys
 import os
 
@@ -276,7 +276,7 @@ class DataTransformationPipeline:
             return True
             
         except Exception:
-            self.logger.error(f"✗ Transformation failed for skipped screens", exc_info=True)
+            self.logger.error("✗ Transformation failed for skipped screens", exc_info=True)
             return False
 
     def transform_before_entering(self, screen_key: str, wait_for_db: callable = None, force_run: bool = False) -> bool:
