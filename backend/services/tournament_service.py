@@ -18,9 +18,8 @@ _edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'
 if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
 from utils.logging import get_logger  # noqa: E402
+import re as _re  # noqa: E402
 from utils.helpers import normalize_gender as _normalize_gender, split_name as _split_name, parse_bracket_key as _parse_bracket_key  # noqa: E402
-
-import re as _re
 
 def _is_pool_key(key: str) -> bool:
     """Return True for 'U9 | Pool N' or 'U11 | Pool N' style bracket keys."""
