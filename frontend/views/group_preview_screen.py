@@ -82,6 +82,7 @@ class GroupPreviewScreen(tk.Frame):
         self.preview_title_var = None # Title of the right listbox
         self.preview_search_var = None # Search field of the left listbox
         self.preview_count_var = None # Number of participants in the left listbox
+        self.ui_initialized = False  # Track if UI has been built
 
         # Callbacks
         self.on_continue = None
@@ -149,7 +150,11 @@ class GroupPreviewScreen(tk.Frame):
         self._populate_group_list()    
 
     def init_ui(self):
-        """Initialize the user interface."""
+        """Initialize the user interface. Only build once."""
+        if self.ui_initialized:
+            self.logger.debug("UI already initialized, skipping rebuild")
+            return
+            
         # Main layout with resizable split
         main_frame = create_dark_frame(self)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -173,6 +178,9 @@ class GroupPreviewScreen(tk.Frame):
 
         # Bottom navigation buttons
         self._create_navigation_buttons(main_frame)
+        
+        self.ui_initialized = True
+        self.logger.debug("UI initialized successfully")
 
     # Left panel: Group list
     def _create_group_list_panel(self, parent_paned):
