@@ -396,6 +396,10 @@ class TableAndBracketViewer(tk.Frame):
         self.update_bracket_list()
         self.update_table_panels()
         self.logger.info(f"Assigned '{bracket_key}' to Matte {table_num}")
+        
+        # Mark downstream screens as stale (FightMonitoring needs to refresh with new assignments)
+        if hasattr(self.main_window, 'screen_manager'):
+            self.main_window.screen_manager.invalidate_downstream('bracket_viewer')
 
     def unassign_bracket(self, bracket_key=None):
         """Unassign bracket from its table."""
@@ -419,6 +423,10 @@ class TableAndBracketViewer(tk.Frame):
         self.update_bracket_list()
         self.update_table_panels()
         self.logger.info(f"Unassigned '{bracket_key}' from Matte {old_table}")
+        
+        # Mark downstream screens as stale (FightMonitoring needs to refresh with new assignments)
+        if hasattr(self.main_window, 'screen_manager'):
+            self.main_window.screen_manager.invalidate_downstream('bracket_viewer')
 
     def auto_assign_tables(self):
         """Automatically distribute unassigned brackets across tables."""
@@ -463,6 +471,10 @@ class TableAndBracketViewer(tk.Frame):
 
         self.update_bracket_list()
         self.update_table_panels()
+        
+        # Mark downstream screens as stale (FightMonitoring needs to refresh with new assignments)
+        if hasattr(self.main_window, 'screen_manager'):
+            self.main_window.screen_manager.invalidate_downstream('bracket_viewer')
 
     def update_table_panels(self):
         """Update the visual display of table assignments with scrollable content."""

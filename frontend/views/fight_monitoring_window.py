@@ -1277,11 +1277,19 @@ class FightMonitoringScreen(tk.Frame):
     def on_show(self, force_reload=False):
         """Lifecycle hook called when screen is displayed."""
         logger.debug(f"[LIFECYCLE] FightMonitoringScreen.on_show(force_reload={force_reload})")
-        if force_reload and self.main_window:
-            # Re-render current bracket if any
-            if self.current_bracket_key:
-                self._render(self.current_bracket_key)
-                logger.info("[RELOAD] FightMonitoringScreen re-rendered current bracket")
+        if self.main_window:
+            # Always update brackets from main_window cache (they may have been modified from previous screens)
+            self.brackets = self.main_window.brackets
+            self.bracket_generation_methods = self.main_window.bracket_generation_methods
+            self.bracket_table_assignment = self.main_window.bracket_table_assignment
+            self.match_results = self.main_window.match_results
+            self.loser_match_results = self.main_window.loser_match_results if hasattr(self.main_window, 'loser_match_results') else {}
+            self.pool_cell_values = self.main_window.pool_cell_values if hasattr(self.main_window, 'pool_cell_values') else {}
+            logger.debug(f"[ON_SHOW] FightMonitoringScreen synced {len(self.brackets)} brackets from cache")
+            
+            # Always reset to matten view when screen is shown (ensures mat assignments display in sync)
+            self.show_matten_view()
+            logger.info("[ON_SHOW] FightMonitoringScreen reset to matten overview")
 
     def on_close_screen(self):
         """Cleanup when screen is hidden."""

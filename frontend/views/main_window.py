@@ -535,6 +535,9 @@ class BracketViewerApp(tk.Tk):
         self.bracket_generation_methods = final_assignments
         self.db_service.save_brackets(self.brackets, final_assignments)
 
+        # Mark downstream screens as stale (BracketViewer and FightMonitoring need to refresh)
+        self.screen_manager.invalidate_downstream('generation_method')
+
         # Proceed to bracket viewer using new navigation system
         self.screen_manager.navigate_to('bracket_viewer')
 
