@@ -84,20 +84,88 @@ class TournamentService:
         self.db.commit()
         return new_count
 
+    def _check_is_duplicate(self, candidate: dict, existing: dict) -> bool:
+        """Check if candidate participant matches existing participant by natural key.
+        
+        Pure logic method - independent of cache/DB. Used by both in-memory and DB duplicate detection.
+        
+        Natural key comparison:
+        - first_name (required)
+        - last_name (required)
+        - gender (required)
+        - birth_date (optional - only compared if present in both)
+        - club (optional - only compared if present in both)
+        - association (optional - only compared if present in both)
+        
+        Args:
+            candidate: Participant dict (DB format: lowercase keys)
+            existing: Participant dict or Participant ORM object (same format as candidate)
+        
+        Returns:
+            True if candidate matches existing (duplicate), False otherwise
+        """
+        # Convert ORM object to dict if needed
+        if hasattr(existing, '__dict__'):
+            existing = {k: v for k, v in existing.__dict__.items() if not k.startswith('_')}
+        
+        # Normalize field names (handle both dict and ORM formats)
+        def get_field(p, *field_names):
+            for name in field_names:
+                val = p.get(name) if isinstance(p, dict) else getattr(p, name, None)
+                if val is not None:
+                    return str(val).strip().lower() if isinstance(val, str) else val
+            return None
+        
+        # Natural key: first_name + last_name + gender (always required)
+        cand_first = get_field(candidate, 'first_name')
+        cand_last = get_field(candidate, 'last_name')
+        cand_gender = get_field(candidate, 'gender')
+        
+        exist_first = get_field(existing, 'first_name')
+        exist_last = get_field(existing, 'last_name')
+        exist_gender = get_field(existing, 'gender')
+        
+        # All three required fields must match
+        if not (cand_first and cand_last and cand_gender):
+            return False
+        if not (exist_first and exist_last and exist_gender):
+            return False
+        
+        if cand_first != exist_first or cand_last != exist_last or cand_gender != exist_gender:
+            return False
+        
+        # Optional field comparisons (only if present in both)
+        cand_birth = candidate.get('birth_date')
+        exist_birth = existing.get('birth_date') if isinstance(existing, dict) else getattr(existing, 'birth_date', None)
+        if cand_birth and exist_birth and cand_birth != exist_birth:
+            return False
+        
+        cand_club = candidate.get('club')
+        exist_club = existing.get('club') if isinstance(existing, dict) else getattr(existing, 'club', None)
+        if cand_club and exist_club and cand_club != exist_club:
+            return False
+        
+        cand_assoc = candidate.get('association')
+        exist_assoc = existing.get('association') if isinstance(existing, dict) else getattr(existing, 'association', None)
+        if cand_assoc and exist_assoc and cand_assoc != exist_assoc:
+            return False
+        
+        return True
+
     def _participant_exists(self, mapped: dict) -> bool:
-        """Check if participant already exists by natural key."""
+        """Check if participant already exists by natural key in the database."""
+        # Query all participants with matching core natural key fields
         q = self.db.query(Participant).filter(
             Participant.first_name == mapped['first_name'],
             Participant.last_name == mapped['last_name'],
             Participant.gender == mapped['gender'],
         )
-        if mapped.get('birth_date'):
-            q = q.filter(Participant.birth_date == mapped['birth_date'])
-        if mapped.get('club'):
-            q = q.filter(Participant.club == mapped['club'])
-        if mapped.get('association'):
-            q = q.filter(Participant.association == mapped['association'])
-        return q.first() is not None
+        
+        # Check each result against the full natural key (including optional fields)
+        for existing in q.all():
+            if self._check_is_duplicate(mapped, existing):
+                return True
+        return False
 
     def flush_database(self) -> None:
         """

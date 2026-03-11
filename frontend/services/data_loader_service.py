@@ -41,6 +41,136 @@ class DataLoaderService:
         self.db_service = db_service
         self.task_runner = task_runner or TaskRunner(num_workers=2)
 
+    # ===== DUPLICATE DETECTION LOGIC =====
+    
+    def _check_is_duplicate(self, candidate: dict, existing: dict) -> bool:
+        """Check if candidate participant matches existing participant by natural key.
+        
+        Pure logic method - independent of cache/DB. Used by both in-memory and DB duplicate detection.
+        
+        Natural key comparison:
+        - first_name (required)
+        - last_name (required)
+        - gender (required)
+        - birth_date (optional - only compared if present in both)
+        - club (optional - only compared if present in both)
+        - association (optional - only compared if present in both)
+        
+        Args:
+            candidate: Participant dict (may have 'first_name'/'last_name' or 'Firstname'/'Lastname')
+            existing: Participant dict (same format as candidate)
+        
+        Returns:
+            True if candidate matches existing (duplicate), False otherwise
+        """
+        # Normalize field names (handle both dict formats: lowercase DB and uppercase JSON)
+        def get_field(p, *field_names):
+            for name in field_names:
+                if name in p and p[name] is not None:
+                    return str(p[name]).strip().lower() if isinstance(p[name], str) else p[name]
+            return None
+        
+        # Natural key: first_name + last_name + gender (always required)
+        cand_first = get_field(candidate, 'first_name', 'Firstname', 'firstname')
+        cand_last = get_field(candidate, 'last_name', 'Lastname', 'lastname')
+        cand_gender = get_field(candidate, 'gender', 'Gender')
+        
+        exist_first = get_field(existing, 'first_name', 'Firstname', 'firstname')
+        exist_last = get_field(existing, 'last_name', 'Lastname', 'lastname')
+        exist_gender = get_field(existing, 'gender', 'Gender')
+        
+        # All three required fields must match
+        if not (cand_first and cand_last and cand_gender):
+            return False
+        if not (exist_first and exist_last and exist_gender):
+            return False
+        
+        if cand_first != exist_first or cand_last != exist_last or cand_gender != exist_gender:
+            return False
+        
+        # Optional field comparisons (only if present in both)
+        cand_birth = candidate.get('birth_date') or candidate.get('Birthyear')
+        exist_birth = existing.get('birth_date') or existing.get('Birthyear')
+        if cand_birth and exist_birth and cand_birth != exist_birth:
+            return False
+        
+        cand_club = get_field(candidate, 'club', 'Club')
+        exist_club = get_field(existing, 'club', 'Club')
+        if cand_club and exist_club and cand_club != exist_club:
+            return False
+        
+        cand_assoc = get_field(candidate, 'association', 'Association')
+        exist_assoc = get_field(existing, 'association', 'Association')
+        if cand_assoc and exist_assoc and cand_assoc != exist_assoc:
+            return False
+        
+        return True
+
+    def _extract_participants_from_brackets(self, brackets: dict) -> list:
+        """Extract all unique participants from brackets dict for cache duplicate detection.
+        
+        Args:
+            brackets: Dict of brackets (each bracket has 'participants' list)
+        
+        Returns:
+            List of unique participant dicts
+        """
+        seen_keys = set()
+        participants = []
+        
+        for bracket_key, bracket_data in brackets.items():
+            if not isinstance(bracket_data, dict) or 'participants' not in bracket_data:
+                continue
+            
+            for p in bracket_data.get('participants', []):
+                # Use natural key to avoid duplicates across brackets
+                p_key = (
+                    str(p.get('first_name', p.get('Firstname', ''))).strip().lower(),
+                    str(p.get('last_name', p.get('Lastname', ''))).strip().lower(),
+                    str(p.get('gender', p.get('Gender', ''))).strip().lower()
+                )
+                
+                if p_key not in seen_keys:
+                    seen_keys.add(p_key)
+                    participants.append(p)
+        
+        return participants
+
+    def _find_duplicates_in_cache(self, new_participants: list, existing_brackets: dict = None) -> tuple:
+        """Find duplicates between new participants and cached brackets.
+        
+        Args:
+            new_participants: List of new participant dicts to check
+            existing_brackets: Current brackets dict (may be None or empty for fresh import)
+        
+        Returns:
+            Tuple of (unique_participants, duplicates_list) where:
+            - unique_participants: New participants not in cache
+            - duplicates_list: Participants that were skipped (already in cache)
+        """
+        if not existing_brackets:
+            return new_participants, []
+        
+        cached_participants = self._extract_participants_from_brackets(existing_brackets)
+        if not cached_participants:
+            return new_participants, []
+        
+        unique = []
+        duplicates = []
+        
+        for new_p in new_participants:
+            is_dup = False
+            for cached_p in cached_participants:
+                if self._check_is_duplicate(new_p, cached_p):
+                    duplicates.append(new_p)
+                    is_dup = True
+                    break
+            
+            if not is_dup:
+                unique.append(new_p)
+        
+        return unique, duplicates
+
     def filter_unpaid_participants(self, all_participants):
         """Filter out unpaid participants and show a popup if any are found.
         
@@ -338,24 +468,40 @@ class DataLoaderService:
                 self.ui_feedback.hide_loading_progress()
                 self.ui_feedback.show_error("Database Error", f"Failed to load from database:\n{str(e)}")
 
-    def load_json_and_generate(self, filepaths, callbacks):
+    def load_json_and_generate(self, filepaths, callbacks, existing_brackets=None):
         """Load participants from 2 JSON files (male/female) and generate brackets.
+        
+        Smart mode: if existing_brackets is None/empty → fresh import (replace)
+                  if existing_brackets has data → append mode (deduplicate + merge)
         
         Args:
             filepaths: Tuple of 2 JSON file paths
             callbacks: Dict with 'on_success' callback function
+            existing_brackets: Current brackets dict for append mode detection (None = fresh import)
         """
         if self.ui_feedback:
-            self.ui_feedback.show_loading_progress("Loading and generating brackets from JSON...")
+            mode = "Appending to" if existing_brackets else "Loading and generating"
+            self.ui_feedback.show_loading_progress(f"{mode} brackets from JSON...")
         
         self.task_runner.submit_task(
             'load_json',
-            fn=lambda on_progress=None: self._load_json_and_generate_thread(filepaths, callbacks),
+            fn=lambda on_progress=None: self._load_json_and_generate_thread(filepaths, callbacks, existing_brackets),
             on_error=self._handle_load_error
         )
 
-    def _load_json_and_generate_thread(self, filepaths, callbacks):
-        """Background task for loading JSON files and generating brackets."""
+    def _load_json_and_generate_thread(self, filepaths, callbacks, existing_brackets=None):
+        """Background task for loading JSON files and generating brackets.
+        
+        Implements smart append/replace logic:
+        - Fresh import: No existing brackets → replace mode
+        - Append mode: Has existing brackets → deduplicate + merge
+        - Always updates cache first (working copy)
+        - DB save is soft-fail (continues if down)
+        - If DB succeeds, fetches authoritative data and resyncs cache
+        """
+        is_append_mode = bool(existing_brackets)
+        db_save_succeeded = False
+        
         try:
             if self.ui_feedback:
                 self.ui_feedback.set_status("Reading JSON files...", '#888888')
@@ -475,9 +621,49 @@ class DataLoaderService:
                     self.ui_feedback.set_status(error_msg, '#cc0000')
                 return
 
-            if self.db_service:
-                self.db_service.save_participants(all_participants)
-                self.db_service.initialize_all_groups()
+            # APPEND MODE: Deduplicate against cache if existing brackets present
+            duplicates_skipped = []
+            if is_append_mode:
+                all_participants, duplicates_skipped = self._find_duplicates_in_cache(
+                    all_participants, existing_brackets
+                )
+                if duplicates_skipped:
+                    self.logger.info(
+                        f"[APPEND MODE] Skipped {len(duplicates_skipped)} duplicate participant(s) "
+                        f"already in cache"
+                    )
+                
+                if not all_participants:
+                    if self.ui_feedback:
+                        self.ui_feedback.hide_loading_progress()
+                        self.ui_feedback.set_status(
+                            f"No new unique participants (all {len(duplicates_skipped)} are duplicates)", 
+                            '#999999'
+                        )
+                    return
+
+            if self.ui_feedback:
+                self.ui_feedback.update_progress(62)
+
+            # ===== SAVE TO DATABASE (SOFT-FAIL) =====
+            # Wrap in try-except so app continues if DB is down
+            try:
+                if self.db_service:
+                    self.db_service.save_participants(all_participants)
+                    self.db_service.initialize_all_groups()
+                    db_save_succeeded = True
+                    self.logger.info("[DB] Save succeeded - cache will be synced from DB")
+            except Exception as db_error:
+                db_save_succeeded = False
+                self.logger.warning(
+                    f"[DB SOFT-FAIL] Could not save to database: {db_error}. "
+                    f"Working offline with cache only."
+                )
+                if self.ui_feedback:
+                    self.ui_feedback.set_status(
+                        f"DB unavailable - working offline ({len(all_participants)} new)",
+                        '#999999'
+                    )
 
             if self.ui_feedback:
                 self.ui_feedback.set_status("Filtering participants...", '#888888')
@@ -523,21 +709,65 @@ class DataLoaderService:
                 self.ui_feedback.update_progress(85)
             self.logger.info("Starting bracket generation...")
 
+            # ===== BRACKET GENERATION WITH DB RESYNC =====
+            # If DB save succeeded: fetch authoritative data and regenerate all
+            # If DB failed: use cache data only
+            participants_for_brackets = all_participants
+            resync_note = ""
+            
+            if db_save_succeeded and self.db_service:
+                try:
+                    all_db_participants = self.db_service.fetch_participants()
+                    if all_db_participants:
+                        participants_for_brackets = all_db_participants
+                        resync_note = " (resynced from DB)"
+                        self.logger.info(
+                            f"[DB RESYNC] Fetched {len(all_db_participants)} total participants from DB"
+                        )
+                except Exception as resync_error:
+                    self.logger.warning(f"[DB RESYNC] Could not resync from DB: {resync_error}. Using cache.")
+                    resync_note = " (cache used, DB sync failed)"
+
             # Generate brackets
-            brackets.update(export_all_brackets(all_participants))
+            new_brackets = {}
+            new_brackets.update(export_all_brackets(participants_for_brackets))
+            
+            # APPEND MODE: Merge with existing brackets (don't replace)
+            if is_append_mode and existing_brackets:
+                existing_brackets.update(new_brackets)
+                brackets = existing_brackets
+                merge_summary = (
+                    f"Merged {len(new_brackets)} brackets. "
+                    f"Added {len(all_participants)} participants, "
+                    f"skipped {len(duplicates_skipped)} duplicates."
+                )
+                self.logger.info(f"[APPEND] {merge_summary}{resync_note}")
+            else:
+                # Fresh import mode
+                brackets = new_brackets
+                merge_summary = f"Fresh import: {len(all_participants)} participants."
+                self.logger.info(f"[FRESH] {merge_summary}{resync_note}")
+            
             if self.ui_feedback:
                 self.ui_feedback.update_progress(95)
             
+            status_msg = (
+                f"Success! Generated {len(brackets)} brackets. {merge_summary}"
+                if merge_summary else f"Success! Generated {len(brackets)} brackets from JSON files."
+            )
             if self.ui_feedback:
-                self.ui_feedback.set_status(f"Success! Generated {len(brackets)} brackets from JSON files.", '#00cc00')
+                self.ui_feedback.set_status(status_msg, '#00cc00')
                 self.ui_feedback.update_progress(100)
                 self.ui_feedback.hide_loading_progress()
 
-            # Call success callback with brackets and rejection info
+            # Call success callback with brackets, rejection info, and load mode
             if 'on_success' in callbacks and callable(callbacks['on_success']):
                 callbacks['on_success'](
                     brackets=brackets,
-                    rejected_participants=all_rejected
+                    rejected_participants=all_rejected,
+                    load_mode='append' if is_append_mode else 'fresh',
+                    duplicates_skipped=len(duplicates_skipped),
+                    db_available=db_save_succeeded
                 )
 
         except json.JSONDecodeError as e:

@@ -287,25 +287,13 @@ class ScreenManager:
     
     def is_screen_stale(self, screen_key) -> bool:
         """
-        Check if a screen is marked as stale.
+        Check if a screen is marked as stale (needs data refresh).
         
         Args:
             screen_key: The screen to check
             
         Returns:
-            True if screen is stale, False otherwise
-        """
-        return self.screen_staleness.get(screen_key, False)
-    
-    def is_screen_stale(self, screen_key) -> bool:
-        """
-        Check if a screen has stale data.
-        
-        Args:
-            screen_key: The screen to check
-            
-        Returns:
-            True if screen is stale (needs data refresh)
+            True if screen is stale (has out-of-date data), False otherwise
         """
         return self.screen_staleness.get(screen_key, False)
     
