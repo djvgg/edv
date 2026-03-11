@@ -64,10 +64,11 @@ class GenerationMethodScreen(tk.Frame):
     METHOD_KO = 'ko'
     METHOD_SPECIAL = 'special'
 
-    def __init__(self, parent, **kwargs):
+    def __init__(self, parent, main_window=None, **kwargs):
         super().__init__(parent, **kwargs)
         self.configure(bg=COLORS['bg_dark'])
         self.logger = logger
+        self.main_window = main_window
 
         # Data
         self.brackets = {}  # {bracket_key: {"tuple": bracket_tuple, "method": method_name}}
@@ -653,6 +654,30 @@ class GenerationMethodScreen(tk.Frame):
         else:
             self.logger.warning("No callback set for generation method selection")
             messagebox.showinfo("Success", "Bracket assignments finalized!")
+    def on_show(self, force_reload=False):
+        """Lifecycle hook called when screen is displayed."""
+        self.logger.debug(f"[LIFECYCLE] GenerationMethodScreen.on_show(force_reload={force_reload})")
+        if force_reload and self.main_window:
+            # Reload brackets from main_window cache
+            self.load_data(self.main_window.brackets)
+            self.logger.info("[RELOAD] GenerationMethodScreen data reloaded from cache")
+
+    def _convert_brackets_to_local_format(self, main_brackets):
+        """Convert main_window.brackets to local format."""
+        converted = {}
+        for bracket_key, bracket_data in main_brackets.items():
+            converted[bracket_key] = {
+                "tuple": bracket_data,
+                "method": None  # Will be assigned by user
+            }
+        return converted
+
+    def _refresh_display(self):
+        """Refresh the UI after data reload."""
+        self.unassigned = list(self.brackets.keys())
+        self.filtered_keys = self.unassigned
+        self._refresh_all_displays()
+        self.logger.debug(f"[RELOAD] Display refreshed - {len(self.unassigned)} unassigned brackets")
 
     def on_close_screen(self):
         """Cleanup when screen is hidden."""

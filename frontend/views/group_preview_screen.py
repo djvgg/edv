@@ -53,10 +53,11 @@ class GroupPreviewScreen(tk.Frame):
     # Debug flag - set to True for verbose logging
     DEBUG = DEBUG
 
-    def __init__(self, parent, quarantine_service=None, db_service=None, **kwargs):
+    def __init__(self, parent, main_window=None, quarantine_service=None, db_service=None, **kwargs):
         super().__init__(parent, **kwargs)
         self.configure(bg=COLORS['bg_dark'])
         self.logger = logger
+        self.main_window = main_window              # Store reference to main app for reload
         self.quarantine_service = quarantine_service  # Store reference for edit dialog
         self.db_service = db_service                  # DB service for persisting edits
 
@@ -133,12 +134,11 @@ class GroupPreviewScreen(tk.Frame):
         """
         if force_reload:
             # Get fresh brackets from main_window's cache
-            main_window = self.master.master  # Navigate up the widget hierarchy
-            if hasattr(main_window, 'brackets'):
+            if self.main_window and hasattr(self.main_window, 'brackets'):
                 self.logger.info("[RELOAD] Group Preview detected stale data, reloading from cache")
-                self.load_data(main_window.brackets)
+                self.load_data(self.main_window.brackets)
             else:
-                self.logger.warning("[RELOAD] Cannot reload: main_window.brackets not found")
+                self.logger.warning("[RELOAD] Cannot reload: main_window or main_window.brackets not found")
         
     def load_data(self, brackets):
         """Load bracket data."""

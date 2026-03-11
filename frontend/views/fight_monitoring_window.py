@@ -50,9 +50,10 @@ class FightMonitoringScreen(tk.Frame):
                  bracket_generation_methods, match_results,
                  loser_match_results=None, pool_cell_values=None,
                  ko_bracket_data=None, ko_match_results=None,
-                 db_service=None):
+                 db_service=None, main_window=None):
         super().__init__(parent, bg=COLORS['bg_dark'])
         self.db_service = db_service
+        self.main_window = main_window
         logger.info(f"FightMonitoringScreen initialized with {len(brackets)} brackets, {len(bracket_table_assignment)} table assignments")
 
         # Callback – set by BracketViewerApp before showing
@@ -1264,3 +1265,13 @@ class FightMonitoringScreen(tk.Frame):
             self._canvas.yview_scroll(1, 'units')
         elif event.num == 4 or event.delta > 0:
             self._canvas.yview_scroll(-1, 'units')
+
+    def on_show(self, force_reload=False):
+        """Lifecycle hook called when screen is displayed."""
+        logger.debug(f"[LIFECYCLE] FightMonitoringScreen.on_show(force_reload={force_reload})")
+        if force_reload and self.main_window:
+            # Re-render current bracket if any
+            if self.current_bracket_key:
+                self._render(self.current_bracket_key)
+                logger.info("[RELOAD] FightMonitoringScreen re-rendered current bracket")
+

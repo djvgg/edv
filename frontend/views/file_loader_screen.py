@@ -46,10 +46,11 @@ class FileLoaderScreen(tk.Frame):
     # Debug flag - set to True for verbose logging
     DEBUG = DEBUG
 
-    def __init__(self, parent, **kwargs):
+    def __init__(self, parent, main_window=None, **kwargs):
         super().__init__(parent, **kwargs)
         self.configure(bg=COLORS['bg_dark'])
         self.logger = logger
+        self.main_window = main_window
 
         # Callbacks - will be set by main window
         self.on_load_xlsx = None
@@ -169,7 +170,14 @@ class FileLoaderScreen(tk.Frame):
         if self.DEBUG:
             self.logger.debug("DEBUG: Executing on_load_json callback")
         if self.on_load_json:
-            self.on_load_json()
+            self.logger.debug(f"[FILE_LOADER] on_load_json callback is set: {self.on_load_json}")
+            try:
+                self.on_load_json()
+                self.logger.debug("[FILE_LOADER] on_load_json callback executed successfully")
+            except Exception as e:
+                self.logger.error(f"[FILE_LOADER] Error executing on_load_json callback: {e}", exc_info=True)
+        else:
+            self.logger.warning("[FILE_LOADER] on_load_json callback is NOT set!")
 
     def on_split_gender_click(self):
         """Handle gender split button click."""
@@ -202,3 +210,9 @@ class FileLoaderScreen(tk.Frame):
         if self.status_label:
             apply_label_style(self.status_label, style)
         self.logger.debug(f"Status updated: {text}")
+
+    def on_show(self, force_reload=False):
+        """Lifecycle hook called when screen is displayed."""
+        # FileLoaderScreen is the entry point, no reload needed
+        self.logger.debug(f"[LIFECYCLE] FileLoaderScreen.on_show(force_reload={force_reload})")
+

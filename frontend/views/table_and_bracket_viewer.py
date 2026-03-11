@@ -904,3 +904,11 @@ class TableAndBracketViewer(tk.Frame):
             num_fights = num_fighters - 1
         
         return num_fights
+
+    def on_show(self, force_reload=False):
+        """Lifecycle hook called when screen is displayed."""
+        self.logger.debug(f"[LIFECYCLE] TableAndBracketViewer.on_show(force_reload={force_reload})")
+        if force_reload and self.main_window:
+            # Reload bracket list from main_window cache
+            self.update_bracket_list()
+            self.logger.info("[RELOAD] TableAndBracketViewer data reloaded from cache")

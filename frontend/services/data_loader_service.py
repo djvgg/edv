@@ -479,15 +479,21 @@ class DataLoaderService:
             callbacks: Dict with 'on_success' callback function
             existing_brackets: Current brackets dict for append mode detection (None = fresh import)
         """
+        self.logger.info(f"[JSON] load_json_and_generate called with {len(filepaths) if filepaths else 0} files")
+        self.logger.debug(f"[JSON] Filepaths: {filepaths}")
+        self.logger.debug(f"[JSON] Has existing brackets: {bool(existing_brackets)}")
+        
         if self.ui_feedback:
             mode = "Appending to" if existing_brackets else "Loading and generating"
             self.ui_feedback.show_loading_progress(f"{mode} brackets from JSON...")
         
+        self.logger.debug("[JSON] Submitting task to task_runner")
         self.task_runner.submit_task(
             'load_json',
             fn=lambda on_progress=None: self._load_json_and_generate_thread(filepaths, callbacks, existing_brackets),
             on_error=self._handle_load_error
         )
+        self.logger.debug("[JSON] Task submitted to task_runner")
 
     def _load_json_and_generate_thread(self, filepaths, callbacks, existing_brackets=None):
         """Background task for loading JSON files and generating brackets.

@@ -206,17 +206,44 @@ class BracketViewerApp(tk.Tk):
                 ko_bracket_data=self.ko_bracket_data,
                 ko_match_results=self.ko_match_results,
                 db_service=self.db_service,
+                main_window=self,
+            )
+
+        def group_preview_factory(main_window):
+            """Factory for GroupPreviewScreen - requires main_window reference for reload on stale"""
+            return GroupPreviewScreen(
+                parent=self.content_frame,
+                main_window=self,
+                quarantine_service=self.quarantine_service,
+                db_service=self.db_service,
+            )
+
+        def file_loader_factory(main_window):
+            """Factory for FileLoaderScreen - requires main_window reference for on_show"""
+            return FileLoaderScreen(
+                parent=self.content_frame,
+                main_window=self,
+            )
+
+        def generation_method_factory(main_window):
+            """Factory for GenerationMethodScreen - requires main_window reference for reload"""
+            return GenerationMethodScreen(
+                parent=self.content_frame,
+                main_window=self,
             )
 
         # Register all screens
         self.screen_manager.register_screen(
-            'file_loader', FileLoaderScreen, 'File Loader', locked=False
+            'file_loader', None, 'File Loader', locked=False,
+            screen_factory=file_loader_factory
         )
         self.screen_manager.register_screen(
-            'group_preview', GroupPreviewScreen, 'Group Preview', locked=False
+            'group_preview', None, 'Group Preview', locked=False,
+            screen_factory=group_preview_factory
         )
         self.screen_manager.register_screen(
-            'generation_method', GenerationMethodScreen, 'Generation Method', locked=False
+            'generation_method', None, 'Generation Method', locked=False,
+            screen_factory=generation_method_factory
         )
         self.screen_manager.register_screen(
             'bracket_viewer', None, 'Bracket Viewer', locked=False, 
@@ -578,28 +605,40 @@ class BracketViewerApp(tk.Tk):
         })
     def load_json_and_generate(self):
         """Load 2 JSON files (male/female), merge them, and generate brackets (wrapper to DataLoaderService)."""
-        # Select 2 JSON files
-        filepaths = filedialog.askopenfilenames(
-            title="Select 2 JSON Files (Male & Female)",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
-        )
+        try:
+            self.logger.debug("[JSON] load_json_and_generate called")
+            
+            # Select 2 JSON files
+            self.logger.debug("[JSON] Opening file dialog...")
+            filepaths = filedialog.askopenfilenames(
+                title="Select 2 JSON Files (Male & Female)",
+                filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+            )
+            self.logger.debug(f"[JSON] File dialog result: {len(filepaths)} files selected")
 
-        if not filepaths:
-            return
+            if not filepaths:
+                self.logger.debug("[JSON] No files selected, returning")
+                return
 
-        if len(filepaths) != 2:
-            messagebox.showerror("Invalid Selection",
-                               f"Please select exactly 2 JSON files.\nYou selected {len(filepaths)} file(s).")
-            return
+            if len(filepaths) != 2:
+                self.logger.debug(f"[JSON] Wrong number of files: {len(filepaths)}, need 2")
+                messagebox.showerror("Invalid Selection",
+                                   f"Please select exactly 2 JSON files.\nYou selected {len(filepaths)} file(s).")
+                return
 
-        # Delegate to DataLoaderService with current cache state for smart append
-        self.data_loader.load_json_and_generate(
-            filepaths=filepaths,
-            callbacks={
-                'on_success': self._on_brackets_loaded
-            },
-            existing_brackets=self.brackets if self.brackets else None
-        )
+            # Delegate to DataLoaderService with current cache state for smart append
+            self.logger.debug(f"[JSON] Calling data_loader.load_json_and_generate with {len(filepaths)} files")
+            self.data_loader.load_json_and_generate(
+                filepaths=filepaths,
+                callbacks={
+                    'on_success': self._on_brackets_loaded
+                },
+                existing_brackets=self.brackets if self.brackets else None
+            )
+            self.logger.debug("[JSON] load_json_and_generate delegated to data_loader")
+        except Exception as e:
+            self.logger.error(f"[JSON] FATAL ERROR in load_json_and_generate: {e}", exc_info=True)
+            messagebox.showerror("Error", f"Failed to load JSON:\n{str(e)}")
 
     def split_gender_to_json(self):
         """Split contestants by gender (M/W) and save to separate JSON files with tolerances.
