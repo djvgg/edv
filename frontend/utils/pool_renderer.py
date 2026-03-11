@@ -3,6 +3,14 @@
 
 """Pool rendering utilities for round-robin group visualization on canvas."""
 
+import os
+import sys
+_edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if _edv_backend_path not in sys.path:
+    sys.path.insert(0, _edv_backend_path)
+from utils.logging import get_logger  # noqa: E402
+logger = get_logger('pool_renderer')
+
 
 def _generate_fight_schedule(pool_size):
     """Generate round-robin fight schedule with optimal spacing.
@@ -727,6 +735,45 @@ def draw_double_pool_ko_bracket(canvas, start_x, start_y, zoom_level, colors, fo
     return total_w, total_h, ko_match_boxes
 
 
+def _generate_fight_numbers_for_double_pool(pools):
+    """Generate alternating fight numbers for a double pool (2-by-2 interleaving).
+
+    Args:
+        pools: List of two pools (each pool is a list of participants)
+
+    Returns:
+        Dict {pool_idx: [fight_number, ...]} with alternating numbers assigned 2-at-a-time.
+    """
+    # Calculate number of fights for each pool
+    pool_fight_counts = []
+    for pool in pools:
+        fight_schedule = _generate_fight_schedule(len(pool))
+        pool_fight_counts.append(len(fight_schedule))
+
+    # Generate sequential fight numbers alternating between pools
+    current_fight_num = 1
+    pool_assigned = [[], []]  # Track assigned numbers for each pool
+
+    while len(pool_assigned[0]) < pool_fight_counts[0] or len(pool_assigned[1]) < pool_fight_counts[1]:
+        # Assign 2 fights to Pool A (if it needs them)
+        for _ in range(2):
+            if len(pool_assigned[0]) < pool_fight_counts[0]:
+                pool_assigned[0].append(current_fight_num)
+                current_fight_num += 1
+            else:
+                break
+
+        # Assign 2 fights to Pool B (if it needs them)
+        for _ in range(2):
+            if len(pool_assigned[1]) < pool_fight_counts[1]:
+                pool_assigned[1].append(current_fight_num)
+                current_fight_num += 1
+            else:
+                break
+
+    return {0: pool_assigned[0], 1: pool_assigned[1]}
+
+
 def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_x=50, start_y=80, cell_values=None, ko_data=None, ko_match_results=None, pool_size=None, generation_method=None):
     """Draw pool visualization on canvas based on number of participants.
 
@@ -749,20 +796,17 @@ def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_
     Returns:
         Tuple of (total_width, total_height) for canvas sizing
     """
-    from utils.logging import get_logger
-    logger = get_logger('pool_renderer')
-    
     text_color = colors['text_secondary']        # Light gray for text labels
-    
+
     num_participants = len(participants)
-    
+
     # If generation_method is 'double', always use 2 pools (respects explicit user choice)
     if generation_method == 'double':
         num_pools = 2
         logger.info(f"Pool rendering: {num_participants} participants with generation_method='double' → 2 pools (forced)")
     else:
         num_pools = determine_pool_structure(num_participants, pool_size)
-    
+
     if pool_size:
         logger.info(f"Pool rendering: {num_participants} participants with pool_size={pool_size} → {num_pools} pools")
     else:
@@ -790,39 +834,7 @@ def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_
     )
 
     # Generate fight numbers for double pools (alternating 2-by-2)
-    all_fight_numbers = {}
-    if num_pools == 2:
-        # Calculate number of fights for each pool
-        pool_fight_counts = []
-        for pool in pools:
-            pool_size = len(pool)
-            fight_schedule = _generate_fight_schedule(pool_size)
-            pool_fight_counts.append(len(fight_schedule))
-
-        # Generate sequential fight numbers alternating between pools
-        current_fight_num = 1
-        pool_assigned = [[], []]  # Track assigned numbers for each pool
-
-        while len(pool_assigned[0]) < pool_fight_counts[0] or len(pool_assigned[1]) < pool_fight_counts[1]:
-            # Assign 2 fights to Pool A (if it needs them)
-            for _ in range(2):
-                if len(pool_assigned[0]) < pool_fight_counts[0]:
-                    pool_assigned[0].append(current_fight_num)
-                    current_fight_num += 1
-                else:
-                    break
-
-            # Assign 2 fights to Pool B (if it needs them)
-            for _ in range(2):
-                if len(pool_assigned[1]) < pool_fight_counts[1]:
-                    pool_assigned[1].append(current_fight_num)
-                    current_fight_num += 1
-                else:
-                    break
-
-        # Store in dictionary
-        all_fight_numbers[0] = pool_assigned[0]
-        all_fight_numbers[1] = pool_assigned[1]
+    all_fight_numbers = _generate_fight_numbers_for_double_pool(pools) if num_pools == 2 else {}
 
     # Draw each pool — start below the title
     current_y = start_y + int(45 * zoom_level)
@@ -848,14 +860,14 @@ def draw_pools_on_canvas(canvas, participants, zoom_level, colors, fonts, start_
             all_cell_positions[(pool_idx,) + sub_key] = bbox
 
         # Calculate dimensions (num_width + name_width + kampfnummer_width + match columns)
-        pool_size = len(pool)
-        fight_schedule = _generate_fight_schedule(pool_size)
+        this_pool_size = len(pool)
+        fight_schedule = _generate_fight_schedule(this_pool_size)
         num_fights = len(fight_schedule)
         num_width = cell_size  # Start-nr column
         name_width = box_width  # Name/Verein column
         kampfnummer_width = int(cell_size * 1.5)  # Kampfnummer column (Punkte + Ubw.)
         grid_width = num_width + name_width + kampfnummer_width + (num_fights * cell_size) + (3 * cell_size) + padding * 2
-        grid_height = ((pool_size + 2) * box_height) + padding * 3  # +1 for header, +1 for Kampfzeit row
+        grid_height = ((this_pool_size + 2) * box_height) + padding * 3  # +1 for header, +1 for Kampfzeit row
 
         max_width = max(max_width, grid_width)
         current_y += grid_height + padding * 2

@@ -32,13 +32,6 @@ class ParticipantRepository:
     def __init__(self, db):
         self.db = db
 
-    def add_bulk(self, participants_data: List[Dict]) -> List[Participant]:
-        """Bulk insert participants from a list of dicts (XLSX/JSON/website format)."""
-        objects = [Participant(**data) for data in participants_data]
-        self.db.add_all(objects)
-        self.db.commit()
-        return objects
-
     def get_all(self) -> List[Participant]:
         return self.db.query(Participant).all()
 
@@ -48,12 +41,25 @@ class ParticipantRepository:
         result = []
         for p in rows:
             age = _calculate_age(p.birth_date) if p.birth_date else None
+            # Need strict mapping back to frontend model here
+            is_valid = p.valid if p.valid is not None else True
+            is_paid = p.paid if p.paid is not None else True
+            gender_mapped = 'male' if p.gender == 'm' else ('female' if p.gender == 'w' else p.gender)
             result.append({
-                'Name':    f"{p.first_name} {p.last_name}".strip(),
-                'Gender':  p.gender.upper() if p.gender else '',
-                'Age':     age,
-                'Weight':  float(p.weight) if p.weight else None,
-                'Verein':  p.club or '',
+                'ID':          p.id,
+                'Firstname':   p.first_name,
+                'Lastname':    p.last_name,
+                'Name':        f"{p.first_name} {p.last_name}".strip(),
+                'Birthyear':   p.birth_date.year if p.birth_date else None,
+                'Age':         age,
+                'Club':        p.club or '',
+                'Verein':      p.club or '',
+                'Association': p.association or '',
+                'Weight':      float(p.weight) if p.weight else 0.0,
+                'Valid':       is_valid,
+                'Paid':        is_paid,
+                'Gender':      gender_mapped,
+                'Doublestart': p.doublestart or 'nein',
             })
         return result
 

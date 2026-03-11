@@ -45,7 +45,8 @@ build:
 test:
   stage: test
   script:
-    - echo "Test temporarily disabled"
+    - echo "Running unit tests with pytest..."
+    - pytest tests/
 
 build-docs:
   stage: docs

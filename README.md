@@ -3,6 +3,240 @@ SPDX-License-Identifier: GPL-3.0-or-later-->
 
 # EDV_Backend
 
+Tournament management desktop application for Judo competitions.
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.10 or higher
+- PostgreSQL database
+- pip and virtualenv
+
+### Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd edv_backend
+   ```
+
+2. **Create and activate virtual environment**
+   ```bash
+   python -m venv venv
+   # On Windows:
+   venv\Scripts\activate
+   # On Linux/Mac:
+   source venv/bin/activate
+   ```
+
+3. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   pip install -e .  # Install in development mode
+   ```
+
+4. **Configure database**
+   - Copy `.env.example` to `.env` (if exists)
+   - Update database credentials in `backend/data/db_config.py`
+
+5. **Run database migrations**
+   ```bash
+   # For new installations, create initial schema:
+   alembic upgrade head
+   
+   # For existing databases that used custom migrations:
+   alembic stamp head  # Mark as up-to-date
+   ```
+
+6. **Run the application**
+   ```bash
+   python -m edv_backend
+   # or
+   python main.py
+   ```
+
+### Running Tests
+
+```bash
+pytest tests/
+```
+
+---
+
+## Database Migrations
+
+This project uses **Alembic** for database schema migrations.
+
+### Why Alembic?
+
+Alembic manages database schema changes in a controlled, versioned way:
+- ✅ **Version Control** - Track all schema changes over time
+- ✅ **Rollback Support** - Undo migrations if needed
+- ✅ **Team Collaboration** - Everyone applies the same schema changes
+- ✅ **Production Safety** - Apply changes incrementally without data loss
+
+### When Do You Need to Run Alembic?
+
+#### Scenario 1: First Time Setup (New Installation)
+**When:** Installing the application for the first time  
+**Command:**
+```bash
+alembic upgrade head
+```
+This creates all database tables and applies all migrations.
+
+#### Scenario 2: After Pulling Code (Updates from Git)
+**When:** You `git pull` and see changes in `alembic/versions/`  
+**Command:**
+```bash
+alembic upgrade head
+```
+This applies any new schema changes from other developers.
+
+#### Scenario 3: Existing Database (Migration System Change)
+**When:** Upgrading from the old custom migration system  
+**Command:**
+```bash
+alembic stamp head
+```
+This marks your database as up-to-date without re-running migrations.
+
+#### Scenario 4: You Modified Database Models
+**When:** You changed files in `backend/data/models.py`  
+**Commands:**
+```bash
+# 1. Generate migration automatically
+alembic revision --autogenerate -m "Add new column to fights table"
+
+# 2. Review the generated file in alembic/versions/
+# 3. Edit if needed (Alembic can't detect everything)
+
+# 4. Apply the migration
+alembic upgrade head
+```
+
+### Common Commands
+
+```bash
+# Check current database version
+alembic current
+
+# View all migrations and history
+alembic history --verbose
+
+# Apply all pending migrations
+alembic upgrade head
+
+# Rollback one migration
+alembic downgrade -1
+
+# Rollback to specific version
+alembic downgrade <revision_id>
+
+# See SQL without executing
+alembic upgrade head --sql
+```
+
+### Troubleshooting
+
+**Error: "Can't locate revision identified by 'XXX'"**
+- Your database is out of sync with migrations
+- Solution: `alembic stamp head` (if you know your schema is current)
+
+**Error: "Table already exists"**
+- Database has tables but Alembic thinks it's empty
+- Solution: `alembic stamp head`
+
+**How to check if migrations are needed?**
+```bash
+alembic current  # Shows current version
+alembic heads    # Shows latest available version
+# If they don't match, run: alembic upgrade head
+```
+
+### Migration History
+
+- `0001` - Initial schema (groups, group_participants, brackets, fights, etc.)
+- `0002` - Add groups.name column, allow NULL in gender/age_group/weight_class
+- `0003` - Add fight metadata columns (bracket_phase, round, pos_in_round, etc.)
+
+### Important Notes
+
+⚠️ **Always backup your database before running migrations in production!**
+
+⚠️ **Never edit migration files after they've been applied** - create a new migration instead
+
+✅ **Migrations run automatically in order** - you don't need to specify which ones
+
+---
+
+## Project Structure
+
+```
+edv_backend/
+├── alembic/              # Database migrations
+├── backend/
+│   ├── data/            # Database models and services
+│   └── services/        # Business logic layer
+├── frontend/
+│   ├── views/           # UI components
+│   ├── utils/           # Frontend utilities
+│   └── state.py         # Application state management
+├── tests/               # Test suite
+├── utils/               # Shared utilities
+│   ├── bracket_utils.py
+│   ├── helpers.py
+│   └── logging/
+├── config/              # Configuration files
+├── logs/                # Application logs
+├── main.py              # Application entry point
+├── pyproject.toml       # Project metadata and dependencies
+└── requirements.txt     # Python dependencies
+```
+
+---
+
+## Development
+
+### Code Quality
+
+```bash
+# Run tests
+pytest tests/
+
+# Run specific test file
+pytest tests/test_bracket_algorithms.py
+
+# Run with coverage
+pytest --cov=backend --cov=frontend tests/
+```
+
+### Logging
+
+Logs are written to `logs/` directory. Each module has its own log file.
+
+To enable verbose debug logging:
+```bash
+export LOG_DEBUG=1  # Linux/Mac
+set LOG_DEBUG=1     # Windows CMD
+$env:LOG_DEBUG="1"  # Windows PowerShell
+```
+
+---
+
+## License
+
+GPL-3.0-or-later
+
+---
+
+## GitLab Template Information
+
+The sections below are from the GitLab README template and can be customized or removed.
+
 
 ## Getting started
 
