@@ -106,6 +106,35 @@ class ScreenManager:
         self.screen_staleness[screen_key] = False
         self.logger.info(f"Registered screen: {screen_key} ({label})")
     
+    def _detect_skipped_screens(self, current_key, target_key):
+        """
+        Detect if user skipped screens via tab navigation.
+        Returns list of screens between current and target that should have been visited.
+        
+        For example:
+        - file_loader → group_preview (no skip)
+        - group_preview → generation_method (no skip)
+        - group_preview → bracket_viewer (SKIPPED generation_method!)
+        
+        Returns:
+            List of skipped screen keys, or empty list if no skip
+        """
+        screen_order = ['file_loader', 'group_preview', 'generation_method', 'bracket_viewer', 'fight_monitoring']
+        
+        try:
+            current_idx = screen_order.index(current_key)
+            target_idx = screen_order.index(target_key)
+        except ValueError:
+            return []  # Unknown screens, can't detect skip
+        
+        # If going backward or to adjacent screen, no skip
+        if target_idx <= current_idx + 1:
+            return []
+        
+        # Skipped screens are those between current and target
+        skipped = screen_order[current_idx + 1:target_idx]
+        return skipped
+    
     def navigate_to(self, screen_key, **kwargs) -> bool:
         """
         Navigate to a screen.
@@ -206,17 +235,20 @@ class ScreenManager:
                 self.logger.error(f"Error in on_hide(): {e}")
                 return False
         
-        # Execute data transformations before showing new screen
-        if self.data_pipeline:
+        # Check if user skipped screens (tab navigation vs normal flow)
+        # Pipeline runs transformations for skipped screens to prevent data mismatch
+        skipped_screens = self._detect_skipped_screens(self.current_screen_key, screen_key)
+        
+        if skipped_screens and self.data_pipeline:
             try:
                 wait_for_db = getattr(self.main_window, 'wait_for_db_service', None)
-                success = self.data_pipeline.transform_before_entering(screen_key, wait_for_db)
+                self.logger.info(f"User skipped screens via tab navigation: {' → '.join(skipped_screens)}")
+                self.logger.info(f"Running automated transformations for skipped screens using presets")
+                success = self.data_pipeline.transform_skipped_screens(skipped_screens, wait_for_db)
                 if not success:
-                    self.logger.warning(f"Data transformations failed for {screen_key}")
-                    # Don't block navigation, just warn - allow screen to handle missing data
+                    self.logger.warning(f"Data transformations failed for skipped screens")
             except Exception as e:
-                self.logger.error(f"Error in data transformations for {screen_key}: {e}")
-                # Don't block navigation for transformation errors
+                self.logger.error(f"Error in data transformations for skipped screens: {e}")
         
         # Hide current screen content (don't destroy it - just unpack)
         if current_screen:

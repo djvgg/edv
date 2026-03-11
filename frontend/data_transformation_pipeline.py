@@ -368,7 +368,6 @@ class DataTransformationPipeline:
             headless: If True, skip UI-only transformations (visual-only ops)
         """
         self.main_window = main_window
-        self.db_service = main_window.db_service
         self.quarantine_service = main_window.quarantine_service
         self.logger = logger
         self.headless = headless
@@ -416,19 +415,78 @@ class DataTransformationPipeline:
 
         return rules
     
-    def transform_before_entering(self, screen_key: str, wait_for_db: callable = None) -> bool:
+    def transform_skipped_screens(self, skipped_screen_keys: list, wait_for_db: callable = None) -> bool:
         """
-        Execute all transformations needed before entering a screen.
+        Run transformations for screens that were skipped via tab navigation.
+        Uses screen presets to automatically determine which transformations to run.
+        
+        Args:
+            skipped_screen_keys: List of screen keys that were skipped (e.g., ['generation_method', 'bracket_viewer'])
+            wait_for_db: Optional callable to wait for DB service
+            
+        Returns:
+            True if all transformations succeeded, False if any failed
+        """
+        if not skipped_screen_keys:
+            return True
+        
+        self.logger.info(f"Running transformations for skipped screens: {skipped_screen_keys}")
+        
+        try:
+            for screen_key in skipped_screen_keys:
+                if screen_key not in self._transformation_rules:
+                    self.logger.warning(f"No transformation rules for skipped screen: {screen_key}")
+                    continue
+                
+                rules = self._transformation_rules[screen_key]
+                transformations = rules['incoming_transformations']
+                
+                if not transformations:
+                    self.logger.debug(f"No transformations for skipped screen: {screen_key}")
+                    continue
+                
+                self.logger.debug(f"Running {len(transformations)} transformations for skipped screen {screen_key}: {transformations}")
+                
+                for transform_name in transformations:
+                    self._execute_transformation(transform_name, wait_for_db)
+                
+                self.logger.info(f"✓ Completed transformations for skipped screen: {screen_key}")
+            
+            return True
+            
+        except Exception:
+            self.logger.error(f"✗ Transformation failed for skipped screens", exc_info=True)
+            return False
+
+    def transform_before_entering(self, screen_key: str, wait_for_db: callable = None, force_run: bool = False) -> bool:
+        """
+        Execute transformations needed before entering a screen - ONLY when:
+        - First time visiting screen (instance doesn't exist yet), OR
+        - Screen is marked stale (data changed upstream), OR  
+        - Headless mode (background processing)
+        
+        Normal navigation to non-stale screens just calls on_show() without re-running transformations.
         
         Args:
             screen_key: Screen identifier ('file_loader', 'group_preview', etc.)
             wait_for_db: Optional callable to wait for DB service (from main_window.wait_for_db_service)
+            force_run: If True, run transformations even if not stale (used for explicit re-run)
         
         Returns:
             True if transformations succeeded, False if blocked
         """
         if screen_key not in self._transformation_rules:
             self.logger.warning(f"No transformation rules for screen: {screen_key}")
+            return True
+        
+        # Check if this is first visit (screen instance doesn't exist yet) or screen is stale
+        is_first_visit = screen_key not in getattr(self.main_window.screen_manager, 'screen_instances', {})
+        is_stale = getattr(self.main_window.screen_manager, 'is_screen_stale', lambda x: False)(screen_key)
+        
+        # Skip transformations unless one of these is true:
+        skip = not (self.headless or is_first_visit or is_stale or force_run)
+        if skip:
+            self.logger.debug(f"Screen {screen_key} not first visit and not stale, skipping transformations")
             return True
         
         rules = self._transformation_rules[screen_key]
@@ -439,7 +497,8 @@ class DataTransformationPipeline:
             return True
         
         self.logger.debug(
-            f"Executing {len(transformations)} transformations before entering {screen_key}: "
+            f"Executing {len(transformations)} transformations before entering {screen_key} "
+            f"(first_visit={is_first_visit}, stale={is_stale}, headless={self.headless}): "
             f"{transformations}"
         )
         
@@ -545,11 +604,19 @@ class DataTransformationPipeline:
     def _transform_save_groups(self, wait_for_db: callable = None):
         """Save groups to database."""
         try:
-            if wait_for_db and not wait_for_db():
-                self.logger.warning("Database not ready, skipping save_groups")
+            # Wait for database to be ready first
+            if wait_for_db:
+                if not wait_for_db():
+                    self.logger.warning("Database initialization timeout, skipping save_groups")
+                    return
+            
+            # Now get the db_service (should be ready)
+            db_service = self.main_window.db_service
+            if not db_service:
+                self.logger.warning("Database service still not available after wait, skipping save_groups")
                 return
             
-            self.db_service.save_groups(self.main_window.brackets)
+            db_service.save_groups(self.main_window.brackets)
             self.logger.debug("✓ Saved groups to database")
         except Exception:
             self.logger.error("Failed to save groups", exc_info=True)
@@ -577,7 +644,7 @@ class DataTransformationPipeline:
     def _transform_regenerate_stale_ko_brackets(self):
         """Regenerate KO brackets that are stale."""
         try:
-            from backend.services.bracket_manager import regenerate_stale_ko_brackets  # noqa: E402
+            from ..services.bracket_manager import regenerate_stale_ko_brackets  # noqa: E402
             from backend.services.bracket_service import make_bracket  # noqa: E402
             
             regenerate_stale_ko_brackets(
@@ -593,8 +660,16 @@ class DataTransformationPipeline:
     def _transform_create_fights(self, wait_for_db: callable = None):
         """Create fights for all assigned brackets in database."""
         try:
-            if wait_for_db and not wait_for_db():
-                self.logger.warning("Database not ready, skipping create_fights")
+            # Wait for database to be ready first
+            if wait_for_db:
+                if not wait_for_db():
+                    self.logger.warning("Database initialization timeout, skipping create_fights")
+                    return
+            
+            # Now get the db_service (should be ready)
+            db_service = self.main_window.db_service
+            if not db_service:
+                self.logger.warning("Database service still not available after wait, skipping create_fights")
                 return
             
             processed = 0
@@ -606,7 +681,7 @@ class DataTransformationPipeline:
                     fighters = bracket_data.get('fighters', [])
                     pool_size = bracket_data.get('pool_size')
                     
-                    self.db_service.create_fights_for_bracket(
+                    db_service.create_fights_for_bracket(
                         bracket_key, fight_pairs,
                         bracket_type=bracket_type,
                         fighters=fighters,

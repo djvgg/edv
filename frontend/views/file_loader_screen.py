@@ -63,11 +63,16 @@ class FileLoaderScreen(tk.Frame):
         self.info_var = tk.StringVar(value="[Waiting for data source...]")
         self.status_var = tk.StringVar(value="Ready.")
         self.status_label = None
+        self.ui_initialized = False  # Track if UI has been built
 
         self.init_ui()
 
     def init_ui(self):
-        """Initialize the user interface."""
+        """Initialize the user interface. Only build once."""
+        if self.ui_initialized:
+            self.logger.debug("UI already initialized, skipping rebuild")
+            return
+        self.ui_initialized = True
         # Header
         title = tk.Label(
             self,

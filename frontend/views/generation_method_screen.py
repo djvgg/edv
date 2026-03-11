@@ -82,6 +82,7 @@ class GenerationMethodScreen(tk.Frame):
         self.unassigned_listbox = None
         self.search_entry = None
         self.tables = {}  # {method: {listbox, unassign_btn}}
+        self.ui_initialized = False  # Track if UI has been built
         
         # Callbacks (for new navigation system)
         self.on_back_callback = None  # Callback when back button clicked
@@ -170,7 +171,10 @@ class GenerationMethodScreen(tk.Frame):
         self.init_ui()
 
     def init_ui(self):
-        """Initialize the user interface."""
+        """Initialize the user interface. Only build once."""
+        if self.ui_initialized:
+            self.logger.debug("UI already initialized, skipping rebuild")
+            return
 
         # --- TITLE ---
         title = tk.Label(
@@ -654,6 +658,12 @@ class GenerationMethodScreen(tk.Frame):
         else:
             self.logger.warning("No callback set for generation method selection")
             messagebox.showinfo("Success", "Bracket assignments finalized!")
+    def init_ui(self):
+        """Mark UI initialization as complete."""
+        if not self.ui_initialized:
+            self.ui_initialized = True
+            self.logger.debug("UI initialized successfully")
+
     def on_show(self, force_reload=False):
         """Lifecycle hook called when screen is displayed."""
         self.logger.debug(f"[LIFECYCLE] GenerationMethodScreen.on_show(force_reload={force_reload})")

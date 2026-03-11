@@ -89,6 +89,9 @@ class FightMonitoringScreen(tk.Frame):
         # Tracks byes already synced to DB — prevents redundant DB calls on re-render
         # {(bracket_key, phase, round, pos)}
         self._bye_db_synced = set()
+        
+        # Track UI initialization
+        self.ui_initialized = False
 
         self._setup_ttk_styles()
         self._build_ui()
@@ -107,6 +110,11 @@ class FightMonitoringScreen(tk.Frame):
     # ------------------------------------------------------------- build UI
 
     def _build_ui(self):
+        """Build the UI. Only initialize once."""
+        if self.ui_initialized:
+            logger.debug("UI already initialized, skipping rebuild")
+            return
+        self.ui_initialized = True
         # ── Navigation bar ───────────────────────────────────────────────────
         nav = create_dark_frame(self)
         nav.pack(fill=tk.X, padx=10, pady=(8, 0))

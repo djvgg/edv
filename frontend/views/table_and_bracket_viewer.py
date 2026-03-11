@@ -61,6 +61,7 @@ class TableAndBracketViewer(tk.Frame):
         self.current_bracket_key = None
         self.bracket_listbox_map = {}
         self.table_panels = {}
+        self.ui_initialized = False  # Track if UI has been built
         
         # Build complete UI with left panel + right panel
         self._build_ui()
@@ -68,6 +69,9 @@ class TableAndBracketViewer(tk.Frame):
     
     def _build_ui(self):
         """Build the complete UI layout with search, listbox, assignment buttons, tables, and bracket view."""
+        if self.ui_initialized:
+            self.logger.debug("UI already initialized, skipping rebuild")
+            return
         # Create PanedWindow for resizable split
         paned = tk.PanedWindow(self, orient=tk.HORIZONTAL,
                               bg=COLORS['bg_dark'],
@@ -904,6 +908,11 @@ class TableAndBracketViewer(tk.Frame):
             num_fights = num_fighters - 1
         
         return num_fights
+
+    def _mark_ui_initialized(self):
+        """Mark UI as initialized."""
+        self.ui_initialized = True
+        self.logger.debug("UI initialized successfully")
 
     def on_show(self, force_reload=False):
         """Lifecycle hook called when screen is displayed."""
