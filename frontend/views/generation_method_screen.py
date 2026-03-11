@@ -327,6 +327,10 @@ class GenerationMethodScreen(tk.Frame):
 
         # Refresh display
         self._refresh_all_displays()
+        
+        # Mark UI as successfully initialized
+        self.ui_initialized = True
+        self.logger.debug("[GEN_METHOD] UI initialized successfully")
 
     def _create_method_table(self, parent, method_key, title, side):
         """Create a table for a generation method."""
@@ -676,7 +680,17 @@ class GenerationMethodScreen(tk.Frame):
         self.logger.debug(f"[LIFECYCLE] GenerationMethodScreen.on_show(force_reload={force_reload})")
         if force_reload and self.main_window:
             # Reload brackets from main_window cache
-            self.load_data(self.main_window.brackets)
+            # Convert main_window.brackets format (with 'fighters' key) to load_data format (with 'tuple' key)
+            brackets_dict = {}
+            for bracket_key, bracket_data in self.main_window.brackets.items():
+                fighters = bracket_data.get('fighters', [])
+                cached_method = self.main_window.bracket_generation_methods.get(bracket_key)
+                brackets_dict[bracket_key] = {
+                    'tuple': fighters,
+                    'method': cached_method,
+                }
+            self.logger.debug(f"[LIFECYCLE] on_show reload: converted main_window.brackets to load_data format")
+            self.load_data(brackets_dict)
             self.logger.info("[RELOAD] GenerationMethodScreen data reloaded from cache")
 
     def _convert_brackets_to_local_format(self, main_brackets):
