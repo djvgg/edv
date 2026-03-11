@@ -32,13 +32,6 @@ class ParticipantRepository:
     def __init__(self, db):
         self.db = db
 
-    def add_bulk(self, participants_data: List[Dict]) -> List[Participant]:
-        """Bulk insert participants from a list of dicts (XLSX/JSON/website format)."""
-        objects = [Participant(**data) for data in participants_data]
-        self.db.add_all(objects)
-        self.db.commit()
-        return objects
-
     def get_all(self) -> List[Participant]:
         return self.db.query(Participant).all()
 
