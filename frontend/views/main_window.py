@@ -400,6 +400,7 @@ class BracketViewerApp(tk.Tk):
         
         elif screen_key == 'generation_method':
             # GenerationMethodScreen callbacks and data transformation
+            self.logger.debug("[SETUP] generation_method setup started")
             screen.on_generation_complete = self.on_generation_methods_selected
             screen.on_back_callback = lambda: self.screen_manager.navigate_to('group_preview')
             
@@ -407,10 +408,15 @@ class BracketViewerApp(tk.Tk):
             # Wait for database service to be ready before using it
             if self.wait_for_db_service():
                 self.db_service.save_groups(self.brackets)
+                self.logger.debug("[SETUP] Saved groups to DB")
+            
+            self.logger.debug("[SETUP] Extracting quarantine brackets...")
             self.quarantine_service.extract_quarantine(self.brackets)
+            self.logger.debug(f"[SETUP] Brackets after extract_quarantine: {len(self.brackets)} brackets")
             
             from utils.bracket_utils import split_u9_u11_into_pools
             self.brackets = split_u9_u11_into_pools(self.brackets)
+            self.logger.debug(f"[SETUP] Brackets after split_u9_u11_into_pools: {len(self.brackets)} brackets")
             
             # Prepare bracket data for the screen
             brackets_dict = {}
@@ -421,7 +427,9 @@ class BracketViewerApp(tk.Tk):
                     'tuple': fighters,
                     'method': cached_method,
                 }
+                self.logger.debug(f"[SETUP] Added to brackets_dict: {bracket_key} with {len(fighters)} fighters")
             
+            self.logger.debug(f"[SETUP] Calling screen.load_data with {len(brackets_dict)} brackets")
             screen.load_data(brackets_dict)
             
             self.logger.debug("Wired GenerationMethodScreen callbacks and loaded data")

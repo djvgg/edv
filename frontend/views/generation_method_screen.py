@@ -91,6 +91,9 @@ class GenerationMethodScreen(tk.Frame):
         # Load method labels from config
         self.method_labels = {}  # {method_key: {'ButtonLabel': str, 'DisplayLabel': str}}
         self._load_method_labels()
+        
+        # Initialize UI only once
+        self.init_ui()
     
     def _load_method_labels(self):
         """Load generation method labels from config."""
@@ -127,6 +130,8 @@ class GenerationMethodScreen(tk.Frame):
             brackets_dict: Dict of {bracket_key: bracket_tuple} or 
                           {bracket_key: {"tuple": bracket_tuple, "method": method_name, ...}}
         """
+        self.logger.debug(f"[GEN_METHOD] load_data called with brackets_dict={type(brackets_dict)} (len={len(brackets_dict) if brackets_dict else 0})")
+        
         if brackets_dict:
             self.brackets = {}
             self.unassigned = []
@@ -149,6 +154,7 @@ class GenerationMethodScreen(tk.Frame):
                 # Skip empty brackets (0 fighters) — they were merged away
                 fighter_count = len(bracket_tuple) if isinstance(bracket_tuple, list) else 0
                 if fighter_count == 0:
+                    self.logger.debug(f"[GEN_METHOD] Skipping empty bracket: {key}")
                     continue
 
                 if method is None:
@@ -157,18 +163,18 @@ class GenerationMethodScreen(tk.Frame):
                     assigned_brackets[key] = method
 
             self.filtered_keys = self.unassigned.copy()
-            self.logger.info(f"Loaded {len(self.brackets)} brackets, {len(self.unassigned)} unassigned, {len(assigned_brackets)} cached")
+            self.logger.info(f"[GEN_METHOD] Loaded {len(self.brackets)} brackets, {len(self.unassigned)} unassigned, {len(assigned_brackets)} cached")
             if self.DEBUG:
                 self.logger.debug(f"DEBUG: Bracket keys: {list(self.brackets.keys())}")
                 self.logger.debug(f"DEBUG: Unassigned keys: {self.unassigned}")
                 if assigned_brackets:
                     self.logger.debug(f"DEBUG: Cached assignments: {assigned_brackets}")
-
-        # Build or refresh UI
-        if self.main_frame:
-            self.main_frame.destroy()
-
-        self.init_ui()
+        else:
+            self.logger.warning("[GEN_METHOD] load_data called with None or empty brackets_dict!")
+        
+        # Refresh all displays with loaded data
+        self.logger.debug(f"[GEN_METHOD] Refreshing displays with {len(self.unassigned)} unassigned brackets")
+        self._refresh_all_displays()
 
     def init_ui(self):
         """Initialize the user interface. Only build once."""
@@ -524,20 +530,26 @@ class GenerationMethodScreen(tk.Frame):
 
     def _refresh_all_displays(self):
         """Refresh all listbox displays."""
+        self.logger.debug(f"[GEN_METHOD] _refresh_all_displays called with {len(self.unassigned)} unassigned")
         self._refresh_unassigned_display()
         for method in self.tables.keys():
             self._refresh_method_display(method)
+        self.logger.debug(f"[GEN_METHOD] _refresh_all_displays complete")
 
     def _refresh_unassigned_display(self):
         """Refresh unassigned brackets listbox."""
+        self.logger.debug(f"[GEN_METHOD] _refresh_unassigned_display checking unassigned_listbox={self.unassigned_listbox is not None}")
         if not self.unassigned_listbox:
+            self.logger.warning("[GEN_METHOD] unassigned_listbox is None!")
             return
         self.unassigned_listbox.delete(0, tk.END)
-
+        
+        self.logger.debug(f"[GEN_METHOD] Populating unassigned listbox with {len(self.filtered_keys)} items")
         for bracket_key in self.filtered_keys:
             bracket_data = self.brackets[bracket_key]
             display_text = self._format_bracket_display(bracket_key, bracket_data["tuple"])
             self.unassigned_listbox.insert(tk.END, display_text)
+            self.logger.debug(f"[GEN_METHOD] Added to unassigned: {display_text}")
 
     def _refresh_method_display(self, method):
         """Refresh a method table display."""
@@ -658,11 +670,6 @@ class GenerationMethodScreen(tk.Frame):
         else:
             self.logger.warning("No callback set for generation method selection")
             messagebox.showinfo("Success", "Bracket assignments finalized!")
-    def init_ui(self):
-        """Mark UI initialization as complete."""
-        if not self.ui_initialized:
-            self.ui_initialized = True
-            self.logger.debug("UI initialized successfully")
 
     def on_show(self, force_reload=False):
         """Lifecycle hook called when screen is displayed."""

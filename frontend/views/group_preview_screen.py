@@ -154,33 +154,40 @@ class GroupPreviewScreen(tk.Frame):
         if self.ui_initialized:
             self.logger.debug("UI already initialized, skipping rebuild")
             return
-            
-        # Main layout with resizable split
-        main_frame = create_dark_frame(self)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        #Fenster Rahmen / Panel Window
-        paned = tk.PanedWindow( 
-            main_frame,
-            orient=tk.HORIZONTAL,
-            bg=COLORS['bg_dark'],
-            sashwidth=4,
-            sashrelief=tk.FLAT,
-            showhandle=False,
-        )
-        paned.pack(fill=tk.BOTH, expand=True)
-
-        # Left panel: Group list
-        self._create_group_list_panel(paned)
-
-        # Right panel: Participant preview
-        self._create_participant_preview_panel(paned)
-
-        # Bottom navigation buttons
-        self._create_navigation_buttons(main_frame)
         
-        self.ui_initialized = True
-        self.logger.debug("UI initialized successfully")
+        try:
+            # Main layout with resizable split
+            main_frame = create_dark_frame(self)
+            main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+            #Fenster Rahmen / Panel Window
+            paned = tk.PanedWindow( 
+                main_frame,
+                orient=tk.HORIZONTAL,
+                bg=COLORS['bg_dark'],
+                sashwidth=4,
+                sashrelief=tk.FLAT,
+                showhandle=False,
+            )
+            paned.pack(fill=tk.BOTH, expand=True)
+
+            # Left panel: Group list
+            self._create_group_list_panel(paned)
+
+            # Right panel: Participant preview
+            self._create_participant_preview_panel(paned)
+
+            # Bottom navigation buttons
+            self._create_navigation_buttons(main_frame)
+            
+            # Mark as initialized ONLY after successful build
+            self.ui_initialized = True
+            self.logger.debug("UI initialized successfully")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize UI: {e}", exc_info=True)
+            # Don't set ui_initialized, allow retry on next call
+            raise
 
     # Left panel: Group list
     def _create_group_list_panel(self, parent_paned):

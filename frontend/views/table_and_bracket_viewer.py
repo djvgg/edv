@@ -72,6 +72,7 @@ class TableAndBracketViewer(tk.Frame):
         if self.ui_initialized:
             self.logger.debug("UI already initialized, skipping rebuild")
             return
+        
         # Create PanedWindow for resizable split
         paned = tk.PanedWindow(self, orient=tk.HORIZONTAL,
                               bg=COLORS['bg_dark'],
@@ -244,6 +245,8 @@ class TableAndBracketViewer(tk.Frame):
         self.show_tables()
         self.update_bracket_list()
         self.update_table_panels()
+        self.ui_initialized = True
+        self.logger.debug("UI initialized successfully")
 
     # ===== Navigation =====
     
@@ -909,11 +912,6 @@ class TableAndBracketViewer(tk.Frame):
         
         return num_fights
 
-    def _mark_ui_initialized(self):
-        """Mark UI as initialized."""
-        self.ui_initialized = True
-        self.logger.debug("UI initialized successfully")
-
     def on_show(self, force_reload=False):
         """Lifecycle hook called when screen is displayed."""
         self.logger.debug(f"[LIFECYCLE] TableAndBracketViewer.on_show(force_reload={force_reload})")
@@ -921,3 +919,7 @@ class TableAndBracketViewer(tk.Frame):
             # Reload bracket list from main_window cache
             self.update_bracket_list()
             self.logger.info("[RELOAD] TableAndBracketViewer data reloaded from cache")
+
+    def on_close_screen(self):
+        """Cleanup when screen is hidden."""
+        pass

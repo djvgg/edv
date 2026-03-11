@@ -1283,3 +1283,7 @@ class FightMonitoringScreen(tk.Frame):
                 self._render(self.current_bracket_key)
                 logger.info("[RELOAD] FightMonitoringScreen re-rendered current bracket")
 
+    def on_close_screen(self):
+        """Cleanup when screen is hidden."""
+        pass
+

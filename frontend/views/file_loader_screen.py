@@ -72,7 +72,7 @@ class FileLoaderScreen(tk.Frame):
         if self.ui_initialized:
             self.logger.debug("UI already initialized, skipping rebuild")
             return
-        self.ui_initialized = True
+        
         # Header
         title = tk.Label(
             self,
@@ -152,6 +152,7 @@ class FileLoaderScreen(tk.Frame):
         split_btn.pack(pady=8, fill="x", padx=40)
 
         self.logger.debug("File loader UI initialized")
+        self.ui_initialized = True
 
     def on_load_xlsx_click(self):
         """Handle XLSX load button click."""
@@ -220,4 +221,8 @@ class FileLoaderScreen(tk.Frame):
         """Lifecycle hook called when screen is displayed."""
         # FileLoaderScreen is the entry point, no reload needed
         self.logger.debug(f"[LIFECYCLE] FileLoaderScreen.on_show(force_reload={force_reload})")
+
+    def on_close_screen(self):
+        """Cleanup when screen is hidden."""
+        pass
 
