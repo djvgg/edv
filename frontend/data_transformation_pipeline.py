@@ -276,9 +276,16 @@ MIGRATION PATH:
 """
 
 from typing import Dict, Any
-import logging
+import sys
+import os
 
-logger = logging.getLogger(__name__)
+_edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if _edv_backend_path not in sys.path:
+    sys.path.insert(0, _edv_backend_path)
+
+from utils.logging import get_logger  # noqa: E402
+
+logger = get_logger('data_transformation_pipeline', debug_verbose=True)
 
 # ============================================================================
 # TRANSFORMATION PRESETS (Grouped by Screen Responsibility)
@@ -319,6 +326,7 @@ PRESET_GENERATION_METHOD_OPS = {
         'save_groups',            # [ESSENTIAL] Persist approved groups to DB
         'extract_quarantine',     # [ESSENTIAL] Remove quarantine for calculations
         'split_u9_u11_into_pools',  # [ESSENTIAL] Re-separate for generation
+        'auto_assign_generation_methods',  # [ESSENTIAL] Auto-assign methods when screen skipped
     ],
 }
 
@@ -571,6 +579,9 @@ class DataTransformationPipeline:
         elif transform_name == 'split_u9_u11_into_pools':
             self._transform_split_u9_u11_into_pools()
         
+        elif transform_name == 'auto_assign_generation_methods':
+            self._transform_auto_assign_generation_methods()
+        
         elif transform_name == 'regenerate_stale_ko_brackets':
             self._transform_regenerate_stale_ko_brackets()
         
@@ -640,6 +651,86 @@ class DataTransformationPipeline:
         except Exception:
             self.logger.error("Failed to split U9/U11 pools", exc_info=True)
             raise
+    
+    def _transform_auto_assign_generation_methods(self):
+        """Automatically assign generation methods to all unassigned brackets when screen is skipped."""
+        try:
+            from backend.data.repositories.config_repository import ConfigRepository
+            
+            # Load method labels from config
+            config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'bracket_config.xlsx')
+            method_labels = {}
+            if os.path.exists(config_path):
+                try:
+                    config = ConfigRepository(config_path)
+                    method_labels = config.get_generation_methods()
+                except Exception as e:
+                    self.logger.debug(f"Could not load method labels from config: {e}")
+            
+            # Auto-assign each bracket
+            assigned_count = 0
+            for bracket_key, bracket_data in self.main_window.brackets.items():
+                # Skip if already assigned
+                if self.main_window.bracket_generation_methods.get(bracket_key):
+                    continue
+                
+                # Get fighter count
+                fighters = bracket_data.get('fighters', [])
+                fighter_count = len(fighters) if isinstance(fighters, list) else 0
+                
+                if fighter_count == 0:
+                    continue
+                
+                # Recommend method
+                method = self._recommend_generation_method(fighter_count, bracket_key, method_labels)
+                
+                # Assign
+                self.main_window.bracket_generation_methods[bracket_key] = method
+                assigned_count += 1
+                self.logger.debug(f"Auto-assigned {bracket_key}: {fighter_count} fighters → {method}")
+            
+            self.logger.info(f"✓ Auto-assigned {assigned_count} brackets with generation methods")
+            
+            # Mark generation_method screen as stale so it reloads with the auto-assigned methods
+            if hasattr(self.main_window, 'screen_manager'):
+                self.main_window.screen_manager.mark_screen_stale('generation_method')
+                self.logger.debug("Marked generation_method screen as stale to reload with auto-assignments")
+        except Exception:
+            self.logger.error("Failed to auto-assign generation methods", exc_info=True)
+            raise
+    
+    def _recommend_generation_method(self, fighter_count: int, bracket_key: str = None, method_labels: dict = None) -> str:
+        """
+        Recommend a generation method based on fighter count using config thresholds.
+        Matches the logic in GenerationMethodScreen._recommend_method().
+        
+        Note: U9 and U11 age groups always use 'pools' method since they have configurable 
+        pool sizes instead of fixed weight classes.
+        """
+        # Force U9 and U11 to pools method (they use configurable pool sizes)
+        if bracket_key and ('U9' in bracket_key or 'U11' in bracket_key):
+            return 'pools'
+        
+        # If no thresholds loaded, use fallback
+        if not method_labels:
+            if fighter_count < 3:
+                return 'special'
+            elif fighter_count <= 5:
+                return 'pools'
+            elif fighter_count <= 10:
+                return 'double'
+            else:
+                return 'ko'
+        else:
+            # Find method by fighter count range from config
+            for method_key, config in method_labels.items():
+                min_fighters = config.get('MinFighters', 0)
+                max_fighters = config.get('MaxFighters', 999)
+                if min_fighters <= fighter_count < max_fighters:
+                    return method_key
+            
+            # Fallback to ko if no method matches
+            return 'ko'
     
     def _transform_regenerate_stale_ko_brackets(self):
         """Regenerate KO brackets that are stale."""
