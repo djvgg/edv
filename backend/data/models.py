@@ -11,6 +11,12 @@ from .database import Base
 
 class Participant(Base):
     __tablename__ = 'participants'
+    __table_args__ = (
+        # Two athletes can share a name, but not the same name + gender +
+        # birth year + club combination.
+        UniqueConstraint('first_name', 'last_name', 'gender', 'birth_date', 'club',
+                         name='uix_participant_identity'),
+    )
 
     id          = Column(Integer, primary_key=True)
     first_name  = Column(String(100), nullable=False)
@@ -121,6 +127,9 @@ class Fight(Base):
     pool_index    = Column(Integer, nullable=True)
     # pool/double-pool: which pool this fight belongs to (0=pool A, 1=pool B, …)
     # wb/lb: NULL
+
+    # Mat / table assignment (set when bracket is assigned to a mat)
+    table_id      = Column(String(20), nullable=True)
 
     # Result
     winner_id     = Column(Integer, ForeignKey('group_participants.id'), nullable=True)

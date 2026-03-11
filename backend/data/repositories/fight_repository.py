@@ -10,7 +10,7 @@ class FightRepository:
     def __init__(self, db):
         self.db = db
 
-    def create_fights(self, bracket_id: int, fight_pairs: List[dict]) -> List[Fight]:
+    def create_fights(self, bracket_id: int, fight_pairs: List[dict], table_id: str = None) -> List[Fight]:
         """
         Bulk insert fight rows for a bracket.
 
@@ -24,6 +24,7 @@ class FightRepository:
             pool_index    — int or None             (default None)
             status        — 'pending' | 'bye'       (default 'pending')
             winner_id     — int or None             (default None, set for byes)
+        table_id: mat number string to stamp on each fight (e.g. '1', '2')
         """
         existing_count = self.db.query(Fight).filter(Fight.bracket_id == bracket_id).count()
         start_num = existing_count + 1
@@ -39,6 +40,7 @@ class FightRepository:
                 pool_index=fp.get('pool_index'),
                 status=fp.get('status', 'pending'),
                 winner_id=fp.get('winner_id'),
+                table_id=table_id,
             )
             for i, fp in enumerate(fight_pairs)
         ]

@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from sqlalchemy import text
 
-from ..data.models import Group, Participant, GroupParticipant
+from ..data.models import Fight, Group, Participant, GroupParticipant
 from ..data.repositories.participant_repository import ParticipantRepository
 from ..data.repositories.group_repository import GroupRepository
 from ..data.repositories.bracket_repository import BracketRepository
@@ -335,7 +335,12 @@ class TournamentService:
         if bracket:
             mat = self.brackets.get_or_create_mat(mat_number)
             self.brackets.assign_mat(bracket.id, mat.id)
-            self.logger.info(f"assign_mat: '{bracket_key}' (bracket {bracket.id}) → mat {mat.id} (number {mat_number})")
+            # Backfill table_id on all fights for this bracket
+            self.db.query(Fight).filter(Fight.bracket_id == bracket.id).update(
+                {Fight.table_id: str(mat_number)}, synchronize_session=False
+            )
+            self.db.commit()
+            self.logger.info(f"assign_mat: '{bracket_key}' (bracket {bracket.id}) → mat {mat.id} (number {mat_number}); table_id set to '{mat_number}' on all fights")
         else:
             self.logger.warning(f"assign_mat: No bracket for group '{bracket_key}' (group {group.id})")
 
@@ -348,7 +353,12 @@ class TournamentService:
         bracket = self.brackets.get_by_group(group.id)
         if bracket:
             self.brackets.unassign_mat(bracket.id)
-            self.logger.info(f"unassign_mat: '{bracket_key}' (bracket {bracket.id}) → mat removed")
+            # Clear table_id on all fights for this bracket
+            self.db.query(Fight).filter(Fight.bracket_id == bracket.id).update(
+                {Fight.table_id: None}, synchronize_session=False
+            )
+            self.db.commit()
+            self.logger.info(f"unassign_mat: '{bracket_key}' (bracket {bracket.id}) → mat removed; table_id cleared")
 
     # ------------------------------------------------------------------
     # Monitoring Window — opened per bracket
@@ -396,13 +406,23 @@ class TournamentService:
             # Bye matches get status='bye' and are auto-completed.
             enriched = []
             seen_pairs = set()
+            # Track all GP IDs already assigned to any fight slot so that
+            # same-name athletes (e.g. two 'Ben Becker' in the same group)
+            # are matched one-to-one rather than both resolving to the
+            # first DB row.
+            assigned_gp_ids: set = set()
 
             for i, (name1, name2) in enumerate(fight_pairs):
                 is_bye = (name1 == 'Freilos' or name2 == 'Freilos')
                 is_phantom = (name1 == 'Freilos' and name2 == 'Freilos')
 
-                gp1 = self._find_group_participant(group.id, name1)
-                gp2 = self._find_group_participant(group.id, name2)
+                gp1 = self._find_group_participant(group.id, name1, exclude_ids=assigned_gp_ids)
+                # Exclude gp1 when looking up gp2 to avoid the same GP filling
+                # both slots of a single fight.
+                gp2_excludes = set(assigned_gp_ids)
+                if gp1:
+                    gp2_excludes.add(gp1.id)
+                gp2 = self._find_group_participant(group.id, name2, exclude_ids=gp2_excludes)
 
                 if is_phantom:
                     self.logger.debug(f"  pos {i}: Phantom match (Freilos vs Freilos) — skipped")
@@ -415,6 +435,7 @@ class TournamentService:
                     if not real_gp:
                         self.logger.warning(f"  pos {i}: Bye match but no real fighter found ({name1} vs {name2})")
                         continue
+                    assigned_gp_ids.add(real_gp.id)
                     # Store bye: both participant slots point to the real fighter
                     # (Freilos has no DB entry). winner_id set immediately.
                     enriched.append({
@@ -440,6 +461,8 @@ class TournamentService:
                     self.logger.warning(f"  pos {i}: Duplicate pairing {name1} vs {name2} — skipped")
                     continue
                 seen_pairs.add(canonical)
+                assigned_gp_ids.add(gp1.id)
+                assigned_gp_ids.add(gp2.id)
 
                 enriched.append({
                     'p1': gp1.id,
@@ -454,7 +477,10 @@ class TournamentService:
             self.logger.info(f"Bracket {bracket_key}: {len(enriched)} fight rows from {len(fight_pairs)} pairs (including byes)")
 
         self.brackets.set_status(bracket.id, 'in_progress')
-        return self.fights.create_fights(bracket.id, enriched)
+        # Propagate mat assignment as table_id on all newly created fights
+        self.db.refresh(bracket)
+        table_id = str(bracket.mat.mat_number) if bracket.mat else None
+        return self.fights.create_fights(bracket.id, enriched, table_id=table_id)
 
     # ------------------------------------------------------------------
     # Monitoring — result persistence
@@ -511,7 +537,12 @@ class TournamentService:
                 self.logger.warning("  → Cannot lazy-create: p1_name or p2_name missing")
                 return False
             gp1 = self._find_group_participant(group.id, p1_name)
-            gp2 = self._find_group_participant(group.id, p2_name)
+            # Exclude gp1 when looking up gp2 so same-name athletes don't
+            # collapse to the same GroupParticipant row.
+            gp2 = self._find_group_participant(
+                group.id, p2_name,
+                exclude_ids={gp1.id} if gp1 else None,
+            )
             if not gp1 or not gp2:
                 self.logger.warning(f"  → Cannot lazy-create: gp1={gp1}, gp2={gp2}")
                 return False
@@ -522,9 +553,22 @@ class TournamentService:
             fight = created[0]
             self.logger.info(f"  → Lazy-created fight #{fight.id} (gp{gp1.id} vs gp{gp2.id})")
 
-        winner_gp = self._find_group_participant(group.id, winner_name)
+        # Resolve winner from the fight's own two participants so that
+        # same-name fighters (e.g. two 'Ben Becker') are disambiguated by
+        # their known GP IDs rather than a raw group-level name search.
+        winner_first, winner_last = _split_name(winner_name)
+        winner_gp = (
+            self.db.query(GroupParticipant)
+            .join(Participant)
+            .filter(
+                GroupParticipant.id.in_([fight.participant1_id, fight.participant2_id]),
+                Participant.first_name == winner_first,
+                Participant.last_name == winner_last,
+            )
+            .first()
+        )
         if not winner_gp:
-            self.logger.warning(f"  → Winner '{winner_name}' not found in group {group.id}")
+            self.logger.warning(f"  → Winner '{winner_name}' not found among fight #{fight.id} participants")
             return False
 
         self.fights.set_result(fight.id, winner_gp.id)
@@ -808,15 +852,17 @@ class TournamentService:
         return candidates[0]  # best-effort fallback
 
     def _find_group_participant(
-        self, group_id: int, fighter_name: str
+        self, group_id: int, fighter_name: str, exclude_ids: set = None
     ) -> Optional[GroupParticipant]:
         """
         Look up a GroupParticipant by group_id and fighter name.
-        Since group_id already scopes to one bracket, name is unique here —
-        the duplicate-name problem is resolved at the group_participants level.
+        When multiple athletes in the same group share a name (e.g. two
+        'Ben Becker' of different clubs), pass exclude_ids to skip GP IDs
+        that have already been assigned to a fight slot so each athlete
+        is matched exactly once.
         """
         first_name, last_name = _split_name(fighter_name)
-        return (
+        q = (
             self.db.query(GroupParticipant)
             .join(Participant)
             .filter(
@@ -824,5 +870,7 @@ class TournamentService:
                 Participant.first_name == first_name,
                 Participant.last_name == last_name,
             )
-            .first()
         )
+        if exclude_ids:
+            q = q.filter(GroupParticipant.id.notin_(exclude_ids))
+        return q.first()
