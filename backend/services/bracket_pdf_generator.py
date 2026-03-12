@@ -512,7 +512,7 @@ class BracketPDFGenerator:
             
             # Draw header at top
             c.setFont("Helvetica-Bold", 18)
-            c.setFillColor(COLORS['text_primary'])
+            c.setFillColor(COLORS['black'])
             header_y = height - 40
             c.drawCentredString(width // 2, header_y, bracket_key)
             
