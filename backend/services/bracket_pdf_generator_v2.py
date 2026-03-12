@@ -41,6 +41,7 @@ COLORS = {
     'border_light': colors.HexColor(FRONTEND_COLORS['border_light']),
     'accent_red': colors.HexColor(FRONTEND_COLORS['accent_red']),
     'accent_blue': colors.HexColor(FRONTEND_COLORS['accent_blue']),
+    'accent_orange': colors.HexColor(FRONTEND_COLORS['accent_orange']),
     'dark_grey': colors.HexColor('#4A4A4A'),
 }
 
@@ -99,7 +100,7 @@ class BracketPDFGeneratorV2:
             # Build and draw bracket
             self._draw_double_elimination_structure(c, bracket_data, width, height, header_y)
             
-            # Footer
+            # Footer (on current page)
             c.setFont("Helvetica", 8)
             c.setFillColor(COLORS['text_secondary'])
             c.drawString(50, 30, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -114,14 +115,9 @@ class BracketPDFGeneratorV2:
 
     def _draw_double_elimination_structure(self, c, bracket_data: Dict, width: float, 
                                           height: float, header_y: float):
-        """Draw complete double elimination bracket structure.
+        """Draw complete double elimination bracket structure with pagination.
         
-        bracket_data should contain:
-        {
-            'bracket': [(name1, name2), ...],  # First round pairs
-            'match_results': {(round, idx): winner, ...},  # Already-fought matches
-            'fighters': [...],  # Participant list
-        }
+        Automatically creates new pages if brackets don't fit vertically.
         """
         from frontend.utils.bracket_renderer import compute_bracket_rounds
         
@@ -141,36 +137,332 @@ class BracketPDFGeneratorV2:
         
         # Layout parameters
         start_x = 50
-        current_y = header_y - 50
-        bw_box_w, bw_box_h = 140, 50  # Main bracket box size
-        bw_spacing = 180  # Horizontal spacing between rounds
+        bw_box_w, bw_box_h = 140, 50
+        bw_spacing = 180
         
-        # Draw main bracket (winners bracket)
+        # Calculate space needed for winners bracket
+        max_fights_in_round = max(len(r) for r in main_rounds)
+        winners_bracket_height = max_fights_in_round * (bw_box_h + 20) + 80  # +80 for label and margin
+        
+        # Build loser bracket structure first to know its size
+        loser_bracket = self._build_loser_bracket(main_rounds)
+        max_loser_fights = max((len(r) for r in loser_bracket), default=0)
+        loser_bracket_height = max_loser_fights * (bw_box_h + 20) + 80
+        
+        # Check if both fit on one page
+        total_needed = winners_bracket_height + loser_bracket_height + 100  # +100 for gaps
+        bottom_margin = 50
+        available_height = height - header_y - bottom_margin
+        
+        # ============== PAGE 1: WINNERS BRACKET ==============
+        current_y = header_y - 50
+        
+        c.setFont("Helvetica-Bold", 11)
+        c.setFillColor(COLORS['accent_blue'])
+        c.drawString(start_x, current_y + 20, "WINNERS BRACKET")
+        
+        winners_y = current_y
+        
+        # Store Y midpoints for proper connector calculation (same as bracket_renderer)
+        # y_midpoint = center vertical position of match box
+        y_midpoints = {}  # (round_idx, fight_idx) -> y_midpoint
+        
+        # Draw winners bracket with proper alignment
         for r_idx, round_fights in enumerate(main_rounds):
             round_x = start_x + (r_idx * bw_spacing)
             num_fights = len(round_fights)
             
-            # Center this round vertically
-            total_h = num_fights * (bw_box_h + 20)
-            round_start_y = current_y - (total_h / 2)
+            if r_idx == 0:
+                # Round 0: vertical stack
+                for f_idx, fight in enumerate(round_fights):
+                    fight_y = winners_y - (f_idx * (bw_box_h + 20))
+                    y_midpoints[(r_idx, f_idx)] = fight_y + bw_box_h / 2  # Center of box
+                    
+                    self._draw_match_box_from_dict(c, fight, round_x, fight_y, 
+                                                 bw_box_w, bw_box_h)
+            else:
+                # Later rounds: center between previous winners
+                for m in range(num_fights):
+                    # Average the Y midpoints of the two incoming fights
+                    ya = y_midpoints.get((r_idx - 1, m * 2), winners_y + bw_box_h / 2)
+                    yb = y_midpoints.get((r_idx - 1, m * 2 + 1), ya)
+                    y_mid = (ya + yb) / 2
+                    fight_y = y_mid - bw_box_h / 2  # Convert midpoint to top-left corner
+                    y_midpoints[(r_idx, m)] = y_mid
+                    
+                    # Get fight data
+                    if m < len(round_fights):
+                        fight = round_fights[m]
+                        self._draw_match_box_from_dict(c, fight, round_x, fight_y, 
+                                                     bw_box_w, bw_box_h)
             
-            for f_idx, fight in enumerate(round_fights):
-                fight_y = round_start_y - (f_idx * (bw_box_h + 20))
-                self._draw_match_box_from_dict(c, fight, round_x, fight_y, 
-                                             bw_box_w, bw_box_h)
-                
-                # Draw connector to next round
-                if r_idx + 1 < len(main_rounds):
-                    next_count = len(main_rounds[r_idx + 1])
-                    next_x = round_x + bw_spacing
+            # Draw connectors from this round to next
+            if r_idx + 1 < len(main_rounds):
+                for f_idx in range(len(round_fights)):
+                    if (r_idx, f_idx) not in y_midpoints:
+                        continue
                     
-                    # Winner goes to upper position in next round
-                    target_f_idx = f_idx // 2
-                    next_y = round_start_y - (target_f_idx * (bw_box_h + 20))
+                    from_y = y_midpoints[(r_idx, f_idx)]
+                    target_m = f_idx // 2
                     
+                    if (r_idx + 1, target_m) not in y_midpoints:
+                        continue
+                    
+                    to_y = y_midpoints[(r_idx + 1, target_m)]
+                    next_x = start_x + ((r_idx + 1) * bw_spacing)
+                    
+                    # 3-part connector like bracket_renderer: horizontal → vertical → horizontal
+                    # Target Y depends on whether this is first or second fight of pair
+                    if f_idx % 2 == 0:
+                        # First of pair: target upper quarter of next box
+                        target_y = to_y - bw_box_h / 4
+                    else:
+                        # Second of pair: target lower quarter of next box
+                        target_y = to_y + bw_box_h / 4
+                    
+                    mid_x = round_x + bw_box_w + bw_spacing / 2
+                    
+                    # Horizontal from current box
                     self._draw_connector(c, 
-                        round_x + bw_box_w, fight_y - bw_box_h/2,
-                        next_x, next_y - bw_box_h/2)
+                        round_x + bw_box_w, from_y,
+                        mid_x, from_y)
+                    
+                    # Vertical to target Y
+                    self._draw_connector(c,
+                        mid_x, from_y,
+                        mid_x, target_y)
+                    
+                    # Horizontal to next box
+                    self._draw_connector(c,
+                        mid_x, target_y,
+                        next_x, target_y)
+        
+        # ============== LOSER BRACKET ==============
+        # Determine if loser bracket fits on current page
+        loser_start_y = winners_y - winners_bracket_height - 50  # -50 for gap
+        
+        if loser_start_y - loser_bracket_height < bottom_margin:
+            # Doesn't fit - create new page
+            c.showPage()
+            
+            # Redraw header on new page
+            c.setFont("Helvetica-Bold", 18)
+            c.setFillColor(COLORS['black'])
+            new_header_y = height - 40
+            c.drawCentredString(width // 2, new_header_y, "LOSER BRACKET (Continued)")
+            c.setLineWidth(2)
+            c.setStrokeColor(COLORS['border_light'])
+            c.line(50, new_header_y - 10, width - 50, new_header_y - 10)
+            
+            loser_start_y = new_header_y - 50
+        
+        c.setFont("Helvetica-Bold", 11)
+        c.setFillColor(COLORS['accent_red'])
+        c.drawString(start_x, loser_start_y + 20, "LOSER BRACKET")
+        
+        loser_y = loser_start_y
+        
+        if loser_bracket:
+            # Use same positioning algorithm as viewer: calculate_loser_positions()
+            # Store Y midpoints for proper connector calculation
+            loser_y_midpoints = {}
+            
+            # First pass: calculate positions for all loser bracket fights
+            # This mirrors the viewer's calculate_loser_positions logic
+            for r_idx, round_fights in enumerate(loser_bracket):
+                round_x = start_x + (r_idx * bw_spacing)
+                num_fights = len(round_fights)
+                
+                if num_fights == 0:
+                    continue
+                
+                if r_idx == 0:
+                    # LB R0: vertical stack (like winners bracket R0)
+                    for f_idx, fight in enumerate(round_fights):
+                        fight_y = loser_y - (f_idx * (bw_box_h + 20))
+                        loser_y_midpoints[(r_idx, f_idx)] = fight_y + bw_box_h / 2
+                else:
+                    # Later rounds: reduction vs injection
+                    # Reduction: fewer fights than previous (center between two sources)
+                    # Injection: same/more fights (align with source)
+                    prev_count = len(loser_bracket[r_idx - 1])
+                    curr_count = num_fights
+                    is_reduction = curr_count < prev_count
+                    
+                    for m in range(curr_count):
+                        if is_reduction:
+                            # Reduction: center between two source fights
+                            ya = loser_y_midpoints.get((r_idx - 1, m * 2), loser_y + bw_box_h / 2)
+                            yb = loser_y_midpoints.get((r_idx - 1, m * 2 + 1), ya)
+                            y_mid = (ya + yb) / 2
+                        else:
+                            # Injection: align with source fight m
+                            y_mid = loser_y_midpoints.get((r_idx - 1, m), loser_y + bw_box_h / 2)
+                        
+                        fight_y = y_mid - bw_box_h / 2
+                        loser_y_midpoints[(r_idx, m)] = y_mid
+            
+            # Second pass: draw all loser bracket fights
+            for r_idx, round_fights in enumerate(loser_bracket):
+                round_x = start_x + (r_idx * bw_spacing)
+                
+                for f_idx, fight in enumerate(round_fights):
+                    if (r_idx, f_idx) not in loser_y_midpoints:
+                        continue
+                    
+                    y_mid = loser_y_midpoints[(r_idx, f_idx)]
+                    fight_y = y_mid - bw_box_h / 2
+                    
+                    self._draw_match_box_from_dict(c, fight, round_x, fight_y,
+                                                 bw_box_w, bw_box_h)
+            
+            # Third pass: draw connectors (same 3-part logic as winners bracket)
+            # This mirrors draw_loser_connectors from the viewer
+            for r_idx, round_fights in enumerate(loser_bracket):
+                if r_idx + 1 >= len(loser_bracket):
+                    continue
+                
+                num_fights = len(round_fights)
+                if num_fights == 0:
+                    continue
+                
+                round_x = start_x + (r_idx * bw_spacing)
+                next_x = start_x + ((r_idx + 1) * bw_spacing)
+                
+                prev_count = num_fights
+                next_count = len(loser_bracket[r_idx + 1])
+                is_reduction = next_count < prev_count
+                
+                for f_idx in range(num_fights):
+                    if (r_idx, f_idx) not in loser_y_midpoints:
+                        continue
+                    
+                    from_y = loser_y_midpoints[(r_idx, f_idx)]
+                    target_m = f_idx // 2 if is_reduction else f_idx
+                    
+                    if (r_idx + 1, target_m) not in loser_y_midpoints:
+                        continue
+                    
+                    to_y = loser_y_midpoints[(r_idx + 1, target_m)]
+                    
+                    # 3-part connector (matching draw_loser_connectors logic)
+                    if is_reduction:
+                        # In reduction: first of pair targets upper quarter, second targets lower
+                        target_y = to_y - bw_box_h / 4 if f_idx % 2 == 0 else to_y + bw_box_h / 4
+                    else:
+                        # In injection: LB winner targets top half (p1) of next match
+                        target_y = to_y + bw_box_h / 4
+                    
+                    mid_x = round_x + bw_box_w + bw_spacing / 2
+                    
+                    # Horizontal from current box
+                    self._draw_connector(c,
+                        round_x + bw_box_w, from_y,
+                        mid_x, from_y,
+                        color_key='accent_orange')
+                    
+                    # Vertical to target Y
+                    self._draw_connector(c,
+                        mid_x, from_y,
+                        mid_x, target_y,
+                        color_key='accent_orange')
+                    
+                    # Horizontal to next box
+                    self._draw_connector(c,
+                        mid_x, target_y,
+                        next_x, target_y,
+                        color_key='accent_orange')
+
+    def _build_loser_bracket(self, main_rounds: List[List[Dict]]) -> List[List[Dict]]:
+        """Build loser bracket structure using exact logic from viewer (_fight_monitoring_ko.py).
+        
+        This uses the proven algorithm from the tkinter viewer that's already working correctly.
+        Structure:
+          LB R0  – consecutive WB-R0 losers fight each other in pairs
+          LB R1  – LB-R0 winners vs WB-R1 losers (1-to-1 injection)
+          LB R2  – reduction if needed (LB winners > next WB-loser count), else injection
+          ...until one match remains → 3rd-place fight
+
+        WB Final loser is NOT fed into LB (they are already 2nd place).
+        """
+        if len(main_rounds) < 2:
+            return []
+        
+        def get_loser(match):
+            """Extract loser from a match dict with winner field."""
+            w = match.get('winner')
+            if w is None:
+                return 'TBD'
+            if match.get('p1') == 'Freilos' or match.get('p2') == 'Freilos':
+                return 'Freilos'
+            return match.get('p2') if w == match.get('p1') else match.get('p1')
+        
+        def make_match(p1, p2):
+            """Create a match dict."""
+            # Auto-bye logic: if one side is Freilos, award to the other
+            winner = None
+            if p1 == 'Freilos' and p2 not in ('Freilos', 'TBD'):
+                winner = p2
+            elif p2 == 'Freilos' and p1 not in ('Freilos', 'TBD'):
+                winner = p1
+            return {'p1': p1, 'p2': p2, 'winner': winner}
+        
+        loser_rounds = []
+        
+        # LB R0: pair consecutive losers from WB R0
+        wb_r0_losers = [get_loser(m) for m in main_rounds[0]]
+        lb_r0 = []
+        for i in range(0, len(wb_r0_losers), 2):
+            p1 = wb_r0_losers[i]
+            p2 = wb_r0_losers[i + 1] if i + 1 < len(wb_r0_losers) else 'Freilos'
+            lb_r0.append(make_match(p1, p2))
+        loser_rounds.append(lb_r0)
+        
+        wb_idx = 1  # next WB round to pull losers from (skip WB Final)
+        
+        while True:
+            prev = loser_rounds[-1]
+            if len(prev) <= 1:
+                break
+            
+            lb_winners = [(m.get('winner') if m.get('winner') is not None else 'TBD')
+                         for m in prev]
+            
+            # Inject losers from next WB round (stop before WB Final)
+            if wb_idx < len(main_rounds) - 1:
+                wb_losers = [get_loser(m) for m in main_rounds[wb_idx]]
+                
+                if len(lb_winners) > len(wb_losers):
+                    # Reduction round: LB winners fight each other first
+                    reduction = []
+                    for i in range(0, len(lb_winners), 2):
+                        p1 = lb_winners[i]
+                        p2 = lb_winners[i + 1] if i + 1 < len(lb_winners) else 'Freilos'
+                        reduction.append(make_match(p1, p2))
+                    loser_rounds.append(reduction)
+                    # Loop again to re-read from reduction round
+                else:
+                    # Injection round: each LB winner faces a WB loser
+                    injection = []
+                    for j in range(len(wb_losers)):
+                        lw = lb_winners[j] if j < len(lb_winners) else 'TBD'
+                        wl = wb_losers[j]
+                        injection.append(make_match(lw, wl))
+                    loser_rounds.append(injection)
+                    wb_idx += 1
+            else:
+                # No more WB rounds to inject — remaining LB winners fight for 3rd place
+                if len(lb_winners) > 1:
+                    final = []
+                    for i in range(0, len(lb_winners), 2):
+                        p1 = lb_winners[i]
+                        p2 = lb_winners[i + 1] if i + 1 < len(lb_winners) else 'Freilos'
+                        final.append(make_match(p1, p2))
+                    loser_rounds.append(final)
+                break
+        
+        return loser_rounds
+
 
     def _draw_match_box_from_dict(self, c, fight: Dict, x: float, y: float, 
                                   width: float, height: float, 
@@ -194,8 +486,8 @@ class BracketPDFGeneratorV2:
         c.rect(x, y - height, width, height, stroke=1, fill=1)
         
         # Get names
-        p1 = fight.get('p1', 'TBD')[:16]
-        p2 = fight.get('p2', 'TBD')[:16]
+        p1 = fight.get('p1', '---')[:16]
+        p2 = fight.get('p2', '---')[:16]
         winner = fight.get('winner')
         
         # Draw text
@@ -651,7 +943,7 @@ class BracketPDFGeneratorV2:
         
         c.setFont("Helvetica", 9)
         c.setFillColor(COLORS['text_primary'])
-        winner1 = winners[0] if len(winners) > 0 else "TBD"
+        winner1 = winners[0] if len(winners) > 0 else "---"
         c.drawCentredString(semi1_x + box_width // 2, semi1_y - box_height // 3, 
                           "Semi-final 1")
         c.setFont("Helvetica", 8)
@@ -669,7 +961,7 @@ class BracketPDFGeneratorV2:
         
         c.setFont("Helvetica", 9)
         c.setFillColor(COLORS['text_primary'])
-        winner2 = winners[1] if len(winners) > 1 else "TBD"
+        winner2 = winners[1] if len(winners) > 1 else "---"
         c.drawCentredString(semi2_x + box_width // 2, semi2_y - box_height // 3,
                           "Semi-final 2")
         c.setFont("Helvetica", 8)
