@@ -11,6 +11,37 @@ import threading
 import tkinter as tk
 from tkinter import messagebox, filedialog, ttk
 
+import platform
+import subprocess
+
+def select_json_files():
+    # Linux: use Zenity for native modern dialog
+    if platform.system() == "Linux":
+        try:
+            result = subprocess.run(
+                [
+                    "zenity",
+                    "--file-selection",
+                    "--multiple",
+                    "--separator=|",
+                    "--file-filter=JSON files | *.json"
+                ],
+                capture_output=True,
+                text=True
+            )
+
+            if result.returncode == 0 and result.stdout:
+                return result.stdout.strip().split("|")
+
+        except FileNotFoundError:
+            pass  # zenity not installed → fallback
+
+    # Windows / fallback
+    return filedialog.askopenfilenames(
+        title="Select 2 JSON Files (Male & Female)",
+        filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+    )
+
 # Setup sys.path for backend imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
@@ -620,10 +651,7 @@ class BracketViewerApp(tk.Tk):
             
             # Select 2 JSON files
             self.logger.debug("[JSON] Opening file dialog...")
-            filepaths = filedialog.askopenfilenames(
-                title="Select 2 JSON Files (Male & Female)",
-                filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
-            )
+            filepaths = select_json_files()
             self.logger.debug(f"[JSON] File dialog result: {len(filepaths)} files selected")
 
             if not filepaths:
