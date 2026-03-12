@@ -9,3 +9,4 @@ alembic
 psycopg2-binary
 sqlalchemy
 python-dotenv
+reportlab>=4.0.0
