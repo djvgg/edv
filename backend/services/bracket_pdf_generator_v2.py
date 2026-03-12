@@ -54,22 +54,33 @@ class BracketPDFGeneratorV2:
         self.logger = logger
         self.zoom_level = 1.0
 
-    def draw_double_elimination_pdf(self, output_path: str, bracket_data: Dict[str, Any], 
+    def draw_double_elimination_pdf(self, output_path: str, fighters_or_data: Dict[str, Any], 
                                    bracket_key: str = "Tournament Bracket") -> str:
         """
         Generate double elimination bracket PDF.
         
-        Expected bracket_data structure:
-        {
-            'main_rounds': [[fight1, fight2, ...], [fight3, fight4, ...], ...],
-            'loser_rounds': [[fight1, ...], ...],
-            'final': fight,
-            'third_place': fight,
-            'participants': {participant_id: {'name': str, 'club': str}}
-        }
+        Can accept either:
+        1. List of fighter dicts: [{'Name': str, 'Verein': str}, ...]
+           In this case, applies snake seeding automatically
+        2. Dict with bracket_data: {'bracket': [...], 'match_results': {...}, 'fighters': [...]}
         """
         try:
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            
+            # Check if input is a list of fighters (apply snake seeding) or bracket data
+            if isinstance(fighters_or_data, list):
+                # Apply snake seeding
+                from utils.bracket_utils import _compute_snake_bracket
+                fighters = fighters_or_data
+                bracket_pairs = _compute_snake_bracket(fighters)
+                bracket_data = {
+                    'bracket': bracket_pairs,
+                    'match_results': {},
+                    'fighters': fighters
+                }
+            else:
+                # Use provided bracket data
+                bracket_data = fighters_or_data
             
             c = pdf_canvas.Canvas(output_path, pagesize=landscape(A4))
             width, height = landscape(A4)
@@ -89,7 +100,7 @@ class BracketPDFGeneratorV2:
             self._draw_double_elimination_structure(c, bracket_data, width, height, header_y)
             
             # Footer
-            c.setFont("Helvetica", 8)#shpuld be font bas
+            c.setFont("Helvetica", 8)
             c.setFillColor(COLORS['text_secondary'])
             c.drawString(50, 30, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             
@@ -327,9 +338,8 @@ class BracketPDFGeneratorV2:
                     current_page_num += 1
                     current_y = height - 50  # Top with margin
                 
-                # Draw pool table
-                pool_height = self._draw_pool_table(c, pool_data, 50, current_y, width - 100)
-                current_y -= pool_height + 40  # Move down with spacing
+                # Draw pool table and pass canvas for page handling
+                current_y = self._draw_pool_table(c, pool_data, 50, current_y, width - 100, height)
             
             # Draw KO bracket if present
             if ko_bracket_data:
@@ -355,7 +365,7 @@ class BracketPDFGeneratorV2:
             raise
 
     def _draw_pool_table(self, c, pool_data: Dict[str, Any], start_x: float, start_y: float,
-                        available_width: float) -> float:
+                        available_width: float, page_height: float) -> float:
         """
         Draw a pool round-robin table with actual fight scores, wrapping fights across multiple sections.
         
@@ -366,11 +376,13 @@ class BracketPDFGeneratorV2:
         Uses _generate_fight_schedule() to determine fight pairings.
         
         If fights exceed page width, they wrap into multiple horizontal sections.
-        Returns: height used by the table
+        If fit sections exceed page height, automatically creates new pages.
+        
+        Returns: final current_y position after drawing all sections
         """
         fighters = pool_data.get('fighters', [])
         if not fighters:
-            return 0
+            return start_y
         
         pool_name = pool_data.get('pool_name', 'Pool')
         fights_data = pool_data.get('fights', [])  # Dict mapping (fighter_idx1, fighter_idx2) -> {scores}
@@ -415,6 +427,25 @@ class BracketPDFGeneratorV2:
         # Draw each fight row section
         for fight_row_idx, fight_indices in enumerate(fight_rows):
             title_y = current_y
+            
+            # Estimate height needed for this section
+            section_height = 10  # Label
+            section_height += 25  # Header row
+            section_height += len(fighters) * 20  # Fighter rows
+            section_height += 20  # Fight time row
+            section_height += 15  # Spacing after section
+            
+            # Check if section fits on current page (50px bottom margin)
+            if current_y - section_height < 50 and fight_row_idx > 0:
+                # Start a new page
+                c.showPage()
+                # Redraw pool title on new page
+                c.setFont("Helvetica-Bold", 12)
+                c.setFillColor(COLORS['black'])
+                new_page_title_y = page_height - 40
+                c.drawString(start_x, new_page_title_y, pool_name + " (continued)")
+                title_y = new_page_title_y - 30
+                current_y = title_y
             
             # Section label for multi-row fights
             if len(fight_rows) > 1:
@@ -589,9 +620,8 @@ class BracketPDFGeneratorV2:
             
             current_y -= cell_height + 15  # Add spacing between sections
         
-        # Return total height used
-        total_height = start_y - current_y + 20  # Add bottom margin
-        return total_height
+        # Return final position on current page (or new page if we created one)
+        return current_y - 20  # 20px bottom margin
 
     def _draw_ko_bracket(self, c, ko_data: Dict[str, Any], start_x: float, start_y: float,
                         available_width: float):
