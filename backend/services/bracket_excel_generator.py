@@ -10,6 +10,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from utils.logging import get_logger
+from utils.bracket_utils import _compute_balanced_bracket  # Import balanced bracket with power-of-2
 
 # Import frontend styles
 import sys
@@ -46,36 +47,55 @@ BORDER_CONNECTOR_RIGHT = Border(
 )
 
 
-def _apply_snake_seeding(fighters):
-    """Apply snake seeding to fighter list and pair them into matches."""
+def _apply_balanced_seeding(fighters):
+    """Apply balanced bracket seeding with power-of-2 expansion and snake seeding."""
     if not fighters:
         return []
     
-    seeded = []
+    # First normalize all fighters to dict format with 'Name' and 'Verein' keys
+    normalized = []
     for i, fighter in enumerate(fighters):
         if isinstance(fighter, dict):
             name = fighter.get('Name', f'Fighter {i+1}')
-            club = fighter.get('Verein', '')
+            # Try both 'Club' (from normalization) and 'Verein' (German name)
+            club = fighter.get('Club', fighter.get('Verein', ''))
         elif isinstance(fighter, (list, tuple)):
             name = fighter[0] if len(fighter) > 0 else f'Fighter {i+1}'
             club = fighter[1] if len(fighter) > 1 else ''
         else:
             name = str(fighter)
             club = ''
-        seeded.append((name, club))
+        
+        normalized.append({'Name': name, 'Verein': club})
     
-    # Pair fighters into matches for first round
+    logger.debug(f"[SEEDING] Normalized {len(normalized)} fighters: {[(f['Name'], f['Verein']) for f in normalized]}")
+    
+    # Get balanced bracket with power-of-2 expansion (returns list of (name1, name2) tuples)
+    bracket_names = _compute_balanced_bracket(normalized)
+    
+    logger.debug(f"[SEEDING] Balanced bracket names: {bracket_names}")
+    
+    # Map names back to full fighter dicts, preserving club info
+    name_to_fighter = {f['Name']: f for f in normalized}
+    name_to_fighter['Freilos'] = {'Name': 'Freilos', 'Verein': ''}  # Add Freilos bye
+    
+    logger.debug(f"[SEEDING] Name-to-fighter map: {[(k, v.get('Verein', '')) for k, v in name_to_fighter.items()]}")
+    
+    # Enrich with clubs to maintain 4-tuple format (name1, name2, club1, club2)
     matches = []
-    for i in range(0, len(seeded), 2):
-        if i + 1 < len(seeded):
-            p1, c1 = seeded[i]
-            p2, c2 = seeded[i + 1]
-            matches.append((p1, p2, c1, c2))  # 4-tuple: (name1, name2, club1, club2)
-        else:
-            # Odd fighter gets bye
-            p1, c1 = seeded[i]
-            matches.append((p1, 'BYE', c1, ''))
+    for name1, name2 in bracket_names:
+        fighter1 = name_to_fighter.get(name1, {'Name': name1, 'Verein': ''})
+        fighter2 = name_to_fighter.get(name2, {'Name': name2, 'Verein': ''})
+        
+        p1 = fighter1.get('Name', name1)
+        c1 = fighter1.get('Verein', '')
+        p2 = fighter2.get('Name', name2)
+        c2 = fighter2.get('Verein', '')
+        
+        matches.append((p1, p2, c1, c2))
+        logger.debug(f"[SEEDING] Match: ({p1}, {c1}) vs ({p2}, {c2})")
     
+    logger.debug(f"[SEEDING] Final matches with clubs: {matches}")
     return matches
 
 
@@ -84,10 +104,17 @@ def _compute_rounds(first_round_matches):
     if not first_round_matches:
         return []
     
+    logger.debug(f"[ROUNDS] Computing from {len(first_round_matches)} first-round matches")
+    logger.debug(f"[ROUNDS] First round (with clubs): {first_round_matches[:3]}...")  # Log first 3
+    
     rounds = []
     current_round = list(first_round_matches)  # List of (p1, p2, c1, c2) tuples
     
+    round_num = 0
     while len(current_round) > 1:
+        logger.debug(f"[ROUNDS] Round {round_num}: {len(current_round)} matches")
+        logger.debug(f"[ROUNDS]   First match: {current_round[0] if current_round else 'EMPTY'}")
+        
         rounds.append(current_round)
         next_round = []
         for i in range(0, len(current_round), 2):
@@ -101,11 +128,14 @@ def _compute_rounds(first_round_matches):
                 c1 = match_data[2] if len(match_data) > 2 else ''
                 next_round.append((p1, 'BYE', c1, ''))
         current_round = next_round
+        round_num += 1
     
     # Final round
     if current_round:
+        logger.debug(f"[ROUNDS] Final round: {current_round}")
         rounds.append(current_round)
     
+    logger.debug(f"[ROUNDS] Total rounds computed: {len(rounds)}")
     return rounds
 
 
@@ -243,11 +273,16 @@ class BracketExcelGenerator:
         try:
             os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
             
-            # Apply snake seeding
-            bracket_pairs = _apply_snake_seeding(fighters)
+            # Apply balanced bracket seeding with power-of-2 expansion
+            bracket_pairs = _apply_balanced_seeding(fighters)
+            logger.debug(f"[GEN] bracket_pairs from seeding: {bracket_pairs[:3]}...")
             
             # Compute rounds
             rounds = _compute_rounds(bracket_pairs)
+            logger.debug(f"[GEN] rounds computed: {len(rounds)} rounds")
+            if rounds and rounds[0]:
+                logger.debug(f"[GEN] first round first match: {rounds[0][0]}")
+            
             if not rounds:
                 self.logger.error("Failed to compute bracket rounds")
                 return False
@@ -408,6 +443,8 @@ class BracketExcelGenerator:
         for round_num, matches in enumerate(rounds):
             col = round_col_map[round_num]
             
+            logger.debug(f"[DRAW] Drawing round {round_num} with {len(matches)} matches, col={col}")
+            
             # Round header
             if is_finale_bracket:
                 if round_num == 0:
@@ -445,8 +482,10 @@ class BracketExcelGenerator:
                 # Parse match data - should be 4-tuple (name1, name2, club1, club2)
                 if isinstance(match_data, (list, tuple)) and len(match_data) == 4:
                     p1, p2, club1, club2 = match_data
+                    logger.debug(f"[DRAW]   Match {match_num}: ({p1}|{club1}) vs ({p2}|{club2})")
                 else:
                     p1, p2, club1, club2 = 'ERROR', 'ERROR', 'BAD', 'DATA'
+                    logger.error(f"[DRAW]   INVALID MATCH DATA: {match_data}")
                 
                 # Row: Fighter 1 name
                 cell = ws.cell(row=row, column=col, value=p1)

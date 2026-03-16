@@ -27,15 +27,15 @@ except ImportError:
 
 # Excel styling - using frontend COLORS
 HEADER_FILL = PatternFill(start_color=COLORS['accent_blue'].lstrip('#'), end_color=COLORS['accent_blue'].lstrip('#'), fill_type="solid")
-HEADER_FONT = Font(bold=True, color=COLORS['text_primary'].lstrip('#'), size=10)
-POOL_TITLE_FONT = Font(bold=True, size=12, color=COLORS['text_primary'].lstrip('#'))
-SECTION_LABEL_FONT = Font(size=8, italic=True, color=COLORS['text_secondary'].lstrip('#'))
-FIGHTER_FONT = Font(size=9, color=COLORS['text_primary'].lstrip('#'))
-FIGHT_HEADER_FONT = Font(bold=True, size=8, color=COLORS['text_primary'].lstrip('#'))
+HEADER_FONT = Font(bold=True, color="000000", size=10)  # Black
+POOL_TITLE_FONT = Font(bold=True, size=12, color="000000")  # Black
+SECTION_LABEL_FONT = Font(size=8, italic=True, color="000000")  # Black
+FIGHTER_FONT = Font(size=9, color="000000")  # Black
+FIGHT_HEADER_FONT = Font(bold=True, size=8, color="000000")  # Black
 FIGHT_HEADER_FILL = PatternFill(start_color=COLORS['bg_darker'].lstrip('#'), end_color=COLORS['bg_darker'].lstrip('#'), fill_type="solid")
 NON_FIGHT_FILL = PatternFill(start_color=COLORS['border_light'].lstrip('#'), end_color=COLORS['border_light'].lstrip('#'), fill_type="solid")
 RESULT_HEADER_FILL = PatternFill(start_color=COLORS['accent_blue'].lstrip('#'), end_color=COLORS['accent_blue'].lstrip('#'), fill_type="solid")
-RESULT_HEADER_FONT = Font(bold=True, size=9, color=COLORS['text_primary'].lstrip('#'))
+RESULT_HEADER_FONT = Font(bold=True, size=9, color="000000")  # Black
 BORDER_THIN = Border(
     left=Side(style='thin'),
     right=Side(style='thin'),
@@ -80,7 +80,7 @@ class PoolExcelGenerator:
             
             # Main title
             ws['A1'] = title
-            ws['A1'].font = Font(bold=True, size=14)
+            ws['A1'].font = Font(bold=True, size=14, color="000000")  # Black
             
             # Column setup
             for col in range(1, 50):
@@ -170,33 +170,67 @@ class PoolExcelGenerator:
             ws.row_dimensions[header_row].height = 18
         
         col = 4  # Start fight columns at D
-        # Fight columns
+        # Fight columns - active fights: 2 columns, inactive fights: 1 column
         for fight_idx in range(num_fights):
-            col_letter = get_column_letter(col)
-            # Show fight number as "F1", "F2", etc
-            cell = ws[f'{col_letter}{header_row}']
             opponent_idx_1 = fight_schedule[fight_idx][0][0]
             opponent_idx_2 = fight_schedule[fight_idx][0][1]
-            cell.value = f"F{fight_idx + 1}"
-            cell.font = FIGHT_HEADER_FONT
-            cell.fill = FIGHT_HEADER_FILL
-            cell.alignment = Alignment(horizontal='center', vertical='center')
+            
+            col_letter_1 = get_column_letter(col)
+            
+            # Check if fight is active
+            if opponent_idx_1 < len(fighters) and opponent_idx_2 < len(fighters):
+                # Active fight - 2 columns
+                col_letter_2 = get_column_letter(col + 1)
+                
+                # Fight header - just show F1, F2, etc.
+                cell = ws[f'{col_letter_1}{header_row}']
+                cell.value = f"F{fight_idx + 1}"
+                cell.font = FIGHT_HEADER_FONT
+                cell.fill = FIGHT_HEADER_FILL
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = BORDER_THIN
+                
+                cell2 = ws[f'{col_letter_2}{header_row}']
+                cell2.value = ''
+                cell2.fill = FIGHT_HEADER_FILL
+                cell2.border = BORDER_THIN
+                
+                col += 2  # Move to next fight
+            else:
+                # Inactive fight - 1 column only
+                # Fight header
+                cell = ws[f'{col_letter_1}{header_row}']
+                cell.value = f"F{fight_idx + 1}"
+                cell.font = FIGHT_HEADER_FONT
+                cell.fill = FIGHT_HEADER_FILL
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = BORDER_THIN
+                
+                col += 1  # Move to next fight
+        
+        # Calculate result column start (no subdivision row)
+        result_col_start = col
+        
+        # Add blank cells for Result columns in subdivision row
+        for idx in range(3):  # Points, Diff, Place
+            col_letter = get_column_letter(result_col_start + idx)
+            cell = ws[f'{col_letter}{header_row + 1}']
+            cell.value = ''
+            cell.fill = RESULT_HEADER_FILL
             cell.border = BORDER_THIN
-            col += 1
         
         # Result columns - Points, Diff, Place
-        for header_text in ['Points', 'Diff', 'Place']:
-            col_letter = get_column_letter(col)
+        for idx, header_text in enumerate(['Points', 'Diff', 'Place']):
+            col_letter = get_column_letter(result_col_start + idx)
             cell = ws[f'{col_letter}{header_row}']
             cell.value = header_text
             cell.font = RESULT_HEADER_FONT
             cell.fill = RESULT_HEADER_FILL
             cell.alignment = Alignment(horizontal='center', vertical='center')
             cell.border = BORDER_THIN
-            col += 1
         
-        # Fighter rows - empty form for manual entry
-        current_row += 1
+        # Fighter rows - empty form for manual entry (directly after header, no subdivision row)
+        current_row = header_row + 1
         for fighter_idx, fighter in enumerate(fighters):
             row = current_row + fighter_idx
             
@@ -231,58 +265,80 @@ class PoolExcelGenerator:
             cell.value = club
             cell.alignment = Alignment(horizontal='left', vertical='center')
             cell.border = BORDER_THIN
-            cell.font = Font(size=8, italic=True)
+            cell.font = Font(size=8, italic=True, color="000000")  # Black
             
-            # Fight results - empty for manual entry
+            # Fight results - 2 columns for active fights, 1 column for inactive
             col = 4
             for fight_idx, fight_pair in enumerate(fight_schedule):
                 opponent_idx_1 = fight_pair[0][0]
                 opponent_idx_2 = fight_pair[0][1]
                 
-                # Check if this fighter participates in this fight
-                is_in_fight = fighter_idx == opponent_idx_1 or fighter_idx == opponent_idx_2
+                col_letter_1 = get_column_letter(col)
                 
-                col_letter = get_column_letter(col)
-                cell = ws[f'{col_letter}{row}']
-                
-                if is_in_fight:
-                    # Empty cell for score entry
-                    cell.value = ''
-                    cell.fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+                # Check if fight is active
+                if opponent_idx_1 < len(fighters) and opponent_idx_2 < len(fighters):
+                    # Active fight - 2 columns
+                    col_letter_2 = get_column_letter(col + 1)
+                    
+                    # First column
+                    cell1 = ws[f'{col_letter_1}{row}']
+                    cell1.alignment = Alignment(horizontal='center', vertical='center')
+                    cell1.border = BORDER_THIN
+                    
+                    # Second column
+                    cell2 = ws[f'{col_letter_2}{row}']
+                    cell2.alignment = Alignment(horizontal='center', vertical='center')
+                    cell2.border = BORDER_THIN
+                    
+                    # Determine if this fighter is in this fight
+                    if fighter_idx == opponent_idx_1 or fighter_idx == opponent_idx_2:
+                        # This fighter is in the fight - both cells empty for scoring
+                        cell1.value = ''
+                        cell2.value = ''
+                        cell1.fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+                        cell2.fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+                    else:
+                        # Not in this fight - mark with x
+                        cell1.value = "x"
+                        cell2.value = "x"
+                        cell1.fill = NON_FIGHT_FILL
+                        cell2.fill = NON_FIGHT_FILL
+                        cell1.font = Font(size=7, color="999999")
+                        cell2.font = Font(size=7, color="999999")
+                    
+                    col += 2  # Move to next fight
                 else:
-                    # Non-fight cell - color it gray with "x"
+                    # Inactive fight - 1 column only
+                    cell = ws[f'{col_letter_1}{row}']
                     cell.value = "x"
                     cell.fill = NON_FIGHT_FILL
                     cell.font = Font(size=7, color="999999")
-                
-                cell.alignment = Alignment(horizontal='center', vertical='center')
-                cell.border = BORDER_THIN
-                col += 1
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                    cell.border = BORDER_THIN
+                    
+                    col += 1  # Move to next fight
             
             # Results columns: Points, Diff, Place (empty for manual entry)
-            col_letter = get_column_letter(col)
-            
             # Points
+            col_letter = get_column_letter(result_col_start)
             cell = ws[f'{col_letter}{row}']
             cell.value = ''
             cell.alignment = Alignment(horizontal='center', vertical='center')
             cell.border = BORDER_THIN
             cell.font = FIGHTER_FONT
             cell.fill = PatternFill(start_color="FFFFCC", end_color="FFFFCC", fill_type="solid")
-            col += 1
             
             # Diff
-            col_letter = get_column_letter(col)
+            col_letter = get_column_letter(result_col_start + 1)
             cell = ws[f'{col_letter}{row}']
             cell.value = ''
             cell.alignment = Alignment(horizontal='center', vertical='center')
             cell.border = BORDER_THIN
             cell.font = FIGHTER_FONT
             cell.fill = PatternFill(start_color="FFFFCC", end_color="FFFFCC", fill_type="solid")
-            col += 1
             
             # Place
-            col_letter = get_column_letter(col)
+            col_letter = get_column_letter(result_col_start + 2)
             cell = ws[f'{col_letter}{row}']
             cell.value = ''
             cell.alignment = Alignment(horizontal='center', vertical='center')
