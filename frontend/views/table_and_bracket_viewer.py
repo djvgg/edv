@@ -640,7 +640,7 @@ class TableAndBracketViewer(tk.Frame):
                     
                     normalized_participants.append({
                         'Name': p.get('Name', p.get('name', '')),
-                        'Verein': p.get('Club', p.get('Verein', p.get('verein', p.get('club', ''))))
+                        'Club': p.get('Club', p.get('Verein', p.get('verein', p.get('club', ''))))
                     })
 
             if not normalized_participants:
@@ -849,7 +849,7 @@ class TableAndBracketViewer(tk.Frame):
                 if isinstance(p, dict):
                     normalized_participants.append({
                         'Name': p.get('Name', p.get('name', '')),
-                        'Verein': p.get('Verein', p.get('verein', p.get('club', '')))
+                        'Club': p.get('Club', p.get('Verein', p.get('verein', p.get('club', ''))))
                     })
 
             if not normalized_participants:

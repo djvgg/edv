@@ -20,11 +20,11 @@ from frontend.styles import COLORS
 logger = get_logger('bracket_excel_generator')
 
 # Excel styling - using frontend COLORS
-HEADER_FILL = PatternFill(start_color=COLORS['accent_blue'].lstrip('#'), end_color=COLORS['accent_blue'].lstrip('#'), fill_type="solid")
-HEADER_FONT = Font(bold=True, color=COLORS['text_primary'].lstrip('#'), size=11)
-MATCH_FILL = PatternFill(start_color=COLORS['bg_darker'].lstrip('#'), end_color=COLORS['bg_darker'].lstrip('#'), fill_type="solid")
-MATCH_FONT = Font(size=10, color=COLORS['text_primary'].lstrip('#'))
-VS_FONT = Font(bold=True, size=9, color=COLORS['accent_red'].lstrip('#'))
+HEADER_FILL = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")  # White background
+HEADER_FONT = Font(bold=True, color="000000", size=11)  # Black text
+MATCH_FILL = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")  # White background
+MATCH_FONT = Font(size=10, color="000000")  # Black text
+VS_FONT = Font(bold=True, size=9, color="000000")  # Black text
 BORDER_THIN = Border(
     left=Side(style='thin'),
     right=Side(style='thin'),
@@ -302,7 +302,7 @@ class BracketExcelGenerator:
             
             # Column setup per round (each round gets X columns)
             for col in range(1, 100):
-                ws.column_dimensions[get_column_letter(col)].width = 15
+                ws.column_dimensions[get_column_letter(col)].width = 18
             
             # Draw horizontal cascade bracket
             max_row_wb = self._draw_horizontal_bracket(ws, rounds, 3)
@@ -313,13 +313,7 @@ class BracketExcelGenerator:
                 if loser_rounds:
                     # Start loser bracket below winners bracket (no gap)
                     loser_start_row = max_row_wb + 2
-                    max_row_lb = self._draw_horizontal_bracket(ws, loser_rounds, loser_start_row, is_loser_bracket=True)
-                    
-                    # Draw finale bracket (top 4 finalists)
-                    finale_rounds = _compute_finale_bracket(rounds, loser_rounds)
-                    if finale_rounds:
-                        finale_start_row = max_row_lb + 3
-                        self._draw_horizontal_bracket(ws, finale_rounds, finale_start_row, is_finale_bracket=True)
+                    self._draw_horizontal_bracket(ws, loser_rounds, loser_start_row, is_loser_bracket=True)
             
             # Save
             wb.save(output_path)
@@ -413,12 +407,8 @@ class BracketExcelGenerator:
                 from_row = row_map[(round_num, match_num)] + 1  # Middle of match (vs row)
                 
                 # Determine target match in next round
-                if is_loser_bracket and len(rounds[round_num]) > len(rounds[round_num + 1]):
-                    # Reduction: two source matches go to one target
-                    to_match_num = match_num // 2
-                else:
-                    # Normal injection
-                    to_match_num = match_num
+                # In any bracket reduction: match_num 0,1 → target 0; match_num 2,3 → target 1; etc.
+                to_match_num = match_num // 2
                 
                 if (round_num + 1, to_match_num) in row_map:
                     to_row = row_map[(round_num + 1, to_match_num)] + 1  # Middle of next match

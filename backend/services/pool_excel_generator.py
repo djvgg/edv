@@ -84,7 +84,12 @@ class PoolExcelGenerator:
             
             # Column setup
             for col in range(1, 50):
-                ws.column_dimensions[get_column_letter(col)].width = 12
+                ws.column_dimensions[get_column_letter(col)].width = 9
+            
+            # Make Name and Club columns bigger
+            ws.column_dimensions['A'].width = 5   # Nr - keep small
+            ws.column_dimensions['B'].width = 25  # Fighter name - make big
+            ws.column_dimensions['C'].width = 20  # Club - make bigger
             
             # Draw all pools and collect finalists
             current_row = 3
@@ -167,57 +172,28 @@ class PoolExcelGenerator:
             cell.fill = HEADER_FILL
             cell.alignment = Alignment(horizontal='center', vertical='center')
             cell.border = BORDER_THIN
-            ws.row_dimensions[header_row].height = 18
+            ws.row_dimensions[header_row].height = 12
         
         col = 4  # Start fight columns at D
-        # Fight columns - active fights: 2 columns, inactive fights: 1 column
+        # Fight columns - 1 column per fight
         for fight_idx in range(num_fights):
             opponent_idx_1 = fight_schedule[fight_idx][0][0]
             opponent_idx_2 = fight_schedule[fight_idx][0][1]
             
             col_letter_1 = get_column_letter(col)
             
-            # Check if fight is active
-            if opponent_idx_1 < len(fighters) and opponent_idx_2 < len(fighters):
-                # Active fight - 2 columns
-                col_letter_2 = get_column_letter(col + 1)
-                
-                # Fight header - just show F1, F2, etc.
-                cell = ws[f'{col_letter_1}{header_row}']
-                cell.value = f"F{fight_idx + 1}"
-                cell.font = FIGHT_HEADER_FONT
-                cell.fill = FIGHT_HEADER_FILL
-                cell.alignment = Alignment(horizontal='center', vertical='center')
-                cell.border = BORDER_THIN
-                
-                cell2 = ws[f'{col_letter_2}{header_row}']
-                cell2.value = ''
-                cell2.fill = FIGHT_HEADER_FILL
-                cell2.border = BORDER_THIN
-                
-                col += 2  # Move to next fight
-            else:
-                # Inactive fight - 1 column only
-                # Fight header
-                cell = ws[f'{col_letter_1}{header_row}']
-                cell.value = f"F{fight_idx + 1}"
-                cell.font = FIGHT_HEADER_FONT
-                cell.fill = FIGHT_HEADER_FILL
-                cell.alignment = Alignment(horizontal='center', vertical='center')
-                cell.border = BORDER_THIN
-                
-                col += 1  # Move to next fight
-        
-        # Calculate result column start (no subdivision row)
-        result_col_start = col
-        
-        # Add blank cells for Result columns in subdivision row
-        for idx in range(3):  # Points, Diff, Place
-            col_letter = get_column_letter(result_col_start + idx)
-            cell = ws[f'{col_letter}{header_row + 1}']
-            cell.value = ''
-            cell.fill = RESULT_HEADER_FILL
+            # Fight header - just show F1, F2, etc.
+            cell = ws[f'{col_letter_1}{header_row}']
+            cell.value = f"F{fight_idx + 1}"
+            cell.font = FIGHT_HEADER_FONT
+            cell.fill = FIGHT_HEADER_FILL
+            cell.alignment = Alignment(horizontal='center', vertical='center')
             cell.border = BORDER_THIN
+            
+            col += 1  # Move to next fight
+        
+        # Calculate result column start
+        result_col_start = col
         
         # Result columns - Points, Diff, Place
         for idx, header_text in enumerate(['Points', 'Diff', 'Place']):
@@ -252,7 +228,7 @@ class PoolExcelGenerator:
             cell.alignment = Alignment(horizontal='center', vertical='center')
             cell.border = BORDER_THIN
             cell.font = FIGHTER_FONT
-            ws.row_dimensions[row].height = 16
+            ws.row_dimensions[row].height = 11
             
             # Name
             cell = ws[f'B{row}']
@@ -268,56 +244,37 @@ class PoolExcelGenerator:
             cell.border = BORDER_THIN
             cell.font = Font(size=8, italic=True, color="000000")  # Black
             
-            # Fight results - 2 columns for active fights, 1 column for inactive
+            # Fight results - 1 column per fight
             col = 4
             for fight_idx, fight_pair in enumerate(fight_schedule):
                 opponent_idx_1 = fight_pair[0][0]
                 opponent_idx_2 = fight_pair[0][1]
                 
                 col_letter_1 = get_column_letter(col)
+                cell = ws[f'{col_letter_1}{row}']
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = BORDER_THIN
                 
                 # Check if fight is active
                 if opponent_idx_1 < len(fighters) and opponent_idx_2 < len(fighters):
-                    # Active fight - 2 columns
-                    col_letter_2 = get_column_letter(col + 1)
-                    
-                    # First column
-                    cell1 = ws[f'{col_letter_1}{row}']
-                    cell1.alignment = Alignment(horizontal='center', vertical='center')
-                    cell1.border = BORDER_THIN
-                    
-                    # Second column
-                    cell2 = ws[f'{col_letter_2}{row}']
-                    cell2.alignment = Alignment(horizontal='center', vertical='center')
-                    cell2.border = BORDER_THIN
-                    
-                    # Determine if this fighter is in this fight
+                    # Active fight
                     if fighter_idx == opponent_idx_1 or fighter_idx == opponent_idx_2:
-                        # This fighter is in the fight - both cells empty for scoring
-                        cell1.value = ''
-                        cell2.value = ''
-                        cell1.fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
-                        cell2.fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+                        # This fighter is in the fight - show | symbol
+                        cell.value = '|'
+                        cell.fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+                        cell.font = FIGHTER_FONT
                     else:
-                        # Not in this fight - mark with x
-                        cell1.value = "x"
-                        cell2.value = "x"
-                        cell1.fill = NON_FIGHT_FILL
-                        cell2.fill = NON_FIGHT_FILL
-                        cell1.font = Font(size=7, color="999999")
-                        cell2.font = Font(size=7, color="999999")
-                    
-                    col += 2  # Move to next fight
+                        # Not in this fight - mark with x (black)
+                        cell.value = "x"
+                        cell.fill = NON_FIGHT_FILL
+                        cell.font = Font(size=7, color="000000")  # BLACK
                 else:
-                    # Inactive fight - 1 column only
-                    cell = ws[f'{col_letter_1}{row}']
+                    # Inactive fight
                     cell.value = "x"
                     cell.fill = NON_FIGHT_FILL
-                    cell.font = Font(size=7, color="999999")
-                    cell.alignment = Alignment(horizontal='center', vertical='center')
-                    cell.border = BORDER_THIN
-                    
-                    col += 1  # Move to next fight
+                    cell.font = Font(size=7, color="000000")  # BLACK
+                
+                col += 1  # Move to next fight
             
             # Results columns: Points, Diff, Place (empty for manual entry)
             # Points
