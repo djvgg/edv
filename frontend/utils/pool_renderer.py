@@ -150,7 +150,8 @@ def calculate_pool_box_size(pool_participants, zoom_level):
     max_text_len = 0
     for p in pool_participants:
         name = p.get('Name', '')
-        club = p.get('Verein', '')
+        # Try both 'Club' (from normalization) and 'Verein' (German name)
+        club = p.get('Club', p.get('Verein', ''))
         text_len = len(name) + (len(club) + 3 if club else 0)
         max_text_len = max(max_text_len, text_len)
 
@@ -369,7 +370,8 @@ def draw_pool_table(canvas, pool_participants, start_x, start_y, box_width, box_
 
         fighter = pool_participants[row]
         name = fighter.get('Name', 'Unknown')
-        club = fighter.get('Verein', '')
+        # Try both 'Club' (from normalization) and 'Verein' (German name)
+        club = fighter.get('Club', fighter.get('Verein', ''))
         fighter_num = row + 1
 
         # Draw number cell (first column)

@@ -240,7 +240,8 @@ class PoolExcelGenerator:
                 club = fighter[1] if len(fighter) > 1 else ''
             elif isinstance(fighter, dict):
                 name = fighter.get('Name', fighter.get('name', f'Fighter {fighter_idx + 1}'))
-                club = fighter.get('Verein', fighter.get('club', ''))
+                # Try both 'Club' (from normalization) and 'Verein' (German name)
+                club = fighter.get('Club', fighter.get('Verein', fighter.get('club', '')))
             else:
                 name = str(fighter)
                 club = ''
