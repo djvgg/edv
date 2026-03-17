@@ -58,7 +58,9 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         self.logger = logger
         self.main_window = main_window              # Store reference to main app for reload
         self.quarantine_service = quarantine_service  # Store reference for edit dialog
-        self.db_service = db_service                  # DB service for persisting edits        self.task_runner = getattr(main_window, 'task_runner', None) if main_window else None  # Background tasks
+        self.db_service = db_service                  # DB service for persisting edits
+        self.task_runner = getattr(main_window, 'task_runner', None) if main_window else None  # Background tasks
+        
         # Initialize config repository for weight classes
         try:
             config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'bracket_config.xlsx')
@@ -158,10 +160,10 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
                     on_error=lambda e: self.logger.warning(f"[LIFECYCLE] Background save failed: {e}")
                 )
             else:
-                # Fallback to synchronous save
+                # Fallback to synchronous save if no task_runner available
                 try:
                     self.db_service.save_groups(brackets)
-                    self.logger.info("[LIFECYCLE] Group Preview saved brackets to database on hide")
+                    self.logger.info("[LIFECYCLE] Group Preview saved brackets to database on hide (sync)")
                 except Exception as e:
                     self.logger.warning(f"[LIFECYCLE] Failed to save brackets on hide: {e}")
         

@@ -288,8 +288,9 @@ class DataTransformationPipeline:
         - Screen is marked stale (data changed upstream), OR  
         - Headless mode (background processing)
         
-        THREADING: Visual transformations run on main thread immediately (needed for display).
-        Essential transformations run in background thread to prevent UI lag.
+        THREADING: 
+        - Data transformations (extract_quarantine, split pools, etc.) run on main thread immediately
+        - DB operations (save_groups, create_fights) run in background to prevent UI freeze
         
         Normal navigation to non-stale screens just calls on_show() without re-running transformations.
         
@@ -329,40 +330,40 @@ class DataTransformationPipeline:
         )
         
         try:
-            # VISUAL transformations run immediately on main thread (needed for display)
-            visual_transforms = [
+            # Data transformations that must complete before screen displays
+            data_transforms = [
                 'merge_u9_u11_pools',
                 'restore_quarantine',
-            ]
-            
-            # ESSENTIAL transformations can run in background (data operations, no UI needed)
-            essential_transforms = [
-                'save_groups',
                 'extract_quarantine',
                 'split_u9_u11_into_pools',
                 'auto_assign_generation_methods',
                 'regenerate_stale_ko_brackets',
+            ]
+            
+            # DB operations that can run in background (no UI dependency)
+            db_transforms = [
+                'save_groups',
                 'create_fights',
             ]
             
-            # Execute visual transforms immediately (main thread)
+            # Execute data transforms immediately (main thread) - needed for display
             for transform_name in all_transformations:
-                if transform_name in visual_transforms:
+                if transform_name in data_transforms:
                     self._execute_transformation(transform_name, wait_for_db)
             
-            # Execute essential transforms in background (if task_runner available)
-            essential_to_run = [t for t in all_transformations if t in essential_transforms]
-            if essential_to_run and self.task_runner:
-                # Run all essential transformations in a single background task
+            # Execute DB transforms in background (if task_runner available)
+            db_to_run = [t for t in all_transformations if t in db_transforms]
+            if db_to_run and self.task_runner:
+                # Run all DB transformations in a single background task
                 self.task_runner.submit_task(
-                    f'transform_{screen_key}',
-                    fn=lambda: self._execute_transformations_batch(essential_to_run, wait_for_db),
-                    on_error=lambda e: self.logger.error(f"Background transformation failed: {e}")
+                    f'transform_db_{screen_key}',
+                    fn=lambda: self._execute_transformations_batch(db_to_run, wait_for_db),
+                    on_error=lambda e: self.logger.error(f"Background DB transformation failed: {e}")
                 )
-                self.logger.debug(f"✓ Visual transforms completed, essential transforms running in background")
+                self.logger.debug(f"✓ Data transforms completed, DB operations running in background")
             else:
-                # Fallback: run essential transforms on main thread if no task_runner
-                for transform_name in essential_to_run:
+                # Fallback: run DB transforms on main thread if no task_runner
+                for transform_name in db_to_run:
                     self._execute_transformation(transform_name, wait_for_db)
                 self.logger.debug(f"✓ All transformations completed for {screen_key}")
             
@@ -383,12 +384,12 @@ class DataTransformationPipeline:
             wait_for_db: Optional callable to wait for DB service
         """
         try:
-            self.logger.debug(f"[BG] Starting batch transformations: {transform_names}")
+            self.logger.debug(f"[BG] Starting batch DB transformations: {transform_names}")
             for transform_name in transform_names:
                 self._execute_transformation(transform_name, wait_for_db)
-            self.logger.debug(f"[BG] ✓ Batch transformations completed")
+            self.logger.debug(f"[BG] ✓ Batch DB transformations completed")
         except Exception as e:
-            self.logger.error(f"[BG] ✗ Batch transformation failed: {e}", exc_info=True)
+            self.logger.error(f"[BG] ✗ Batch DB transformation failed: {e}", exc_info=True)
             raise
     
     def transform_after_leaving(self, screen_key: str, wait_for_db: callable = None) -> bool:
