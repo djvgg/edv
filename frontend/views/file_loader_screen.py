@@ -105,18 +105,10 @@ class FileLoaderScreen(tk.Frame):
         main_controls = create_dark_frame(self)
         main_controls.pack(pady=SPACING['md'], fill="x", expand=True)
 
-        load_xlsx_btn = tk.Button(
-            main_controls,
-            text="Load Participant List (XLSX) & Generate Brackets",
-            command=self.on_load_xlsx_click,
-        )
-        apply_button_style(load_xlsx_btn, 'primary')
-        load_xlsx_btn.pack(pady=SPACING['sm'], fill="x", padx=SPACING['xl'])
-
         # Database load button
         db_btn = tk.Button(
             main_controls,
-            text="Load from Database & Generate Brackets",
+            text="Reload from Database",
             command=self.on_load_database_click,
         )
         apply_button_style(db_btn, 'primary')
@@ -149,33 +141,6 @@ class FileLoaderScreen(tk.Frame):
         apply_button_style(flush_btn, 'secondary')
         flush_btn.configure(fg=COLORS['accent_red'])
         flush_btn.pack(side="bottom", pady=(10, 0), fill="x", padx=40)
-
-        # Database load button
-        db_btn = tk.Button(
-            self,
-            text="Reload from Database",
-            command=self.on_load_database_click,
-        )
-        apply_button_style(db_btn, 'primary')
-        db_btn.pack(pady=8, fill="x", padx=40)
-
-        # Load JSON files button
-        json_btn = tk.Button(
-            self,
-            text="Load M/W JSON Files & Generate Brackets",
-            command=self.on_load_json_click,
-        )
-        apply_button_style(json_btn, 'primary')
-        json_btn.pack(pady=8, fill="x", padx=40)
-
-        # Split M/W button
-        split_btn = tk.Button(
-            self,
-            text="Split M/W Contestants (XLSX → JSON)",
-            command=self.on_split_gender_click,
-        )
-        apply_button_style(split_btn, 'secondary')
-        split_btn.pack(pady=8, fill="x", padx=40)
 
         self.logger.debug("File loader UI initialized")
         self.ui_initialized = True
