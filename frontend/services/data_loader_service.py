@@ -110,7 +110,7 @@ class DataLoaderService:
         """Extract all unique participants from brackets dict for cache duplicate detection.
         
         Args:
-            brackets: Dict of brackets (each bracket has 'participants' list)
+            brackets: Dict of brackets (each bracket may have 'participants' or 'fighters' key)
         
         Returns:
             List of unique participant dicts
@@ -119,10 +119,13 @@ class DataLoaderService:
         participants = []
         
         for bracket_key, bracket_data in brackets.items():
-            if not isinstance(bracket_data, dict) or 'participants' not in bracket_data:
+            if not isinstance(bracket_data, dict):
                 continue
             
-            for p in bracket_data.get('participants', []):
+            # Check both 'participants' (regular brackets) and 'fighters' (quarantine brackets)
+            fighter_list = bracket_data.get('participants') or bracket_data.get('fighters', [])
+            
+            for p in fighter_list:
                 # Use natural key to avoid duplicates across brackets
                 p_key = (
                     str(p.get('first_name', p.get('Firstname', ''))).strip().lower(),
@@ -160,9 +163,15 @@ class DataLoaderService:
         
         for new_p in new_participants:
             is_dup = False
+            new_p_name = f"{new_p.get('Firstname', '')} {new_p.get('Lastname', '')}".strip()
             for cached_p in cached_participants:
                 if self._check_is_duplicate(new_p, cached_p):
-                    duplicates.append(new_p)
+                    # Mark as duplicate with rejection reason
+                    dup_entry = dict(new_p)
+                    dup_entry['rejection_reason'] = 'duplicate'
+                    duplicates.append(dup_entry)
+                    cached_p_name = f"{cached_p.get('Firstname', '')} {cached_p.get('Lastname', '')}".strip()
+                    self.logger.debug(f"[DUPLICATE] {new_p_name} matches cached {cached_p_name}")
                     is_dup = True
                     break
             
@@ -630,6 +639,13 @@ class DataLoaderService:
             # APPEND MODE: Deduplicate against cache if existing brackets present
             duplicates_skipped = []
             if is_append_mode:
+                # DEBUG: Show what's in cache
+                cached_count = 0
+                if existing_brackets:
+                    cached_participants = self._extract_participants_from_brackets(existing_brackets)
+                    cached_count = len(cached_participants)
+                    self.logger.debug(f"[APPEND] Existing cache has {cached_count} participants in {len(existing_brackets)} brackets")
+                
                 all_participants, duplicates_skipped = self._find_duplicates_in_cache(
                     all_participants, existing_brackets
                 )
@@ -638,6 +654,8 @@ class DataLoaderService:
                         f"[APPEND MODE] Skipped {len(duplicates_skipped)} duplicate participant(s) "
                         f"already in cache"
                     )
+                else:
+                    self.logger.debug(f"[APPEND] No duplicates found (checked {len(all_participants)} new against {cached_count} cached)")
                 
                 if not all_participants:
                     if self.ui_feedback:
@@ -694,7 +712,8 @@ class DataLoaderService:
                 self.ui_feedback.update_progress(75)
 
             # Create QUARANTINE bracket with all rejected participants
-            all_rejected = unpaid + invalid_valid + invalid_ages
+            # Include duplicates from append mode as blocker participants
+            all_rejected = unpaid + invalid_valid + invalid_ages + duplicates_skipped
             brackets = {}
             if all_rejected and self.quarantine_service:
                 self.quarantine_service.create_quarantine_bracket(brackets, all_rejected)
@@ -724,12 +743,15 @@ class DataLoaderService:
             if db_save_succeeded and self.db_service:
                 try:
                     all_db_participants = self.db_service.fetch_participants()
+                    self.logger.debug(f"[DB RESYNC] fetch_participants returned {len(all_db_participants) if all_db_participants else 0} participants")
                     if all_db_participants:
                         participants_for_brackets = all_db_participants
                         resync_note = " (resynced from DB)"
                         self.logger.info(
                             f"[DB RESYNC] Fetched {len(all_db_participants)} total participants from DB"
                         )
+                    else:
+                        self.logger.debug(f"[DB RESYNC] DB returned empty/None, using cache with {len(all_participants)} valid participants")
                 except Exception as resync_error:
                     self.logger.warning(f"[DB RESYNC] Could not resync from DB: {resync_error}. Using cache.")
                     resync_note = " (cache used, DB sync failed)"

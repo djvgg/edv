@@ -562,7 +562,8 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
         tracking_id = str(uuid.uuid4())
         self.fighter['_tracking_id'] = tracking_id
         self.parent.quarantine_service.resort_brackets(
-            self.parent.brackets, edited_fighter=self.fighter, group_preview_screen=self.parent
+            self.parent.brackets, edited_fighter=self.fighter, group_preview_screen=self.parent,
+            db_service=self.parent.db_service
         )
 
         target_key = None

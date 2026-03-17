@@ -15,10 +15,15 @@ class QuarantineService:
     MIN_PARTICIPANT_AGE = 6
     MAX_PARTICIPANT_AGE = 120
     
-    def __init__(self):
-        """Initialize the quarantine service."""
+    def __init__(self, task_runner=None):
+        """Initialize the quarantine service.
+        
+        Args:
+            task_runner: Optional TaskRunner for background DB operations
+        """
         self.logger = get_logger(__name__, debug_verbose=True)
         self.quarantine_brackets = {}  # Preserved quarantine brackets dict: {reason: bracket_data}
+        self.task_runner = task_runner  # For threaded DB saves
     
     def extract_quarantine(self, brackets):
         """Extract and preserve all QUARANTINE_* brackets from workflow.
@@ -165,7 +170,7 @@ class QuarantineService:
                 
         return issues
 
-    def resort_brackets(self, brackets, edited_fighter=None, group_preview_screen=None):
+    def resort_brackets(self, brackets, edited_fighter=None, group_preview_screen=None, db_service=None):
         """Re-sort brackets after changes in any QUARANTINE_* bracket.
 
         Args:
@@ -175,6 +180,7 @@ class QuarantineService:
                 If None, all QUARANTINE fighters are checked.
             group_preview_screen (object, optional): Reference to group preview
                 screen — refreshed after the sort if provided.
+            db_service (optional): Database service to persist changes after successful resort.
         """
         self.logger.debug("RESORT: resort_brackets() called")
 
@@ -201,6 +207,32 @@ class QuarantineService:
                 self.logger.info("Group preview refreshed after resort")
         else:
             self.logger.debug("RESORT: No group_preview_screen to refresh")
+        
+        # Save changes to database in background thread if db_service provided
+        if db_service and valid_from_quarantine:
+            if self.task_runner:
+                # Run in background thread
+                self.task_runner.submit_task(
+                    'resort_save_participants',
+                    fn=lambda: self._save_participants_bg(db_service, valid_from_quarantine),
+                    on_error=lambda e: self.logger.error(f"RESORT: Background save failed: {e}")
+                )
+            else:
+                # Fallback to synchronous update if no task_runner
+                try:
+                    db_service.update_participants(valid_from_quarantine)
+                    self.logger.info(f"RESORT: Updated {len(valid_from_quarantine)} participant(s) in database after resort")
+                except Exception as db_error:
+                    self.logger.error(f"RESORT: Failed to update participants in database: {db_error}")
+    
+    def _save_participants_bg(self, db_service, participants):
+        """Background thread task to update participants in database."""
+        try:
+            db_service.update_participants(participants)
+            self.logger.info(f"RESORT: [BG] Updated {len(participants)} participant(s) in database after resort")
+        except Exception as db_error:
+            self.logger.error(f"RESORT: [BG] Failed to update participants: {db_error}")
+            raise
 
     def _extract_valid_from_quarantine(self, brackets, quarantine_keys, edited_fighter):
         """Validate fighters in each quarantine bracket; separate valid from still-invalid.
@@ -231,7 +263,7 @@ class QuarantineService:
                     continue
 
                 fighter_name = base_fighter.get('Name', f"Unknown ({base_fighter.get('ID', '?')})")
-                is_valid, reason = self._evaluate_fighter_validity(base_fighter)
+                is_valid, reason = self._evaluate_fighter_validity(base_fighter, brackets)
 
                 if is_valid:
                     valid_fighters.append(base_fighter)
@@ -269,11 +301,11 @@ class QuarantineService:
 
         return valid_fighters
 
-    def _evaluate_fighter_validity(self, fighter):
+    def _evaluate_fighter_validity(self, fighter, brackets):
         """Check if a single fighter passes all validity criteria.
 
         Returns (is_valid: bool, reason: str | None).
-        Checks in order: payment → manual flag → age.
+        Checks in order: payment → manual flag → age → duplicate.
         """
         fighter_name = fighter.get('Name', f"Unknown ({fighter.get('ID', '?')})")
         self.logger.debug(f"RESORT: Validating {fighter_name} (ID: {fighter.get('ID', '?')})")
@@ -296,8 +328,83 @@ class QuarantineService:
             self.logger.debug(f"RESORT:   → INVALID: {age_rejection_reason}")
             return False, age_rejection_reason
 
+        # Check for duplicates against valid fighters in brackets
+        if self._is_duplicate_in_brackets(fighter, brackets):
+            self.logger.debug(f"RESORT:   Duplicate: Already exists in valid brackets → INVALID: duplicate")
+            return False, "duplicate"
+
         self.logger.debug(f"RESORT:   Age bounds OK, age group {age_group} - VALID")
         return True, None
+
+    def _is_duplicate_in_brackets(self, candidate, brackets):
+        """Check if candidate fighter is a duplicate of anyone in valid (non-quarantine) brackets.
+        
+        Returns True if duplicate found, False otherwise.
+        """
+        for bracket_key, bracket_data in brackets.items():
+            # Skip quarantine brackets
+            if bracket_key.startswith('QUARANTINE_'):
+                continue
+            
+            if not isinstance(bracket_data, dict):
+                continue
+            
+            fighter_list = bracket_data.get('participants') or bracket_data.get('fighters', [])
+            
+            for existing_fighter in fighter_list:
+                if self._check_is_duplicate(candidate, existing_fighter):
+                    existing_name = f"{existing_fighter.get('Firstname', '')} {existing_fighter.get('Lastname', '')}".strip()
+                    self.logger.debug(f"RESORT:   Found duplicate of {candidate.get('Name', candidate.get('ID'))} in {bracket_key}: {existing_name}")
+                    return True
+        
+        return False
+
+    def _check_is_duplicate(self, candidate: dict, existing: dict) -> bool:
+        """Check if candidate participant matches existing participant by natural key.
+        
+        Natural key comparison:
+        - first_name (required)
+        - last_name (required)  
+        - gender (required)
+        - birth_date (optional - only compared if present in both)
+        - club (optional - only compared if present in both)
+        """
+        def get_field(p, *field_names):
+            for name in field_names:
+                if name in p and p[name] is not None:
+                    return str(p[name]).strip().lower() if isinstance(p[name], str) else p[name]
+            return None
+        
+        # Natural key: first_name + last_name + gender (always required)
+        cand_first = get_field(candidate, 'first_name', 'Firstname', 'firstname')
+        cand_last = get_field(candidate, 'last_name', 'Lastname', 'lastname')
+        cand_gender = get_field(candidate, 'gender', 'Gender')
+        
+        exist_first = get_field(existing, 'first_name', 'Firstname', 'firstname')
+        exist_last = get_field(existing, 'last_name', 'Lastname', 'lastname')
+        exist_gender = get_field(existing, 'gender', 'Gender')
+        
+        # All three required fields must match
+        if not (cand_first and cand_last and cand_gender):
+            return False
+        if not (exist_first and exist_last and exist_gender):
+            return False
+        
+        if cand_first != exist_first or cand_last != exist_last or cand_gender != exist_gender:
+            return False
+        
+        # Optional field comparisons (only if present in both)
+        cand_birth = candidate.get('birth_date') or candidate.get('Birthyear')
+        exist_birth = existing.get('birth_date') or existing.get('Birthyear')
+        if cand_birth and exist_birth and cand_birth != exist_birth:
+            return False
+        
+        cand_club = get_field(candidate, 'club', 'Club')
+        exist_club = get_field(existing, 'club', 'Club')
+        if cand_club and exist_club and cand_club != exist_club:
+            return False
+        
+        return True
 
     def _merge_valid_into_brackets(self, brackets, valid_fighters):
         """Generate brackets for newly-valid fighters and merge into existing brackets.

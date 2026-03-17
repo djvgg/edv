@@ -58,8 +58,7 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         self.logger = logger
         self.main_window = main_window              # Store reference to main app for reload
         self.quarantine_service = quarantine_service  # Store reference for edit dialog
-        self.db_service = db_service                  # DB service for persisting edits
-
+        self.db_service = db_service                  # DB service for persisting edits        self.task_runner = getattr(main_window, 'task_runner', None) if main_window else None  # Background tasks
         # Initialize config repository for weight classes
         try:
             config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'bracket_config.xlsx')
@@ -141,16 +140,46 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
                 self.logger.warning("[RELOAD] Cannot reload: main_window or main_window.brackets not found")
     
     def on_hide(self):
-        """Called when screen is hidden. Mark as stale so it reloads on re-entry.
+        """Called when screen is hidden. Save changes and mark as stale so it reloads on re-entry.
         
-        This ensures quarantine data and group changes are refreshed when navigating back
-        from downstream screens (generation_method, bracket_viewer, etc.).
+        This ensures:
+        1. Changes made to quarantined participants are persisted to database (in background)
+        2. Quarantine data and group changes are refreshed when navigating back
+           from downstream screens (generation_method, bracket_viewer, etc.)
         """
+        # Save changes to database in background thread before leaving
+        if self.db_service and hasattr(self.main_window, 'brackets'):
+            brackets = self.main_window.brackets
+            if self.task_runner:
+                # Run save in background thread
+                self.task_runner.submit_task(
+                    'group_preview_save_groups',
+                    fn=lambda: self._save_groups_bg(brackets),
+                    on_error=lambda e: self.logger.warning(f"[LIFECYCLE] Background save failed: {e}")
+                )
+            else:
+                # Fallback to synchronous save
+                try:
+                    self.db_service.save_groups(brackets)
+                    self.logger.info("[LIFECYCLE] Group Preview saved brackets to database on hide")
+                except Exception as e:
+                    self.logger.warning(f"[LIFECYCLE] Failed to save brackets on hide: {e}")
+        
+        # Mark as stale for re-entry
         if self.main_window and hasattr(self.main_window, 'screen_manager'):
             screen_manager = self.main_window.screen_manager
             if hasattr(screen_manager, 'mark_screen_stale'):
                 screen_manager.mark_screen_stale('group_preview')
                 self.logger.debug("[LIFECYCLE] Group Preview marked as stale on hide")
+    
+    def _save_groups_bg(self, brackets):
+        """Background thread task to save groups to database."""
+        try:
+            self.db_service.save_groups(brackets)
+            self.logger.info("[LIFECYCLE] [BG] Group Preview saved brackets to database on hide")
+        except Exception as e:
+            self.logger.warning(f"[LIFECYCLE] [BG] Failed to save brackets: {e}")
+            raise
         
     def load_data(self, brackets):
         """Load bracket data."""

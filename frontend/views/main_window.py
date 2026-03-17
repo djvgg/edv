@@ -161,7 +161,7 @@ class BracketViewerApp(tk.Tk):
         self.logger.debug("TaskRunner initialized with 2 workers for parallel operations")
 
         # Initialize quarantine service (manages rejected participants)
-        self.quarantine_service = QuarantineService()
+        self.quarantine_service = QuarantineService(task_runner=self.task_runner)
 
         # Initialize UI feedback service (handles progress dialogs, status messages)
         self.ui_feedback = UIFeedbackService(self)
@@ -414,7 +414,7 @@ class BracketViewerApp(tk.Tk):
             screen.on_back = lambda: self.screen_manager.navigate_to('file_loader')
             screen.on_continue = lambda: self.screen_manager.navigate_to('generation_method')
             screen.on_resort = lambda edited_fighter: self.quarantine_service.resort_brackets(
-                self.brackets, edited_fighter, screen
+                self.brackets, edited_fighter, screen, self.db_service
             )
             
             # Data loading and preparation
