@@ -12,7 +12,6 @@ Coordinates:
 
 import os
 import sys
-import tempfile
 from datetime import datetime
 from typing import Optional, List
 

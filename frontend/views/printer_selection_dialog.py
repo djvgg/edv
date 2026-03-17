@@ -6,14 +6,13 @@
 import os
 import sys
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from utils.logging import get_logger  # noqa: E402
 from ..styles import (  # noqa: E402
-    COLORS, FONTS,
-    apply_button_style,
+    COLORS, apply_button_style,
     apply_label_style,
     create_dark_frame,
 )

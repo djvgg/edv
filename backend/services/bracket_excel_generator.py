@@ -4,8 +4,7 @@ Uses round computation from v2 with snake seeding for flexible tournaments.
 """
 
 import os
-import logging
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -15,7 +14,6 @@ from utils.bracket_utils import _compute_balanced_bracket  # Import balanced bra
 # Import frontend styles
 import sys
 sys.path.insert(0, r'c:\UNI\TOP\edv_backend')
-from frontend.styles import COLORS
 
 logger = get_logger('bracket_excel_generator')
 
@@ -340,7 +338,6 @@ class BracketExcelGenerator:
             Max row used (for positioning next bracket)
         """
         
-        # Calculate row positions for each match
         match_height = 4
         col = 1
         round_col_map = {}  # Map round -> starting column

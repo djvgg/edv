@@ -2,9 +2,8 @@
 Excel pool generator - adapts bracket_pdf_generator_v2 pool logic to Excel format.
 """
 
-import logging
 import os
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -20,7 +19,6 @@ logger = get_logger('pool_excel_generator')
 
 # Import bracket drawing for finale brackets
 try:
-    from backend.services.bracket_excel_generator import BracketExcelGenerator
     BRACKET_GENERATOR_AVAILABLE = True
 except ImportError:
     BRACKET_GENERATOR_AVAILABLE = False
@@ -141,7 +139,6 @@ class PoolExcelGenerator:
             return start_row
         
         pool_name = pool_data.get('pool_name', 'Pool')
-        fights_data = pool_data.get('fights', {})  # Dict mapping (idx1, idx2) -> {scores}
         num_fighters = len(fighters)
         
         # Pool title
@@ -315,7 +312,6 @@ class PoolExcelGenerator:
             pool_finalists: List of dicts with pool_name, rank_1, rank_2
             start_row: Starting row for finale bracket
         """
-        match_height = 4  # 4 rows per match
         semi_col = 2  # Start at column B (shifted right)
         final_col = semi_col + 3  # Finals at column E
         

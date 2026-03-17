@@ -4,7 +4,7 @@
 """Tests for BracketAssignmentController."""
 
 import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 
 from frontend.state import TournamentState
 from frontend.services.bracket_assignment_controller import BracketAssignmentController
