@@ -9,7 +9,6 @@ Each tab can be clicked to navigate to that screen.
 """
 
 import tkinter as tk
-from tkinter import ttk
 import sys
 import os
 
@@ -18,7 +17,7 @@ if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
 
 from utils.logging import get_logger  # noqa: E402
-from .styles import COLORS, FONTS, apply_label_style  # noqa: E402
+from .styles import COLORS, FONTS  # noqa: E402
 
 # Debug flag
 DEBUG = True

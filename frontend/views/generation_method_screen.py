@@ -553,7 +553,7 @@ class GenerationMethodScreen(tk.Frame):
         self._refresh_unassigned_display()
         for method in self.tables.keys():
             self._refresh_method_display(method)
-        self.logger.debug(f"[GEN_METHOD] _refresh_all_displays complete")
+        self.logger.debug("[GEN_METHOD] _refresh_all_displays complete")
 
     def _refresh_unassigned_display(self):
         """Refresh unassigned brackets listbox."""
@@ -1047,7 +1047,7 @@ class GenerationMethodScreen(tk.Frame):
                     'tuple': fighters,
                     'method': cached_method,
                 }
-            self.logger.debug(f"[LIFECYCLE] on_show reload: converted main_window.brackets to load_data format")
+            self.logger.debug("[LIFECYCLE] on_show reload: converted main_window.brackets to load_data format")
             self.load_data(brackets_dict)
             self.logger.info("[RELOAD] GenerationMethodScreen data reloaded from cache")
 

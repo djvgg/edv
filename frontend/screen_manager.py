@@ -243,10 +243,10 @@ class ScreenManager:
             try:
                 wait_for_db = getattr(self.main_window, 'wait_for_db_service', None)
                 self.logger.info(f"User skipped screens via tab navigation: {' → '.join(skipped_screens)}")
-                self.logger.info(f"Running automated transformations for skipped screens using presets")
+                self.logger.info("Running automated transformations for skipped screens using presets")
                 success = self.data_pipeline.transform_skipped_screens(skipped_screens, wait_for_db)
                 if not success:
-                    self.logger.warning(f"Data transformations failed for skipped screens")
+                    self.logger.warning("Data transformations failed for skipped screens")
             except Exception as e:
                 self.logger.error(f"Error in data transformations for skipped screens: {e}")
         
