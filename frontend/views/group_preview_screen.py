@@ -139,6 +139,18 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
                 self.load_data(self.main_window.brackets)
             else:
                 self.logger.warning("[RELOAD] Cannot reload: main_window or main_window.brackets not found")
+    
+    def on_hide(self):
+        """Called when screen is hidden. Mark as stale so it reloads on re-entry.
+        
+        This ensures quarantine data and group changes are refreshed when navigating back
+        from downstream screens (generation_method, bracket_viewer, etc.).
+        """
+        if self.main_window and hasattr(self.main_window, 'screen_manager'):
+            screen_manager = self.main_window.screen_manager
+            if hasattr(screen_manager, 'mark_screen_stale'):
+                screen_manager.mark_screen_stale('group_preview')
+                self.logger.debug("[LIFECYCLE] Group Preview marked as stale on hide")
         
     def load_data(self, brackets):
         """Load bracket data."""
