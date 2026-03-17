@@ -159,6 +159,20 @@ class ToleranceConfigDialog:
         
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            
+        def _bind_mousewheel(event):
+            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+            
+        def _unbind_mousewheel(event):
+            canvas.unbind_all("<MouseWheel>")
+
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        self.dialog.bind("<Enter>", _bind_mousewheel)
+        self.dialog.bind("<Leave>", _unbind_mousewheel)
+        self.dialog.bind("<Destroy>", _unbind_mousewheel)
         
         # Sort the group keys
         sorted_groups = sorted(self.group_keys, key=lambda x: (x[0], x[1]))
