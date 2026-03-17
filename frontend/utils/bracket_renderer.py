@@ -22,7 +22,7 @@ def build_bracket_rounds(bracket, normalized_participants):
     
     Args:
         bracket: List of (name1, name2) tuples from _compute_snake_bracket()
-        normalized_participants: List of dicts with 'Name' and 'Verein' keys
+        normalized_participants: List of dicts with 'Name' and 'Club' keys
     
     Returns:
         List of rounds, each containing match tuples: (name1, name2, club1, club2)
@@ -30,7 +30,8 @@ def build_bracket_rounds(bracket, normalized_participants):
     logger.debug(f"build_bracket_rounds: {len(bracket)} bracket pairs, {len(normalized_participants)} participants")
     
     # Create mapping from fighter name to club
-    fighter_clubs = {p['Name']: p.get('Verein', '') for p in normalized_participants}
+    # Try both 'Club' (from normalization) and 'Verein' (German name)
+    fighter_clubs = {p['Name']: p.get('Club', p.get('Verein', '')) for p in normalized_participants}
     logger.debug(f"Fighter clubs mapping: {fighter_clubs}")
     
     # Build first round with club info
