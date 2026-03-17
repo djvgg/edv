@@ -589,7 +589,8 @@ class BracketViewerApp(tk.Tk):
         })
 
     def _on_brackets_loaded(self, brackets=None, rejected_participants=None, load_mode='fresh', 
-                            duplicates_skipped=0, db_available=True):
+                            duplicates_skipped=0, db_available=True, 
+                            bracket_generation_methods=None, bracket_table_assignment=None):
         """Callback when brackets are successfully loaded (called from background thread).
 
         Args:
@@ -598,10 +599,29 @@ class BracketViewerApp(tk.Tk):
             load_mode: 'fresh' (replace) or 'append' (merge happened in loader)
             duplicates_skipped: Number of duplicate participants filtered out (append mode)
             db_available: True if DB save succeeded, False if offline
+            bracket_generation_methods: Dict of {bracket_key: method_name} loaded from DB (or None to reset)
+            bracket_table_assignment: Dict of {bracket_key: mat_id} loaded from DB (or None to reset)
         """
         # The brackets are already merged (if append mode) by the loader
         if brackets:
             self.brackets = brackets
+
+        # Reload bracket metadata from DB if provided; otherwise reset to start fresh
+        if bracket_generation_methods is not None:
+            self.bracket_generation_methods = bracket_generation_methods
+            self.logger.debug(f"Reloaded {len(bracket_generation_methods)} bracket generation methods from database")
+        else:
+            # Reset generation methods when reloading from DB (regenerated brackets need re-assignment)
+            self.bracket_generation_methods = {}
+            self.logger.debug("Reset bracket generation methods (will need re-assignment)")
+        
+        if bracket_table_assignment is not None:
+            self.bracket_table_assignment = bracket_table_assignment
+            self.logger.debug(f"Reloaded {len(bracket_table_assignment)} bracket table assignments from database")
+        else:
+            # Reset table assignments when reloading from DB (need re-assignment to new brackets)
+            self.bracket_table_assignment = {}
+            self.logger.debug("Reset bracket table assignments (will need re-assignment)")
 
         # Mark downstream screens as stale (they need to refresh with new data)
         self.screen_manager.invalidate_downstream('file_loader')

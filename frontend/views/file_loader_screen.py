@@ -123,7 +123,7 @@ class FileLoaderScreen(tk.Frame):
         # Database load button
         db_btn = tk.Button(
             self,
-            text="Load from Database & Generate Brackets",
+            text="Reload from Database",
             command=self.on_load_database_click,
         )
         apply_button_style(db_btn, 'primary')
