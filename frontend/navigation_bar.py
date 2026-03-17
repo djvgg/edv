@@ -56,37 +56,9 @@ class NavigationBar(tk.Frame):
         self.container = tk.Frame(self, bg=COLORS['bg_dark'])
         self.container.pack(fill=tk.X, expand=True, padx=5, pady=5)
         
-        # Left arrow button (for scrolling)
-        self.left_arrow = tk.Button(
-            self.container,
-            text='<',
-            width=2,
-            height=1,
-            bg=COLORS['bg_darker'],
-            fg=COLORS['text_primary'],
-            font=FONTS['body_sm'],
-            relief=tk.FLAT,
-            command=self._scroll_left
-        )
-        self.left_arrow.pack(side=tk.LEFT, padx=2)
-        
-        # Tabs container frame
+        # Tabs container frame (centered)
         self.tabs_frame = tk.Frame(self.container, bg=COLORS['bg_dark'])
-        self.tabs_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
-        
-        # Right arrow button (for scrolling)
-        self.right_arrow = tk.Button(
-            self.container,
-            text='>',
-            width=2,
-            height=1,
-            bg=COLORS['bg_darker'],
-            fg=COLORS['text_primary'],
-            font=FONTS['body_sm'],
-            relief=tk.FLAT,
-            command=self._scroll_right
-        )
-        self.right_arrow.pack(side=tk.LEFT, padx=2)
+        self.tabs_frame.pack(anchor=tk.CENTER, padx=5)
         
         self.logger.debug("NavigationBar initialized")
     
