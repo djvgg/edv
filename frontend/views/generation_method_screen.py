@@ -26,12 +26,12 @@ from backend.services.pool_excel_generator import PoolExcelGenerator  # noqa: E4
 from ..utils.search_utils import filter_items  # noqa: E402
 from ..utils.pool_renderer import split_into_pools  # noqa: E402
 from ..styles import (  # noqa: E402
-    COLORS, FONTS,
+    COLORS, FONTS, SPACING,
     apply_button_style,
     apply_entry_style,
     apply_label_style,
     apply_listbox_style,
-    create_dark_frame,
+    create_panel_frame,
 )
 logger = get_logger('generation_method_screen', debug_verbose=DEBUG_VERBOSE)
 
@@ -183,13 +183,13 @@ class GenerationMethodScreen(tk.Frame):
             text="Assign Generation Method to Brackets",
             bg=COLORS['bg_dark'],
             fg=COLORS['text_primary'],
-            font=FONTS['heading_lg'],
         )
-        title.pack(pady=10)
+        apply_label_style(title, 'heading_xl')
+        title.pack(pady=SPACING['md'])
 
         # --- SEARCH & CONTROL BAR ---
         control_frame = tk.Frame(self, bg=COLORS['bg_dark'])
-        control_frame.pack(fill=tk.X, padx=10, pady=5)
+        control_frame.pack(fill=tk.X, padx=SPACING['md'], pady=SPACING['sm'])
 
         back_btn = tk.Button(
             control_frame,
@@ -197,14 +197,14 @@ class GenerationMethodScreen(tk.Frame):
             command=self.on_back,
         )
         apply_button_style(back_btn, style='secondary')
-        back_btn.pack(side=tk.LEFT, padx=5)
+        back_btn.pack(side=tk.LEFT, padx=SPACING['sm'])
 
         search_label = tk.Label(control_frame, text="Search:", bg=COLORS['bg_dark'], fg=COLORS['text_primary'])
-        search_label.pack(side=tk.LEFT, padx=5)
+        search_label.pack(side=tk.LEFT, padx=SPACING['sm'])
 
         self.search_entry = tk.Entry(control_frame, width=30, bg=COLORS['bg_input'], fg=COLORS['text_primary'])
         apply_entry_style(self.search_entry)
-        self.search_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        self.search_entry.pack(side=tk.LEFT, padx=SPACING['sm'], fill=tk.X, expand=True)
         self.search_entry.bind('<KeyRelease>', lambda e: self.on_search())
 
         auto_assign_btn = tk.Button(
@@ -213,7 +213,7 @@ class GenerationMethodScreen(tk.Frame):
             command=self.on_auto_assign,
         )
         apply_button_style(auto_assign_btn, style='primary')
-        auto_assign_btn.pack(side=tk.LEFT, padx=5)
+        auto_assign_btn.pack(side=tk.LEFT, padx=SPACING['sm'])
 
         close_btn = tk.Button(
             control_frame,
@@ -221,15 +221,15 @@ class GenerationMethodScreen(tk.Frame):
             command=self.on_close,
         )
         apply_button_style(close_btn, style='success')
-        close_btn.pack(side=tk.LEFT, padx=5)
+        close_btn.pack(side=tk.LEFT, padx=SPACING['sm'])
 
         # --- MAIN CONTENT FRAME ---
         self.main_frame = tk.Frame(self, bg=COLORS['bg_dark'])
-        self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.main_frame.pack(fill=tk.BOTH, expand=True, padx=SPACING['md'], pady=SPACING['md'])
 
         # LEFT PANEL: Unassigned Brackets
-        left_panel = create_dark_frame(self.main_frame)
-        left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=False, padx=5, pady=5)
+        left_panel = create_panel_frame(self.main_frame)
+        left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=False, padx=SPACING['sm'], pady=SPACING['sm'])
 
         # Left title
         left_title = tk.Label(
@@ -240,7 +240,7 @@ class GenerationMethodScreen(tk.Frame):
             font=FONTS['heading_md'],
         )
         apply_label_style(left_title, 'heading_md')
-        left_title.pack(pady=5)
+        left_title.pack(pady=SPACING['sm'])
 
         # Unassigned list with scrollbar
         list_frame = tk.Frame(left_panel, bg=COLORS['bg_panel'])
@@ -350,8 +350,8 @@ class GenerationMethodScreen(tk.Frame):
     def _create_method_table(self, parent, method_key, title, side):
         """Create a table for a generation method."""
 
-        frame = create_dark_frame(parent)
-        frame.pack(side=side, fill=tk.BOTH, expand=True, padx=5)
+        frame = create_panel_frame(parent)
+        frame.pack(side=side, fill=tk.BOTH, expand=True, padx=SPACING['sm'])
 
         # Table title
         title_label = tk.Label(
@@ -921,7 +921,7 @@ class GenerationMethodScreen(tk.Frame):
             if len(errors) > 5:
                 summary_text += f"\n... and {len(errors) - 5} more"
         
-        summary_text += f"\n\nFiles saved to:\n/temp/exports/"
+        summary_text += "\n\nFiles saved to:\n/temp/exports/"
         
         self.logger.info(f"Export completed: {summary_text.replace(chr(10), ' | ')}")
         messagebox.showinfo("Export Complete", summary_text)

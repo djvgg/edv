@@ -23,7 +23,7 @@ from utils.logging import get_logger, DEBUG_VERBOSE  # noqa: E402
 from utils.helpers import parse_bracket_key as _parse_bracket_key_helper  # noqa: E402
 from backend.data.repositories.config_repository import ConfigRepository  # noqa: E402
 from ..styles import (  # noqa: E402
-    COLORS, FONTS,
+    COLORS, FONTS, SPACING,
     SCROLLBAR_STYLE, SCROLLBAR_ACTIVE_STYLE,
     apply_button_style,
     apply_entry_style,
@@ -200,9 +200,9 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         try:
             # Main layout with resizable split
             main_frame = create_dark_frame(self)
-            main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            main_frame.pack(fill=tk.BOTH, expand=True, padx=SPACING['md'], pady=SPACING['md'])
 
-            #Fenster Rahmen / Panel Window
+            # Window Frame / Panel Window
             paned = tk.PanedWindow( 
                 main_frame,
                 orient=tk.HORIZONTAL,
@@ -239,7 +239,7 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
 
         # Title with count
         title_frame = create_dark_frame(left_frame)
-        title_frame.pack(fill=tk.X, pady=(0, 5))
+        title_frame.pack(fill=tk.X, pady=(0, SPACING['sm']))
 
         title_label = tk.Label(title_frame, text='Weight Groups')
         apply_label_style(title_label, 'heading_md')
@@ -253,7 +253,7 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
 
         # Search box
         search_frame = create_dark_frame(left_frame)
-        search_frame.pack(fill=tk.X, pady=(0, 5))
+        search_frame.pack(fill=tk.X, pady=(0, SPACING['sm']))
 
         search_label = tk.Label(search_frame, text='Search:')
         apply_label_style(search_label, 'info')
@@ -265,12 +265,12 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         search_entry.insert(0, "M, W, age, or kg")
         search_entry.bind('<FocusIn>', lambda e: self._on_search_focus_in(search_entry))
         apply_entry_style(search_entry)
-        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=SPACING['sm'])
 
         # Group listbox
         self.group_listbox = tk.Listbox(left_frame, width=30, height=20)
         apply_listbox_style(self.group_listbox)
-        self.group_listbox.pack(fill=tk.BOTH, expand=True, pady=5)
+        self.group_listbox.pack(fill=tk.BOTH, expand=True, pady=SPACING['sm'])
         self.group_listbox.bind('<Double-Button-1>', self._on_group_double_click)
 
     # Right panel: Draw Participant preview
@@ -283,7 +283,7 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         self.preview_title_var = tk.StringVar(value="Participant Preview")
         title_label = tk.Label(right_frame, textvariable=self.preview_title_var)
         apply_label_style(title_label, 'heading_md')
-        title_label.pack(pady=(0, 10))
+        title_label.pack(pady=(0, SPACING['md']))
 
         # Participant display container
         self.participant_display_frame = create_dark_frame(right_frame)
@@ -303,11 +303,11 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
 
         back_btn = tk.Button(button_frame, text='← Back to File Loader', command=self._on_back)
         apply_button_style(back_btn, 'secondary')
-        back_btn.pack(side=tk.LEFT, padx=5)
+        back_btn.pack(side=tk.LEFT, padx=SPACING['sm'])
 
         merge_btn = tk.Button(button_frame, text='⧉ Friendly Match', command=self._on_friendly_match)
         apply_button_style(merge_btn, 'secondary')
-        merge_btn.pack(side=tk.LEFT, padx=5)
+        merge_btn.pack(side=tk.LEFT, padx=SPACING['sm'])
 
         continue_btn = tk.Button(
             button_frame,
@@ -315,7 +315,7 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
             command=self._on_continue,
         )
         apply_button_style(continue_btn, 'primary')
-        continue_btn.pack(side=tk.RIGHT, padx=5)
+        continue_btn.pack(side=tk.RIGHT, padx=SPACING['sm'])
 
     # Fill in Weight Classes (m | 18+ | -66kg etc..), Left Panel
     def _populate_group_list(self):

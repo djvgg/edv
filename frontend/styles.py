@@ -3,16 +3,24 @@
 
 """
 Reusable UI styles for Tournament Management frontend.
-Dark theme with modern, clean aesthetics.
-
-Usage:
-    from frontend.styles import COLORS, FONTS, apply_button_style
-
-    button = tk.Button(root, text="Click Me")
-    apply_button_style(button, style='primary')
+Dark theme with modern, clean aesthetics based on an 8px grid.
 """
 
 import tkinter as tk
+
+# ============================================================================
+# DESIGN TOKENS
+# ============================================================================
+
+# SPACING SYSTEM (8px Grid)
+SPACING = {
+    'xs': 4,
+    'sm': 8,
+    'md': 16,
+    'lg': 24,
+    'xl': 32,
+    'xxl': 48,
+}
 
 # ============================================================================
 # COLOR PALETTE
@@ -48,39 +56,36 @@ COLORS = {
 }
 
 # ============================================================================
-# TYPOGRAPHY
+# TYPOGRAPHY (Rubik Scale)
 # ============================================================================
 
 FONTS = {
-    'heading_xl': ('Rubik', 18, 'bold'),
-    'heading_lg': ('Rubik', 16, 'bold'),
-    'heading_md': ('Rubik', 12, 'bold'),
-    'heading_sm': ('Rubik', 10, 'bold'),
+    'heading_xl': ('Rubik', 22, 'bold'),    # Section Headers
+    'heading_lg': ('Rubik', 18, 'bold'),    # Sub-sections
+    'heading_md': ('Rubik', 16, 'bold'),    # Panel Titles
+    'heading_sm': ('Rubik', 12, 'bold'),
 
     'body_lg': ('Rubik', 12),
-    'body_md': ('Rubik', 11),
+    'body_md': ('Rubik', 11),               # Standard Body Text
     'body_sm': ('Rubik', 10),
     'body_xs': ('Rubik', 9),
 
-    'mono_md': ('Rubik Mono', 10),
+    'mono_md': ('Rubik Mono', 10),          # Technical Data
     'mono_sm': ('Rubik Mono', 9),
     
-    # Custom fonts for Group Preview Screen and Editor
-    'preview_title': ('Rubik', 14, 'bold'),
-    'preview_label': ('Rubik', 9, 'bold'),
-    'preview_text': ('Rubik', 11),
-    'preview_small': ('Rubik', 9),
-    'preview_info': ('Rubik', 10),
-    'preview_hint': ('Rubik', 8),
+    # Aliases for clarity
+    'data_table': ('Rubik Mono', 10),
     
-    # Custom lists
-    'list_mono': ('Courier', 10),
-    'list_mono_bold': ('Courier', 10, 'bold'),
-    'list_ui': ('Segoe UI', 11),
+    # Legacy fallbacks
+    'list_mono': ('Rubik Mono', 10),
+    'list_mono_bold': ('Rubik Mono', 10, 'bold'),
+    'preview_title': ('Rubik', 16, 'bold'), # Alias for heading_md
+    'preview_info': ('Rubik', 10),           # Alias for body_sm
+    'preview_hint': ('Rubik', 9),            # Alias for body_xs
 }
 
 # ============================================================================
-# BUTTON STYLES
+# COMPONENT STYLES
 # ============================================================================
 
 BUTTON_STYLES = {
@@ -89,8 +94,8 @@ BUTTON_STYLES = {
         'fg': COLORS['text_primary'],
         'font': FONTS['body_lg'],
         'relief': 'flat',
-        'padx': 20,
-        'pady': 8,
+        'padx': SPACING['md'],
+        'pady': SPACING['sm'],
         'activebackground': COLORS['accent_blue_hover'],
         'activeforeground': COLORS['text_primary'],
         'cursor': 'hand2',
@@ -99,24 +104,24 @@ BUTTON_STYLES = {
     'success': {
         'bg': COLORS['accent_green'],
         'fg': COLORS['text_primary'],
-        'font': FONTS['body_md'],
+        'font': FONTS['body_lg'],
         'relief': 'flat',
-        'padx': 15,
-        'pady': 6,
+        'padx': SPACING['md'],
+        'pady': SPACING['sm'],
         'activebackground': COLORS['accent_green'],
-        'activeforeground': COLORS['text_primary'],
+        'activeforeground': COLORS['white'],
         'cursor': 'hand2',
         'borderwidth': 0,
     },
     'secondary': {
         'bg': COLORS['border'],
         'fg': COLORS['text_primary'],
-        'font': FONTS['body_md'],
+        'font': FONTS['body_lg'],
         'relief': 'flat',
-        'padx': 15,
-        'pady': 6,
+        'padx': SPACING['md'],
+        'pady': SPACING['sm'],
         'activebackground': COLORS['border_light'],
-        'activeforeground': COLORS['text_primary'],
+        'activeforeground': COLORS['white'],
         'cursor': 'hand2',
         'borderwidth': 0,
     },
@@ -125,74 +130,58 @@ BUTTON_STYLES = {
         'fg': COLORS['text_primary'],
         'font': FONTS['body_sm'],
         'relief': 'flat',
-        'padx': 10,
-        'pady': 4,
+        'padx': SPACING['sm'],
+        'pady': SPACING['xs'],
         'activebackground': COLORS['accent_blue_hover'],
         'activeforeground': COLORS['text_primary'],
         'cursor': 'hand2',
         'borderwidth': 0,
-        'width': 3,
     },
 }
-
-# ============================================================================
-# FRAME STYLES
-# ============================================================================
 
 FRAME_STYLES = {
     'dark': {
         'bg': COLORS['bg_dark'],
     },
-    'panel': {  # UNUSED - create_panel_frame not called
+    'panel': {
         'bg': COLORS['bg_panel'],
         'relief': 'flat',
-        'borderwidth': 1,
-    },
-    'light': {
-        'bg': '#f0f0f0',
+        'borderwidth': 0,
+        'padx': SPACING['md'],
+        'pady': SPACING['md'],
     },
 }
-
-# ============================================================================
-# LABEL STYLES
-# ============================================================================
 
 LABEL_STYLES = {
     'heading_xl': {
         'font': FONTS['heading_xl'],
-        'bg': COLORS['bg_dark'],
         'fg': COLORS['text_primary'],
     },
     'heading_md': {
         'font': FONTS['heading_md'],
-        'bg': COLORS['bg_dark'],
+        'fg': COLORS['text_primary'],
+    },
+    'body': {
+        'font': FONTS['body_md'],
         'fg': COLORS['text_primary'],
     },
     'subtitle': {
         'font': FONTS['body_md'],
-        'bg': COLORS['bg_dark'],
         'fg': COLORS['text_secondary'],
     },
     'info': {
         'font': FONTS['body_xs'],
-        'bg': COLORS['bg_dark'],
         'fg': COLORS['text_muted'],
     },
     'status_success': {
         'font': FONTS['body_sm'],
-        'bg': COLORS['bg_dark'],
         'fg': COLORS['accent_green'],
     },
     'status_error': {
         'font': FONTS['body_sm'],
-        'bg': COLORS['bg_dark'],
         'fg': COLORS['accent_red'],
     },
 }
-
-# ============================================================================
-# LISTBOX STYLES
-# ============================================================================
 
 LISTBOX_STYLE = {
     'bg': COLORS['bg_input'],
@@ -205,10 +194,6 @@ LISTBOX_STYLE = {
     'highlightthickness': 0,
 }
 
-# ============================================================================
-# ENTRY STYLES
-# ============================================================================
-
 ENTRY_STYLE = {
     'bg': COLORS['bg_input'],
     'fg': COLORS['text_primary'],
@@ -219,33 +204,18 @@ ENTRY_STYLE = {
     'highlightthickness': 0,
 }
 
-# ============================================================================
-# SCROLLBAR STYLES (ttk.Scrollbar)
-# ============================================================================
-
 SCROLLBAR_STYLE = {
-    'background': COLORS['bg_panel'],      # Scrollbar thumb
-    'troughcolor': COLORS['bg_dark'],      # Scrollbar track/trough
-    'bordercolor': COLORS['bg_dark'],      # Border
-    'arrowcolor': COLORS['text_secondary'], # Arrow buttons
-    'lightcolor': COLORS['bg_panel'],      # Light edge
-    'darkcolor': COLORS['bg_panel'],       # Dark edge
+    'background': COLORS['bg_panel'],
+    'troughcolor': COLORS['bg_dark'],
+    'bordercolor': COLORS['bg_dark'],
+    'arrowcolor': COLORS['text_secondary'],
+    'lightcolor': COLORS['bg_panel'],
+    'darkcolor': COLORS['bg_panel'],
 }
 
 SCROLLBAR_ACTIVE_STYLE = {
-    'background': COLORS['bg_input'],      # Thumb on hover
-    'arrowcolor': COLORS['text_primary'],  # Arrow on hover
-}
-
-# ============================================================================
-# CANVAS STYLES
-# ============================================================================
-
-CANVAS_STYLE = {  # UNUSED - apply_canvas_style not called
-    'bg': COLORS['white'],
-    'highlightthickness': 0,
-    'borderwidth': 1,
-    'relief': 'solid',
+    'background': COLORS['bg_input'],
+    'arrowcolor': COLORS['text_primary'],
 }
 
 # ============================================================================
@@ -253,152 +223,63 @@ CANVAS_STYLE = {  # UNUSED - apply_canvas_style not called
 # ============================================================================
 
 def apply_button_style(button, style='primary'):
-    """
-    Apply a predefined button style.
-
-    Args:
-        button: tk.Button widget
-        style: Style name ('primary', 'success', 'secondary', 'small')
-
-    Example:
-        btn = tk.Button(root, text="Click Me")
-        apply_button_style(btn, 'primary')
-    """
+    """Apply a predefined button style."""
     if style in BUTTON_STYLES:
         button.config(**BUTTON_STYLES[style])
     else:
         raise ValueError(f"Unknown button style: {style}")
 
-
 def apply_label_style(label, style='heading_md'):
-    """
-    Apply a predefined label style.
-
-    Args:
-        label: tk.Label widget
-        style: Style name from LABEL_STYLES
-
-    Example:
-        lbl = tk.Label(root, text="Title")
-        apply_label_style(lbl, 'heading_xl')
-    """
+    """Apply a predefined label style."""
     if style in LABEL_STYLES:
+        # Start by assuming background of parent (pseudo-transparency)
+        try:
+            parent_bg = label.master.cget('bg')
+            label.config(bg=parent_bg)
+        except Exception:
+            label.config(bg=COLORS['bg_dark'])
+            
+        # Apply style foreground and font
         label.config(**LABEL_STYLES[style])
     else:
         raise ValueError(f"Unknown label style: {style}")
 
-
 def apply_listbox_style(listbox):
-    """
-    Apply dark theme styling to a Listbox.
-
-    Args:
-        listbox: tk.Listbox widget
-    """
+    """Apply dark theme styling to a Listbox."""
     listbox.config(**LISTBOX_STYLE)
 
-
 def apply_entry_style(entry):
-    """
-    Apply dark theme styling to an Entry.
-
-    Args:
-        entry: tk.Entry widget
-    """
+    """Apply dark theme styling to an Entry."""
     entry.config(**ENTRY_STYLE)
 
-
-def apply_canvas_style(canvas):  # UNUSED - not imported or called
-    """
-    Apply styling to a Canvas.
-
-    Args:
-        canvas: tk.Canvas widget
-    """
-    canvas.config(**CANVAS_STYLE)
-
-
 def create_dark_frame(parent, **kwargs):
-    """
-    Create a frame with dark theme background.
-
-    Args:
-        parent: Parent widget
-        **kwargs: Additional tk.Frame arguments
-
-    Returns:
-        tk.Frame with dark styling
-    """
+    """Create a frame with dark theme background."""
     defaults = FRAME_STYLES['dark'].copy()
     defaults.update(kwargs)
     return tk.Frame(parent, **defaults)
 
-
-def create_panel_frame(parent, **kwargs):  # UNUSED - not imported or called
-    """
-    Create a panel frame with darker background.
-
-    Args:
-        parent: Parent widget
-        **kwargs: Additional tk.LabelFrame arguments
-
-    Returns:
-        tk.LabelFrame with panel styling
-    """
+def create_panel_frame(parent, **kwargs):
+    """Create a card-like panel frame."""
     defaults = FRAME_STYLES['panel'].copy()
     defaults.update(kwargs)
-    return tk.LabelFrame(parent, **defaults)
-
+    return tk.Frame(parent, **defaults)
 
 # ============================================================================
-# TABLE PANEL STYLES (for bracket assignment)
+# SPECIALIZED STYLES
 # ============================================================================
 
 TABLE_PANEL_STYLE = {
     'bg': COLORS['bg_panel'],
     'fg': COLORS['text_primary'],
     'font': FONTS['heading_md'],
-    'borderwidth': 2,
+    'borderwidth': 1,
     'relief': 'solid',
     'labelanchor': 'n',
+    'padx': SPACING['md'],
+    'pady': SPACING['md'],
 }
 
 def apply_table_panel_style(labelframe):
     """Apply styling to table assignment panels."""
     labelframe.config(**TABLE_PANEL_STYLE)
 
-
-# ============================================================================
-# USAGE EXAMPLE
-# ============================================================================
-
-"""
-Example usage in a tkinter application:
-
-    import tkinter as tk
-    from frontend.styles import (
-        COLORS, FONTS,
-        apply_button_style,
-        apply_label_style,
-        create_dark_frame
-    )
-
-    root = tk.Tk()
-    root.configure(bg=COLORS['bg_dark'])
-
-    # Create styled frame
-    frame = create_dark_frame(root)
-    frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-
-    # Create styled label
-    title = tk.Label(frame, text="Welcome")
-    apply_label_style(title, 'heading_xl')
-    title.pack(pady=10)
-
-    # Create styled button
-    btn = tk.Button(frame, text="Get Started")
-    apply_button_style(btn, 'primary')
-    btn.pack(pady=10)
-
-    root.mainloop()
-"""

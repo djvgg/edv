@@ -58,7 +58,6 @@ from ..styles import (  # noqa: E402
     COLORS,
     SCROLLBAR_STYLE,
     SCROLLBAR_ACTIVE_STYLE,
-    create_dark_frame,
 )
 
 # Import screen components
@@ -77,47 +76,8 @@ from ..screen_manager import ScreenManager  # noqa: E402
 from ..data_transformation_pipeline import DataTransformationPipeline  # noqa: E402
 
 # ====================================================================
-# !!!!! CLAUDE: REFACTORING INSTRUCTIONS !!!!!
+# Main Application Window
 # ====================================================================
-# This file is a GOD CLASS with 44 methods doing 9 different jobs.
-# REFACTOR BY EXTRACTING SERVICES - DO NOT hack around in main_window.
-#
-# Available Infrastructure:
-#
-# 1. DATABASE ACCESS (use instead of SessionLocal):
-#    - self.db_service = get_database_service()
-#    - Methods: save_participants(), save_groups_and_brackets(),
-#              assign_bracket_to_table(), create_fights_for_bracket()
-#    - NEVER call TournamentService or import SessionLocal directly
-#
-# 2. BACKGROUND THREADING (use instead of manual Thread spawning):
-#    - self.task_runner = TaskRunner(num_workers=2)
-#    - Submit tasks: self.task_runner.submit_task(
-#        task_id='load_xlsx',
-#        fn=lambda on_progress: self._perform_load(..., on_progress),
-#        on_progress=self.update_progress,
-#        on_complete=self.after(500, self.show_next_screen),
-#        on_error=self.show_error_dialog
-#      )
-#    - This enables: parallel DB init + file load, fine-grained progress,
-#      task cancellation, centralized error handling
-#
-# REFACTORING TARGETS (in priority order):
-# 1. DataLoaderService    - Extracts: load_and_generate, load_from_database,
-#                          load_json_and_generate, split_gender_to_json,
-#                          _load_*_thread (all variants), filter_*,
-#                          _create_quarantine_bracket (300+ lines)
-# 2. BracketManagerService - assign_to_table, unassign_bracket,
-#                           auto_assign_tables, resort_brackets,
-#                           update_bracket_list, update_table_panels,
-#                           calculate_number_of_fights (150+ lines)
-# 3. BracketRendererService - render_bracket, _render_pool, zoom_*,
-#                            update_zoom_label, _on_mousewheel (200+ lines)
-# 4. UIFeedbackService - show_loading_progress, update_progress,
-#                       hide_loading_progress, set_status, set_info_text (100+ lines)
-# 5. ScreenManagerService - show_* methods (just delegates to new screens)
-#
-# DO NOT add more logic to main_window. Wire services to callbacks instead.
 # ====================================================================
 
 # ===== DEBUG CONFIGURATION =====
@@ -139,7 +99,7 @@ class BracketViewerApp(tk.Tk):
         self.logger = get_logger('main_window', debug_verbose=DEBUG)
         
         self.title('Combat Control')
-        self.geometry('520x520')
+        self.geometry('520x620')
         self.configure(bg=COLORS['bg_dark'])
 
         # Configure dark theme for ttk widgets (scrollbars)

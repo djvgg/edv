@@ -17,7 +17,7 @@ if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
 
 from utils.logging import get_logger  # noqa: E402
-from .styles import COLORS, FONTS  # noqa: E402
+from .styles import COLORS, FONTS, SPACING  # noqa: E402
 
 # Debug flag
 DEBUG = True
@@ -34,7 +34,7 @@ class NavigationBar(tk.Frame):
     
     def __init__(self, parent, **kwargs):
         super().__init__(parent, **kwargs)
-        self.configure(bg=COLORS['bg_dark'], height=50)
+        self.configure(bg=COLORS['bg_dark'], height=60)
         self.pack_propagate(False)
         
         self.logger = logger
@@ -54,7 +54,7 @@ class NavigationBar(tk.Frame):
         
         # Create main container frame
         self.container = tk.Frame(self, bg=COLORS['bg_dark'])
-        self.container.pack(fill=tk.X, expand=True, padx=5, pady=5)
+        self.container.pack(fill=tk.X, expand=True, padx=SPACING['sm'], pady=SPACING['sm'])
         
         # Tabs container frame (centered)
         self.tabs_frame = tk.Frame(self.container, bg=COLORS['bg_dark'])
@@ -138,25 +138,21 @@ class NavigationBar(tk.Frame):
         if is_active:
             bg_color = COLORS['accent_blue']
             fg_color = COLORS['text_primary']
-            relief = tk.SUNKEN
         elif is_locked:
             bg_color = COLORS['bg_darker']
             fg_color = COLORS['text_secondary']
-            relief = tk.FLAT
         else:
             bg_color = COLORS['bg_panel']
             fg_color = COLORS['text_primary']
-            relief = tk.RAISED
-        
         # Create tab frame
         tab_frame = tk.Frame(
             self.tabs_frame,
             bg=bg_color,
-            relief=relief,
-            borderwidth=1,
+            relief=tk.FLAT,
+            borderwidth=0,
             height=30
         )
-        tab_frame.pack(side=tk.LEFT, padx=2, fill=tk.Y)
+        tab_frame.pack(side=tk.LEFT, padx=SPACING['xs'], fill=tk.Y)
         
         # Create label
         label = tk.Label(
@@ -165,8 +161,8 @@ class NavigationBar(tk.Frame):
             bg=bg_color,
             fg=fg_color,
             font=FONTS['body_sm'],
-            padx=12,
-            pady=5
+            padx=SPACING['md'],
+            pady=SPACING['xs']
         )
         label.pack(fill=tk.BOTH, expand=True)
         
