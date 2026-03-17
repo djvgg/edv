@@ -394,7 +394,6 @@ class BracketViewerApp(tk.Tk):
         """
         if screen_key == 'file_loader':
             # FileLoaderScreen callbacks
-            screen.on_load_xlsx = self.load_and_generate
             screen.on_load_database = self.load_from_database
             screen.on_load_json = self.load_json_and_generate
             screen.on_split_gender = self.split_gender_to_json

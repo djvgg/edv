@@ -49,7 +49,6 @@ class FileLoaderScreen(tk.Frame):
         self.main_window = main_window
 
         # Callbacks - will be set by main window
-        self.on_load_xlsx = None
         self.on_load_database = None
         self.on_load_json = None
         self.on_split_gender = None
@@ -111,15 +110,6 @@ class FileLoaderScreen(tk.Frame):
         flush_btn.configure(fg=COLORS['accent_red'])
         flush_btn.pack(side="bottom", pady=(10, 0), fill="x", padx=40)
 
-        # Main buttons (top section)
-        load_xlsx_btn = tk.Button(
-            self,
-            text="Load Participant List (XLSX) & Generate Brackets",
-            command=self.on_load_xlsx_click,
-        )
-        apply_button_style(load_xlsx_btn, 'primary')
-        load_xlsx_btn.pack(pady=8, fill="x", padx=40)
-
         # Database load button
         db_btn = tk.Button(
             self,
@@ -149,14 +139,6 @@ class FileLoaderScreen(tk.Frame):
 
         self.logger.debug("File loader UI initialized")
         self.ui_initialized = True
-
-    def on_load_xlsx_click(self):
-        """Handle XLSX load button click."""
-        self.logger.info("User clicked: Load XLSX")
-        if self.DEBUG:
-            self.logger.debug("DEBUG: Executing on_load_xlsx callback")
-        if self.on_load_xlsx:
-            self.on_load_xlsx()
 
     def on_load_database_click(self):
         """Handle database load button click."""
