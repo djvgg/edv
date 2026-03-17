@@ -166,6 +166,11 @@ class DataLoaderService:
             new_p_name = f"{new_p.get('Firstname', '')} {new_p.get('Lastname', '')}".strip()
             for cached_p in cached_participants:
                 if self._check_is_duplicate(new_p, cached_p):
+                    # Both are doublestart copies - this is legitimate doublestart, not an error duplicate
+                    if new_p.get('is_doublestart_copy') and cached_p.get('is_doublestart_copy'):
+                        self.logger.debug(f"[DOUBLESTART] {new_p_name} is legitimate doublestart copy (same person, different age group)")
+                        continue
+                    
                     # Mark as duplicate with rejection reason
                     dup_entry = dict(new_p)
                     dup_entry['rejection_reason'] = 'duplicate'

@@ -339,6 +339,11 @@ class QuarantineService:
     def _is_duplicate_in_brackets(self, candidate, brackets):
         """Check if candidate fighter is a duplicate of anyone in valid (non-quarantine) brackets.
         
+        NOTE: Legitimate doublestart copies (same person in multiple age groups) are exempt
+        from the duplicate check. If both candidate and existing fighter are marked as 
+        is_doublestart_copy, they represent the same person in different age groups and
+        should NOT be blocked.
+        
         Returns True if duplicate found, False otherwise.
         """
         for bracket_key, bracket_data in brackets.items():
@@ -353,6 +358,11 @@ class QuarantineService:
             
             for existing_fighter in fighter_list:
                 if self._check_is_duplicate(candidate, existing_fighter):
+                    # Both are doublestart copies - this is legitimate doublestart, not an error duplicate
+                    if candidate.get('is_doublestart_copy') and existing_fighter.get('is_doublestart_copy'):
+                        self.logger.debug(f"RESORT:   Found legitimate doublestart copy in {bracket_key} (same person, different age group)")
+                        continue
+                    
                     existing_name = f"{existing_fighter.get('Firstname', '')} {existing_fighter.get('Lastname', '')}".strip()
                     self.logger.debug(f"RESORT:   Found duplicate of {candidate.get('Name', candidate.get('ID'))} in {bracket_key}: {existing_name}")
                     return True
