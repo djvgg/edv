@@ -457,8 +457,84 @@ class DatabaseService:
             )
         return self._execute_with_session(_record) is True
 
+    def get_bracket_placements(self, bracket_key: str) -> list:
+        """Return placement rows for a completed bracket.
+
+        Each row: {'platz': int, 'vorname': str, 'nachname': str, 'verein': str}
+        Returns [] if bracket not found or has no placements.
+        """
+        from sqlalchemy import text  # noqa: PLC0415
+
+        sql = text("""
+            SELECT
+                1                                        AS platz,
+                b.bracket_type                           AS bracket_type,
+                p1.first_name                            AS vorname,
+                p1.last_name                             AS nachname,
+                COALESCE(p1.club, '')                    AS verein
+            FROM brackets b
+            JOIN groups g       ON g.id = b.group_id
+            LEFT JOIN group_participants gp1 ON gp1.id = b.first_place
+            LEFT JOIN participants        p1  ON p1.id  = gp1.participant_id
+            WHERE g.name = :key AND p1.id IS NOT NULL
+
+            UNION ALL
+
+            SELECT 2, b.bracket_type, p2.first_name, p2.last_name, COALESCE(p2.club, '')
+            FROM brackets b
+            JOIN groups g       ON g.id = b.group_id
+            LEFT JOIN group_participants gp2 ON gp2.id = b.second_place
+            LEFT JOIN participants        p2  ON p2.id  = gp2.participant_id
+            WHERE g.name = :key AND p2.id IS NOT NULL
+
+            UNION ALL
+
+            SELECT 3, b.bracket_type, p3a.first_name, p3a.last_name, COALESCE(p3a.club, '')
+            FROM brackets b
+            JOIN groups g        ON g.id = b.group_id
+            LEFT JOIN group_participants gp3a ON gp3a.id = b.third_place_1
+            LEFT JOIN participants        p3a  ON p3a.id  = gp3a.participant_id
+            WHERE g.name = :key AND p3a.id IS NOT NULL
+
+            UNION ALL
+
+            SELECT 3, b.bracket_type, p3b.first_name, p3b.last_name, COALESCE(p3b.club, '')
+            FROM brackets b
+            JOIN groups g        ON g.id = b.group_id
+            LEFT JOIN group_participants gp3b ON gp3b.id = b.third_place_2
+            LEFT JOIN participants        p3b  ON p3b.id  = gp3b.participant_id
+            WHERE g.name = :key AND p3b.id IS NOT NULL
+              AND b.bracket_type NOT IN ('pools', 'double')
+
+            ORDER BY platz
+        """)
+
+        def _fetch(svc: TournamentService):
+            rows = svc.db.execute(sql, {'key': bracket_key}).fetchall()
+            return [
+                {'platz': r.platz, 'bracket_type': r.bracket_type,
+                 'vorname': r.vorname, 'nachname': r.nachname, 'verein': r.verein}
+                for r in rows
+            ]
+        return self._execute_with_session(_fetch) or []
+
+    def get_completed_bracket_keys(self) -> set:
+        """Return bracket keys (group names) whose DB status is 'completed'."""
+        from ..data.models import Bracket, Group  # noqa: PLC0415
+
+        def _fetch(svc: TournamentService):
+            rows = (
+                svc.db.query(Group.name)
+                .join(Bracket, Bracket.group_id == Group.id)
+                .filter(Bracket.status == 'completed')
+                .all()
+            )
+            return {row.name for row in rows}
+
+        return self._execute_with_session(_fetch) or set()
+
     # ===== UTILITY =====
-    
+
     def reinitialize_schema(self) -> bool:
         """
         Reinitialize database schema (drops and recreates all tables).

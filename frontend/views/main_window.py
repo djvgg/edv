@@ -68,6 +68,7 @@ from .fight_monitoring_window import FightMonitoringScreen  # noqa: E402
 from .rejection_summary_window import RejectionSummaryWindow  # noqa: E402
 from .tolerance_config_dialog import ToleranceConfigDialog  # noqa: E402
 from .table_and_bracket_viewer import TableAndBracketViewer  # noqa: E402
+from .results_screen import ResultsScreen  # noqa: E402
 from ..services.quarantine_service import QuarantineService  # noqa: E402
 from ..services.ui_feedback_service import UIFeedbackService  # noqa: E402
 from ..services.data_loader_service import DataLoaderService  # noqa: E402
@@ -182,6 +183,9 @@ class BracketViewerApp(tk.Tk):
         def bracket_viewer_factory(main_window):
             """Factory for TableAndBracketViewer - requires main_window reference"""
             return TableAndBracketViewer(self.content_frame, main_window=self)
+
+        def results_factory(main_window):
+            return ResultsScreen(self.content_frame, main_window=self)
         
         def fight_monitoring_factory(main_window):
             """Factory for FightMonitoringScreen - requires data from main_window"""
@@ -236,13 +240,14 @@ class BracketViewerApp(tk.Tk):
             screen_factory=generation_method_factory
         )
         self.screen_manager.register_screen(
-            'bracket_viewer', None, 'Bracket Viewer', locked=False, 
+            'bracket_viewer', None, 'Bracket Viewer', locked=False,
             screen_factory=bracket_viewer_factory
         )
         self.screen_manager.register_screen(
-            'fight_monitoring', None, 'Fight Monitoring', locked=False,
-            screen_factory=fight_monitoring_factory
+            'results', None, 'Fertige Kampflisten', locked=False,
+            screen_factory=results_factory
         )
+
         self.logger.debug("All screens registered with ScreenManager")
 
         # Start with file loading UI

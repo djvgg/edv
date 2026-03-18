@@ -61,10 +61,11 @@ class ScreenManager:
         # Screen dependency graph (for staleness propagation)
         # {screen_key: [downstream_screen_keys]}
         self.screen_dependencies = {
-            'file_loader': ['group_preview', 'generation_method', 'bracket_viewer', 'fight_monitoring'],
-            'group_preview': ['generation_method', 'bracket_viewer', 'fight_monitoring'],
-            'generation_method': ['bracket_viewer', 'fight_monitoring'],
-            'bracket_viewer': ['fight_monitoring'],
+            'file_loader': ['group_preview', 'generation_method', 'bracket_viewer', 'results', 'fight_monitoring'],
+            'group_preview': ['generation_method', 'bracket_viewer', 'results', 'fight_monitoring'],
+            'generation_method': ['bracket_viewer', 'results', 'fight_monitoring'],
+            'bracket_viewer': ['results', 'fight_monitoring'],
+            'results': [],
             'fight_monitoring': [],
         }
         
@@ -104,6 +105,7 @@ class ScreenManager:
             'locked': locked,
         }
         self.screen_staleness[screen_key] = False
+        self.nav_bar.add_tab(screen_key, label, locked=locked)
         self.logger.info(f"Registered screen: {screen_key} ({label})")
     
     def _detect_skipped_screens(self, current_key, target_key):
@@ -119,7 +121,7 @@ class ScreenManager:
         Returns:
             List of skipped screen keys, or empty list if no skip
         """
-        screen_order = ['file_loader', 'group_preview', 'generation_method', 'bracket_viewer', 'fight_monitoring']
+        screen_order = ['file_loader', 'group_preview', 'generation_method', 'bracket_viewer', 'results', 'fight_monitoring']
         
         try:
             current_idx = screen_order.index(current_key)
