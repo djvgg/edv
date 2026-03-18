@@ -543,7 +543,6 @@ class TournamentService:
 
             self.logger.info(f"Bracket {bracket_key}: {len(enriched)} fight rows from {len(fight_pairs)} pairs (including byes)")
 
-        self.brackets.set_status(bracket.id, 'in_progress')
         # Propagate mat assignment as table_id on all newly created fights
         self.db.refresh(bracket)
         table_id = str(bracket.mat.mat_number) if bracket.mat else None
