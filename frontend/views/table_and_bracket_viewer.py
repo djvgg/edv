@@ -413,8 +413,11 @@ class TableAndBracketViewer(_RendererMixin, tk.Frame):
         if not self.main_window:
             return
 
+        completed_keys = self.main_window.db_service.get_completed_bracket_keys()
         unassigned = [k for k in self.main_window.brackets.keys()
-                     if not self.main_window.bracket_table_assignment.get(k)]
+                      if not self.main_window.bracket_table_assignment.get(k)
+                      and len(self.main_window.brackets[k].get('fighters', [])) > 0
+                      and k not in completed_keys]
 
         if not unassigned:
             messagebox.showinfo('Auto-assign', 'No unassigned brackets to assign.')
