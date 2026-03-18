@@ -1,8 +1,20 @@
 # SPDX-FileCopyrightText: 2026 TOP Team Combat Control
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from ..styles import COLORS, FONTS
-from ..utils import (
+"""Rendering mixin for TableAndBracketViewer — KO and pool canvas drawing."""
+
+import os
+import sys
+import traceback
+
+_edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if _edv_backend_path not in sys.path:
+    sys.path.insert(0, _edv_backend_path)
+
+from backend.services.bracket_service import make_bracket  # noqa: E402
+
+from ..styles import COLORS, FONTS  # noqa: E402
+from ..utils import (  # noqa: E402
     calculate_box_size,
     draw_pools_on_canvas,
     build_bracket_rounds,
@@ -11,12 +23,6 @@ from ..utils import (
     calculate_loser_positions,
     draw_loser_connectors,
 )
-import os
-import sys
-_edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-if _edv_backend_path not in sys.path:
-    sys.path.insert(0, _edv_backend_path)
-from backend.services.bracket_service import make_bracket  # noqa: E402
 
 
 class _RendererMixin:
@@ -49,15 +55,12 @@ class _RendererMixin:
             num_participants = len(participants)
             self.logger.debug(f"Found {num_participants} participants")
 
-            # Get user's generation method assignment
             assigned_method = self.main_window.bracket_generation_methods.get(bracket_key)
             method = assigned_method or 'ko'
             self.logger.debug(f"Bracket {bracket_key} method: {method} (assigned: {assigned_method})")
 
-            # Get pool_size from bracket data
             pool_size = self.main_window.brackets.get(bracket_key, {}).get('pool_size')
 
-            # Fallback logic
             should_use_bracket_fallback = (
                 method in ('pools', 'double') and
                 pool_size is None and
@@ -69,7 +72,6 @@ class _RendererMixin:
                 self.logger.debug(f"Falling back to bracket system: {num_participants} participants with no pool_size configured")
                 method = 'ko'
 
-            # Render based on method
             if method in ('pools', 'double'):
                 title = f"Pool Visualization ({bracket_key})"
                 self.viz_title_var.set(title)
@@ -79,7 +81,6 @@ class _RendererMixin:
             self.logger.debug(f"Rendering as KO bracket (method: {assigned_method})")
             self.viz_title_var.set('Bracket Visualization (KO)')
 
-            # Normalize participants and generate bracket rounds
             normalized_participants = []
             for p in participants:
                 if isinstance(p, dict):
@@ -88,7 +89,7 @@ class _RendererMixin:
 
                     normalized_participants.append({
                         'Name': p.get('Name', p.get('name', '')),
-                        'Verein': p.get('Club', p.get('Verein', p.get('verein', p.get('club', ''))))
+                        'Club': p.get('Club', p.get('Verein', p.get('verein', p.get('club', ''))))
                     })
 
             if not normalized_participants:
@@ -100,21 +101,16 @@ class _RendererMixin:
 
             self.logger.debug(f"Normalized {len(normalized_participants)} participants")
 
-            # Generate bracket visualization
             bracket = make_bracket(normalized_participants)
             self.logger.debug(f"Generated bracket with {len(bracket)} first round matches")
 
-            # Keep stored bracket in sync
             self.main_window.brackets[bracket_key]['bracket'] = bracket
 
-            # Build rounds with club information
             rounds_with_clubs = build_bracket_rounds(bracket, normalized_participants)
             self.logger.debug(f"Generated bracket structure with {len(rounds_with_clubs)} rounds and club info")
 
-            # Calculate box dimensions
             box_width, box_height, x_gap, y_gap = calculate_box_size(rounds_with_clubs, self.zoom_level)
 
-            # Calculate bracket positions
             positions = {}
             y_offsets = {}
             first_total = len(rounds_with_clubs[0])
@@ -139,7 +135,6 @@ class _RendererMixin:
                     positions[(r, m)] = (x, y)
                     y_offsets[(r, m)] = y + box_height // 2
 
-            # Draw bracket
             draw_bracket_on_canvas(
                 self.bracket_canvas,
                 rounds_with_clubs,
@@ -151,13 +146,11 @@ class _RendererMixin:
                 FONTS
             )
 
-            # Draw simplified empty loser bracket
             loser_max_y = self._draw_loser_bracket_on_canvas(
                 bracket, bracket_key, positions, box_width, box_height,
                 start_x, start_y, self.zoom_level
             )
 
-            # Update scroll region
             max_x = max(pos[0] for pos in positions.values()) + box_width + start_x
             max_y = loser_max_y + start_y
             self.bracket_canvas.configure(scrollregion=(0, 0, max_x, max_y))
@@ -166,7 +159,6 @@ class _RendererMixin:
 
         except Exception as e:
             self.logger.error(f"Exception rendering bracket: {e}")
-            import traceback
             traceback.print_exc()
             self.bracket_canvas.create_text(400, 300,
                 text=f"Error rendering bracket:\n{str(e)}",
@@ -240,7 +232,6 @@ class _RendererMixin:
             return []
 
         def get_loser(match):
-            """Extract the loser from a winner/loser match tuple."""
             if match['winner'] and match['winner'] in ('Freilos', 'TBD'):
                 return 'TBD'
             if match['winner'] and match['winner'] == match['p1']:
@@ -298,7 +289,7 @@ class _RendererMixin:
                 if isinstance(p, dict):
                     normalized_participants.append({
                         'Name': p.get('Name', p.get('name', '')),
-                        'Verein': p.get('Verein', p.get('verein', p.get('club', '')))
+                        'Club': p.get('Club', p.get('Verein', p.get('verein', p.get('club', ''))))
                     })
 
             if not normalized_participants:
@@ -340,7 +331,6 @@ class _RendererMixin:
 
         except Exception as e:
             self.logger.error(f"Exception rendering pool: {e}")
-            import traceback
             traceback.print_exc()
             self.bracket_canvas.create_text(400, 300,
                 text=f"Error rendering pool:\n{str(e)}",
