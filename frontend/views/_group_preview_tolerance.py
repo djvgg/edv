@@ -117,9 +117,23 @@ class _ToleranceMixin:
         """Open dialog to configure tolerances for all age-group/gender combos."""
         dialog = tk.Toplevel(self.winfo_toplevel())
         dialog.title("Configure Weight Tolerances")
-        dialog.geometry("450x400")
         dialog.configure(bg=COLORS['bg_dark'])
         dialog.transient(self.winfo_toplevel())
+        
+        # Center window on screen with flexible sizing (percentage-based for robustness)
+        dialog.update_idletasks()
+        sw = dialog.winfo_screenwidth()
+        sh = dialog.winfo_screenheight()
+        
+        # Suggested width: 35% of screen, but at least 480px and at most 650px
+        width = max(480, min(int(sw * 0.25), 650))
+        # Suggested height: 55% of screen, but at least 450px and at most 800px
+        height = max(450, min(int(sh * 0.45), 800))
+        
+        x = (sw // 2) - (width // 2)
+        y = (sh // 2) - (height // 2)
+        dialog.geometry(f"{width}x{height}+{x}+{y}")
+        
         dialog.grab_set()
 
         title_lbl = tk.Label(dialog, text="Weight Tolerances per Group",
@@ -127,7 +141,7 @@ class _ToleranceMixin:
                              font=FONTS['preview_title'])
         title_lbl.pack(pady=10)
 
-        info_lbl = tk.Label(dialog, text="Set clothing tolerance (0.0–2.0 kg, 100g steps) for each group:",
+        info_lbl = tk.Label(dialog, text="Set clothing tolerance, 100g steps for each group:",
                             bg=COLORS['bg_dark'], fg=COLORS['text_secondary'],
                             font=FONTS['preview_info'])
         info_lbl.pack(pady=(0, 10))
@@ -227,3 +241,5 @@ class _ToleranceMixin:
                                bg=COLORS['bg_panel'], fg=COLORS['text_secondary'],
                                font=FONTS['body_md'], bd=0, padx=15, pady=8, cursor='hand2')
         cancel_btn.pack(side=tk.RIGHT, padx=10)
+
+
