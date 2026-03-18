@@ -364,7 +364,7 @@ class DataTransformationPipeline:
                     fn=lambda: self._execute_transformations_batch(db_to_run, wait_for_db),
                     on_error=lambda e: self.logger.error(f"Background DB transformation failed: {e}")
                 )
-                self.logger.debug(f"✓ Data transforms completed, DB operations running in background")
+                self.logger.debug("✓ Data transforms completed, DB operations running in background")
             else:
                 # Fallback: run DB transforms on main thread if no task_runner
                 for transform_name in db_to_run:
@@ -391,7 +391,7 @@ class DataTransformationPipeline:
             self.logger.debug(f"[BG] Starting batch DB transformations: {transform_names}")
             for transform_name in transform_names:
                 self._execute_transformation(transform_name, wait_for_db)
-            self.logger.debug(f"[BG] ✓ Batch DB transformations completed")
+            self.logger.debug("[BG] ✓ Batch DB transformations completed")
         except Exception as e:
             self.logger.error(f"[BG] ✗ Batch DB transformation failed: {e}", exc_info=True)
             raise

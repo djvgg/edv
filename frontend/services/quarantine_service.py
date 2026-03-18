@@ -382,7 +382,7 @@ class QuarantineService:
 
         # Check for duplicates against valid fighters in brackets
         if self._is_duplicate_in_brackets(fighter, brackets):
-            self.logger.debug(f"RESORT:   Duplicate: Already exists in valid brackets → INVALID: duplicate")
+            self.logger.debug("RESORT:   Duplicate: Already exists in valid brackets → INVALID: duplicate")
             return False, "duplicate"
 
         self.logger.debug(f"RESORT:   Age bounds OK, age group {age_group} - VALID")
