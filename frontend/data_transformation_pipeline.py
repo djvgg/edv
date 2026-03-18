@@ -137,6 +137,7 @@ PRESET_GENERATION_METHOD_OPS = {
     ],
     'essential': [
         'save_groups',            # [ESSENTIAL] Persist approved groups to DB
+        'extract_locked',         # [ESSENTIAL] Remove mat-locked brackets from editing
         'extract_quarantine',     # [ESSENTIAL] Remove quarantine for calculations
         'split_u9_u11_into_pools',  # [ESSENTIAL] Re-separate for generation
         'auto_assign_generation_methods',  # [ESSENTIAL] Auto-assign methods when screen skipped
@@ -148,6 +149,7 @@ PRESET_GENERATION_METHOD_OPS = {
 PRESET_BRACKET_VIEWER_OPS = {
     'visual': [],  # No UI-only operations
     'essential': [
+        'extract_locked',              # [ESSENTIAL] Extract locked brackets after assignments
         'regenerate_stale_ko_brackets',  # [ESSENTIAL] Generate bracket structures
         'create_fights',                  # [ESSENTIAL] Create fight DB records
     ],
@@ -156,7 +158,9 @@ PRESET_BRACKET_VIEWER_OPS = {
 # FIGHT MONITORING: Live match tracking and scoring
 # Must ensure brackets and fights are current
 PRESET_FIGHT_MONITORING_OPS = {
-    'visual': [],  # No UI-only operations
+    'visual': [
+        'restore_locked',         # [UI] Show mat-locked brackets for monitoring
+    ],
     'essential': [
         'regenerate_stale_ko_brackets',  # [ESSENTIAL] Ensure brackets current
         'create_fights',                  # [ESSENTIAL] Ensure fights in DB
@@ -438,6 +442,12 @@ class DataTransformationPipeline:
         elif transform_name == 'restore_quarantine':
             self._transform_restore_quarantine()
         
+        elif transform_name == 'extract_locked':
+            self._transform_extract_locked()
+        
+        elif transform_name == 'restore_locked':
+            self._transform_restore_locked()
+        
         elif transform_name == 'save_groups':
             self._transform_save_groups(wait_for_db)
         
@@ -508,6 +518,37 @@ class DataTransformationPipeline:
             self.logger.debug("✓ Extracted quarantine")
         except Exception:
             self.logger.error("Failed to extract quarantine", exc_info=True)
+            raise
+    
+    def _transform_extract_locked(self):
+        """Extract locked brackets (assigned to mats) from the main cache."""
+        try:
+            if hasattr(self.main_window, 'bracket_table_assignment'):
+                locked_count = sum(1 for k, v in self.main_window.bracket_table_assignment.items() if v is not None)
+                if locked_count > 0:
+                    self.quarantine_service.extract_locked(
+                        self.main_window.brackets,
+                        self.main_window.bracket_table_assignment
+                    )
+                    self.logger.debug(f"✓ Extracted {locked_count} locked bracket(s)")
+                else:
+                    self.logger.debug("No locked brackets to extract")
+            else:
+                self.logger.warning("bracket_table_assignment not available")
+        except Exception:
+            self.logger.error("Failed to extract locked brackets", exc_info=True)
+            raise
+    
+    def _transform_restore_locked(self):
+        """Restore locked brackets (assigned to mats) for monitoring."""
+        try:
+            restored = self.quarantine_service.restore_locked(self.main_window.brackets)
+            if restored:
+                self.logger.debug(f"✓ Restored {len(self.quarantine_service.locked_brackets)} locked bracket(s)")
+            else:
+                self.logger.debug("No locked brackets to restore")
+        except Exception:
+            self.logger.error("Failed to restore locked brackets", exc_info=True)
             raise
     
     def _transform_split_u9_u11_into_pools(self):

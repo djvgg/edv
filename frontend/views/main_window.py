@@ -206,6 +206,7 @@ class BracketViewerApp(tk.Tk):
                 main_window=self,
                 quarantine_service=self.quarantine_service,
                 db_service=self.db_service,
+                bracket_table_assignment=self.bracket_table_assignment,
             )
 
         def file_loader_factory(main_window):
@@ -372,8 +373,11 @@ class BracketViewerApp(tk.Tk):
             # GroupPreviewScreen callbacks and data loading
             screen.on_back = lambda: self.screen_manager.navigate_to('file_loader')
             screen.on_continue = lambda: self.screen_manager.navigate_to('generation_method')
-            screen.on_resort = lambda edited_fighter: self.quarantine_service.resort_brackets(
-                self.brackets, edited_fighter, screen, self.db_service
+            screen.on_resort = lambda edited_fighter: (
+                self.quarantine_service.resort_brackets(
+                    self.brackets, edited_fighter, screen, self.db_service, self.bracket_table_assignment
+                ),
+                self.screen_manager.invalidate_downstream('group_preview')
             )
             
             # Data loading and preparation

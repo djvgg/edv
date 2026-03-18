@@ -23,6 +23,7 @@ class QuarantineService:
         """
         self.logger = get_logger(__name__, debug_verbose=True)
         self.quarantine_brackets = {}  # Preserved quarantine brackets dict: {reason: bracket_data}
+        self.locked_brackets = {}      # Preserved locked brackets dict: {bracket_key: bracket_data}
         self.task_runner = task_runner  # For threaded DB saves
     
     def extract_quarantine(self, brackets):
@@ -69,6 +70,56 @@ class QuarantineService:
             brackets[reason] = bracket_data
             fighters_count = len(bracket_data.get('fighters', []))
             self.logger.debug(f"{reason} bracket restored ({fighters_count} participants)")
+        
+        return True
+
+    def extract_locked(self, brackets, bracket_table_assignment):
+        """Extract and preserve locked brackets (assigned to mats) from workflow.
+        
+        Call this before generation_method to prevent editing of locked participants.
+        Moves brackets with mat assignments to a separate cache.
+        
+        Args:
+            brackets (dict): The brackets dictionary
+            bracket_table_assignment (dict): {bracket_key: mat_id} mapping
+            
+        Returns:
+            dict: The extracted locked brackets {bracket_key: bracket_data}
+        """
+        extracted = {}
+        locked_keys = [k for k in bracket_table_assignment.keys() 
+                      if bracket_table_assignment[k] is not None and k in brackets]
+        
+        for key in locked_keys:
+            extracted[key] = brackets.pop(key)
+            mat_num = bracket_table_assignment[key]
+            fighters = len(extracted[key].get('fighters', []))
+            self.logger.info(f"LOCKED bracket '{key}' extracted (Matte {mat_num}, {fighters} participants)")
+        
+        if extracted:
+            self.locked_brackets = extracted
+        
+        return extracted
+    
+    def restore_locked(self, brackets):
+        """Restore locked brackets to brackets dict.
+        
+        Call this when showing fight_monitoring screen.
+        Adds all preserved locked brackets back for viewing/monitoring.
+        
+        Args:
+            brackets (dict): The brackets dictionary to update
+            
+        Returns:
+            bool: True if any locked brackets were restored, False if none to restore
+        """
+        if not self.locked_brackets:
+            return False
+        
+        for bracket_key, bracket_data in self.locked_brackets.items():
+            brackets[bracket_key] = bracket_data
+            fighters_count = len(bracket_data.get('fighters', []))
+            self.logger.debug(f"LOCKED bracket '{bracket_key}' restored ({fighters_count} participants)")
         
         return True
     
@@ -170,7 +221,7 @@ class QuarantineService:
                 
         return issues
 
-    def resort_brackets(self, brackets, edited_fighter=None, group_preview_screen=None, db_service=None):
+    def resort_brackets(self, brackets, edited_fighter=None, group_preview_screen=None, db_service=None, bracket_table_assignment=None):
         """Re-sort brackets after changes in any QUARANTINE_* bracket.
 
         Args:
@@ -181,6 +232,7 @@ class QuarantineService:
             group_preview_screen (object, optional): Reference to group preview
                 screen — refreshed after the sort if provided.
             db_service (optional): Database service to persist changes after successful resort.
+            bracket_table_assignment (dict, optional): {bracket_key: mat_id} - locked brackets to avoid merging
         """
         self.logger.debug("RESORT: resort_brackets() called")
 
@@ -193,7 +245,7 @@ class QuarantineService:
             brackets, quarantine_keys, edited_fighter)
 
         if valid_from_quarantine:
-            self._merge_valid_into_brackets(brackets, valid_from_quarantine)
+            self._merge_valid_into_brackets(brackets, valid_from_quarantine, bracket_table_assignment)
 
         self.quarantine_brackets = {k: v for k, v in brackets.items() if k.startswith('QUARANTINE_')}
 
@@ -416,11 +468,13 @@ class QuarantineService:
         
         return True
 
-    def _merge_valid_into_brackets(self, brackets, valid_fighters):
+    def _merge_valid_into_brackets(self, brackets, valid_fighters, bracket_table_assignment=None):
         """Generate brackets for newly-valid fighters and merge into existing brackets.
 
         Quarantine brackets are preserved throughout the operation.
+        Brackets that are assigned to mats are protected from merging.
         """
+        bracket_table_assignment = bracket_table_assignment or {}
         temp_brackets = {k: v for k, v in brackets.items() if not k.startswith('QUARANTINE_')}
         quarantine_to_preserve = {k: v for k, v in brackets.items() if k.startswith('QUARANTINE_')}
 
@@ -430,6 +484,14 @@ class QuarantineService:
         brackets.update(temp_brackets)
 
         for key, new_data in new_brackets.items():
+            # Check if this bracket is locked (assigned to a mat)
+            if key in bracket_table_assignment and bracket_table_assignment[key] is not None:
+                mat_num = bracket_table_assignment[key]
+                locked_fighters = new_data.get('fighters', [])
+                self.logger.warning(f"RESORT: Cannot merge {len(locked_fighters)} fighter(s) into '{key}' - bracket is assigned to Matte {mat_num}. Keeping in quarantine.")
+                # Skip this bracket and let fighters stay in quarantine
+                continue
+            
             if key in brackets:
                 brackets[key]['fighters'].extend(new_data.get('fighters', []))
                 brackets[key]['bracket'] = []  # reset fight tree — regenerated on demand
