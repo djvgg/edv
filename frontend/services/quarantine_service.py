@@ -15,10 +15,16 @@ class QuarantineService:
     MIN_PARTICIPANT_AGE = 6
     MAX_PARTICIPANT_AGE = 120
     
-    def __init__(self):
-        """Initialize the quarantine service."""
+    def __init__(self, task_runner=None):
+        """Initialize the quarantine service.
+        
+        Args:
+            task_runner: Optional TaskRunner for background DB operations
+        """
         self.logger = get_logger(__name__, debug_verbose=True)
         self.quarantine_brackets = {}  # Preserved quarantine brackets dict: {reason: bracket_data}
+        self.locked_brackets = {}      # Preserved locked brackets dict: {bracket_key: bracket_data}
+        self.task_runner = task_runner  # For threaded DB saves
     
     def extract_quarantine(self, brackets):
         """Extract and preserve all QUARANTINE_* brackets from workflow.
@@ -64,6 +70,56 @@ class QuarantineService:
             brackets[reason] = bracket_data
             fighters_count = len(bracket_data.get('fighters', []))
             self.logger.debug(f"{reason} bracket restored ({fighters_count} participants)")
+        
+        return True
+
+    def extract_locked(self, brackets, bracket_table_assignment):
+        """Extract and preserve locked brackets (assigned to mats) from workflow.
+        
+        Call this before generation_method to prevent editing of locked participants.
+        Moves brackets with mat assignments to a separate cache.
+        
+        Args:
+            brackets (dict): The brackets dictionary
+            bracket_table_assignment (dict): {bracket_key: mat_id} mapping
+            
+        Returns:
+            dict: The extracted locked brackets {bracket_key: bracket_data}
+        """
+        extracted = {}
+        locked_keys = [k for k in bracket_table_assignment.keys() 
+                      if bracket_table_assignment[k] is not None and k in brackets]
+        
+        for key in locked_keys:
+            extracted[key] = brackets.pop(key)
+            mat_num = bracket_table_assignment[key]
+            fighters = len(extracted[key].get('fighters', []))
+            self.logger.info(f"LOCKED bracket '{key}' extracted (Matte {mat_num}, {fighters} participants)")
+        
+        if extracted:
+            self.locked_brackets = extracted
+        
+        return extracted
+    
+    def restore_locked(self, brackets):
+        """Restore locked brackets to brackets dict.
+        
+        Call this when showing fight_monitoring screen.
+        Adds all preserved locked brackets back for viewing/monitoring.
+        
+        Args:
+            brackets (dict): The brackets dictionary to update
+            
+        Returns:
+            bool: True if any locked brackets were restored, False if none to restore
+        """
+        if not self.locked_brackets:
+            return False
+        
+        for bracket_key, bracket_data in self.locked_brackets.items():
+            brackets[bracket_key] = bracket_data
+            fighters_count = len(bracket_data.get('fighters', []))
+            self.logger.debug(f"LOCKED bracket '{bracket_key}' restored ({fighters_count} participants)")
         
         return True
     
@@ -165,7 +221,7 @@ class QuarantineService:
                 
         return issues
 
-    def resort_brackets(self, brackets, edited_fighter=None, group_preview_screen=None):
+    def resort_brackets(self, brackets, edited_fighter=None, group_preview_screen=None, db_service=None, bracket_table_assignment=None):
         """Re-sort brackets after changes in any QUARANTINE_* bracket.
 
         Args:
@@ -175,6 +231,8 @@ class QuarantineService:
                 If None, all QUARANTINE fighters are checked.
             group_preview_screen (object, optional): Reference to group preview
                 screen — refreshed after the sort if provided.
+            db_service (optional): Database service to persist changes after successful resort.
+            bracket_table_assignment (dict, optional): {bracket_key: mat_id} - locked brackets to avoid merging
         """
         self.logger.debug("RESORT: resort_brackets() called")
 
@@ -187,7 +245,7 @@ class QuarantineService:
             brackets, quarantine_keys, edited_fighter)
 
         if valid_from_quarantine:
-            self._merge_valid_into_brackets(brackets, valid_from_quarantine)
+            self._merge_valid_into_brackets(brackets, valid_from_quarantine, bracket_table_assignment)
 
         self.quarantine_brackets = {k: v for k, v in brackets.items() if k.startswith('QUARANTINE_')}
 
@@ -201,6 +259,32 @@ class QuarantineService:
                 self.logger.info("Group preview refreshed after resort")
         else:
             self.logger.debug("RESORT: No group_preview_screen to refresh")
+        
+        # Save changes to database in background thread if db_service provided
+        if db_service and valid_from_quarantine:
+            if self.task_runner:
+                # Run in background thread
+                self.task_runner.submit_task(
+                    'resort_save_participants',
+                    fn=lambda: self._save_participants_bg(db_service, valid_from_quarantine),
+                    on_error=lambda e: self.logger.error(f"RESORT: Background save failed: {e}")
+                )
+            else:
+                # Fallback to synchronous update if no task_runner
+                try:
+                    db_service.update_participants(valid_from_quarantine)
+                    self.logger.info(f"RESORT: Updated {len(valid_from_quarantine)} participant(s) in database after resort")
+                except Exception as db_error:
+                    self.logger.error(f"RESORT: Failed to update participants in database: {db_error}")
+    
+    def _save_participants_bg(self, db_service, participants):
+        """Background thread task to update participants in database."""
+        try:
+            db_service.update_participants(participants)
+            self.logger.info(f"RESORT: [BG] Updated {len(participants)} participant(s) in database after resort")
+        except Exception as db_error:
+            self.logger.error(f"RESORT: [BG] Failed to update participants: {db_error}")
+            raise
 
     def _extract_valid_from_quarantine(self, brackets, quarantine_keys, edited_fighter):
         """Validate fighters in each quarantine bracket; separate valid from still-invalid.
@@ -231,7 +315,7 @@ class QuarantineService:
                     continue
 
                 fighter_name = base_fighter.get('Name', f"Unknown ({base_fighter.get('ID', '?')})")
-                is_valid, reason = self._evaluate_fighter_validity(base_fighter)
+                is_valid, reason = self._evaluate_fighter_validity(base_fighter, brackets)
 
                 if is_valid:
                     valid_fighters.append(base_fighter)
@@ -269,11 +353,11 @@ class QuarantineService:
 
         return valid_fighters
 
-    def _evaluate_fighter_validity(self, fighter):
+    def _evaluate_fighter_validity(self, fighter, brackets):
         """Check if a single fighter passes all validity criteria.
 
         Returns (is_valid: bool, reason: str | None).
-        Checks in order: payment → manual flag → age.
+        Checks in order: payment → manual flag → age → duplicate.
         """
         fighter_name = fighter.get('Name', f"Unknown ({fighter.get('ID', '?')})")
         self.logger.debug(f"RESORT: Validating {fighter_name} (ID: {fighter.get('ID', '?')})")
@@ -296,14 +380,101 @@ class QuarantineService:
             self.logger.debug(f"RESORT:   → INVALID: {age_rejection_reason}")
             return False, age_rejection_reason
 
+        # Check for duplicates against valid fighters in brackets
+        if self._is_duplicate_in_brackets(fighter, brackets):
+            self.logger.debug("RESORT:   Duplicate: Already exists in valid brackets → INVALID: duplicate")
+            return False, "duplicate"
+
         self.logger.debug(f"RESORT:   Age bounds OK, age group {age_group} - VALID")
         return True, None
 
-    def _merge_valid_into_brackets(self, brackets, valid_fighters):
+    def _is_duplicate_in_brackets(self, candidate, brackets):
+        """Check if candidate fighter is a duplicate of anyone in valid (non-quarantine) brackets.
+        
+        NOTE: Legitimate doublestart copies (same person in multiple age groups) are exempt
+        from the duplicate check. If both candidate and existing fighter are marked as 
+        is_doublestart_copy, they represent the same person in different age groups and
+        should NOT be blocked.
+        
+        Returns True if duplicate found, False otherwise.
+        """
+        for bracket_key, bracket_data in brackets.items():
+            # Skip quarantine brackets
+            if bracket_key.startswith('QUARANTINE_'):
+                continue
+            
+            if not isinstance(bracket_data, dict):
+                continue
+            
+            fighter_list = bracket_data.get('participants') or bracket_data.get('fighters', [])
+            
+            for existing_fighter in fighter_list:
+                if self._check_is_duplicate(candidate, existing_fighter):
+                    # Both are doublestart copies - this is legitimate doublestart, not an error duplicate
+                    if candidate.get('is_doublestart_copy') and existing_fighter.get('is_doublestart_copy'):
+                        self.logger.debug(f"RESORT:   Found legitimate doublestart copy in {bracket_key} (same person, different age group)")
+                        continue
+                    
+                    existing_name = f"{existing_fighter.get('Firstname', '')} {existing_fighter.get('Lastname', '')}".strip()
+                    self.logger.debug(f"RESORT:   Found duplicate of {candidate.get('Name', candidate.get('ID'))} in {bracket_key}: {existing_name}")
+                    return True
+        
+        return False
+
+    def _check_is_duplicate(self, candidate: dict, existing: dict) -> bool:
+        """Check if candidate participant matches existing participant by natural key.
+        
+        Natural key comparison:
+        - first_name (required)
+        - last_name (required)  
+        - gender (required)
+        - birth_date (optional - only compared if present in both)
+        - club (optional - only compared if present in both)
+        """
+        def get_field(p, *field_names):
+            for name in field_names:
+                if name in p and p[name] is not None:
+                    return str(p[name]).strip().lower() if isinstance(p[name], str) else p[name]
+            return None
+        
+        # Natural key: first_name + last_name + gender (always required)
+        cand_first = get_field(candidate, 'first_name', 'Firstname', 'firstname')
+        cand_last = get_field(candidate, 'last_name', 'Lastname', 'lastname')
+        cand_gender = get_field(candidate, 'gender', 'Gender')
+        
+        exist_first = get_field(existing, 'first_name', 'Firstname', 'firstname')
+        exist_last = get_field(existing, 'last_name', 'Lastname', 'lastname')
+        exist_gender = get_field(existing, 'gender', 'Gender')
+        
+        # All three required fields must match
+        if not (cand_first and cand_last and cand_gender):
+            return False
+        if not (exist_first and exist_last and exist_gender):
+            return False
+        
+        if cand_first != exist_first or cand_last != exist_last or cand_gender != exist_gender:
+            return False
+        
+        # Optional field comparisons (only if present in both)
+        cand_birth = candidate.get('birth_date') or candidate.get('Birthyear')
+        exist_birth = existing.get('birth_date') or existing.get('Birthyear')
+        if cand_birth and exist_birth and cand_birth != exist_birth:
+            return False
+        
+        cand_club = get_field(candidate, 'club', 'Club')
+        exist_club = get_field(existing, 'club', 'Club')
+        if cand_club and exist_club and cand_club != exist_club:
+            return False
+        
+        return True
+
+    def _merge_valid_into_brackets(self, brackets, valid_fighters, bracket_table_assignment=None):
         """Generate brackets for newly-valid fighters and merge into existing brackets.
 
         Quarantine brackets are preserved throughout the operation.
+        Brackets that are assigned to mats are protected from merging.
         """
+        bracket_table_assignment = bracket_table_assignment or {}
         temp_brackets = {k: v for k, v in brackets.items() if not k.startswith('QUARANTINE_')}
         quarantine_to_preserve = {k: v for k, v in brackets.items() if k.startswith('QUARANTINE_')}
 
@@ -313,6 +484,14 @@ class QuarantineService:
         brackets.update(temp_brackets)
 
         for key, new_data in new_brackets.items():
+            # Check if this bracket is locked (assigned to a mat)
+            if key in bracket_table_assignment and bracket_table_assignment[key] is not None:
+                mat_num = bracket_table_assignment[key]
+                locked_fighters = new_data.get('fighters', [])
+                self.logger.warning(f"RESORT: Cannot merge {len(locked_fighters)} fighter(s) into '{key}' - bracket is assigned to Matte {mat_num}. Keeping in quarantine.")
+                # Skip this bracket and let fighters stay in quarantine
+                continue
+            
             if key in brackets:
                 brackets[key]['fighters'].extend(new_data.get('fighters', []))
                 brackets[key]['bracket'] = []  # reset fight tree — regenerated on demand

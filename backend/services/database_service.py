@@ -132,6 +132,25 @@ class DatabaseService:
         result = self._execute_with_session(_save)
         return result is True
 
+    def update_participants(self, participants: list) -> bool:
+        """
+        Update existing participants or insert if not found (UPSERT).
+        Matches by natural key and updates fields like paid, valid, doublestart.
+
+        Args:
+            participants: List of participant dicts
+
+        Returns:
+            True if successful, False if DB unavailable or error
+        """
+        def _update(svc: TournamentService):
+            count = svc.update_participants(participants)
+            self.logger.info(f"Upserted {count} participant(s) (updated or inserted)")
+            return True
+
+        result = self._execute_with_session(_update)
+        return result is True
+
     def flush_database(self) -> bool:
         """Wipe all tournament data (explicit user action via Flush button)."""
         self.logger.warning("[FLUSH] User requested full database flush")

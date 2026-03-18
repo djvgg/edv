@@ -17,6 +17,13 @@ from frontend.views.main_window import main
 logger = get_logger('main')
 
 if __name__ == '__main__':
+    # NOTE: Cache/DB ID Matching Strategy
+    # - Initial participants loaded from files (XLSX/JSON) have no DB IDs
+    # - Uses natural key matching (first_name + last_name + gender + birth_date + club) to find existing records
+    # - Optimization opportunity: Store returned DB IDs after first save, use direct ID lookups on subsequent updates
+    #   This would eliminate expensive 5-field WHERE queries (resort, duplicate detection, etc.)
+    # - Current approach: Natural key as primary, ID caching as future optimization
+    
     # Initialize database service (handles schema creation, connection errors)
     db_service = get_database_service()
     if db_service.is_available():

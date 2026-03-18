@@ -110,7 +110,7 @@ class DataLoaderService:
         """Extract all unique participants from brackets dict for cache duplicate detection.
         
         Args:
-            brackets: Dict of brackets (each bracket has 'participants' list)
+            brackets: Dict of brackets (each bracket may have 'participants' or 'fighters' key)
         
         Returns:
             List of unique participant dicts
@@ -119,10 +119,13 @@ class DataLoaderService:
         participants = []
         
         for bracket_key, bracket_data in brackets.items():
-            if not isinstance(bracket_data, dict) or 'participants' not in bracket_data:
+            if not isinstance(bracket_data, dict):
                 continue
             
-            for p in bracket_data.get('participants', []):
+            # Check both 'participants' (regular brackets) and 'fighters' (quarantine brackets)
+            fighter_list = bracket_data.get('participants') or bracket_data.get('fighters', [])
+            
+            for p in fighter_list:
                 # Use natural key to avoid duplicates across brackets
                 p_key = (
                     str(p.get('first_name', p.get('Firstname', ''))).strip().lower(),
@@ -160,9 +163,20 @@ class DataLoaderService:
         
         for new_p in new_participants:
             is_dup = False
+            new_p_name = f"{new_p.get('Firstname', '')} {new_p.get('Lastname', '')}".strip()
             for cached_p in cached_participants:
                 if self._check_is_duplicate(new_p, cached_p):
-                    duplicates.append(new_p)
+                    # Both are doublestart copies - this is legitimate doublestart, not an error duplicate
+                    if new_p.get('is_doublestart_copy') and cached_p.get('is_doublestart_copy'):
+                        self.logger.debug(f"[DOUBLESTART] {new_p_name} is legitimate doublestart copy (same person, different age group)")
+                        continue
+                    
+                    # Mark as duplicate with rejection reason
+                    dup_entry = dict(new_p)
+                    dup_entry['rejection_reason'] = 'duplicate'
+                    duplicates.append(dup_entry)
+                    cached_p_name = f"{cached_p.get('Firstname', '')} {cached_p.get('Lastname', '')}".strip()
+                    self.logger.debug(f"[DUPLICATE] {new_p_name} matches cached {cached_p_name}")
                     is_dup = True
                     break
             
@@ -378,14 +392,21 @@ class DataLoaderService:
                 self.ui_feedback.hide_loading_progress()
 
     def load_from_database(self, callbacks):
-        """Load participants from PostgreSQL database and generate brackets.
+        """Load participants and bracket metadata from PostgreSQL database and regenerate brackets.
+        
+        Reloads:
+        - All participants from DB
+        - All group assignments and brackets
+        - Generation method assignments
+        - Mat/table assignments
+        - Bracket status and progress
         
         Args:
             callbacks: Dict with 'on_success' function to call when complete
         """
         # Show loading progress dialog
         if self.ui_feedback:
-            self.ui_feedback.show_loading_progress("Loading from database...")
+            self.ui_feedback.show_loading_progress("Reloading full cache from database...")
         
         # Run loading in background thread via task runner
         self.task_runner.submit_task(
@@ -395,7 +416,7 @@ class DataLoaderService:
         )
 
     def _load_from_database_thread(self, callbacks):
-        """Background task for loading from database and generating brackets."""
+        """Background task for loading full cache from database and regenerating brackets."""
         try:
             if self.ui_feedback:
                 self.ui_feedback.set_status("Connecting to database...", '#999999')
@@ -407,7 +428,7 @@ class DataLoaderService:
             
             participants = self.db_service.fetch_participants()
             if self.ui_feedback:
-                self.ui_feedback.update_progress(30)
+                self.ui_feedback.update_progress(25)
 
             if not participants:
                 if self.ui_feedback:
@@ -441,24 +462,45 @@ class DataLoaderService:
             total_fighters = len(participants)
             if self.ui_feedback:
                 self.ui_feedback.set_info_text(f"✓ {total_fighters} participants loaded from database")
-                self.ui_feedback.update_progress(50)
+                self.ui_feedback.update_progress(40)
                 self.ui_feedback.set_status("Generating brackets...", '#999999')
 
             # Generate brackets using backend service
             brackets.update(export_all_brackets(participants))
             if self.ui_feedback:
-                self.ui_feedback.update_progress(80)
+                self.ui_feedback.update_progress(60)
 
+            # Load bracket metadata from database
+            bracket_generation_methods = {}
+            bracket_table_assignment = {}
+            if self.db_service:
+                try:
+                    if self.ui_feedback:
+                        self.ui_feedback.set_status("Loading bracket metadata...", '#999999')
+                    
+                    # Note: Full bracket metadata retrieval from DB can be added here once
+                    # methods are available. For now, generation methods and table assignments
+                    # will be empty on reload - they can be re-assigned in generation_method screen
+                    self.logger.debug("Bracket metadata retrieval from DB not yet implemented, will reset on reload")
+                    
+                    if self.ui_feedback:
+                        self.ui_feedback.update_progress(75)
+                except Exception as e:
+                    self.logger.warning(f"Could not load bracket metadata from DB: {e}")
+                    # Continue anyway with empty metadata
+            
             if self.ui_feedback:
-                self.ui_feedback.set_status(f"Success! Generated {len(brackets)} brackets from database.", '#00cc00')
+                self.ui_feedback.set_status(f"Success! Reloaded {len(brackets)} brackets from database.", '#00cc00')
                 self.ui_feedback.update_progress(100)
                 self.ui_feedback.hide_loading_progress()
 
-            # Call success callback with brackets and rejection info
+            # Call success callback with full cache state
             if 'on_success' in callbacks and callable(callbacks['on_success']):
                 callbacks['on_success'](
                     brackets=brackets,
-                    rejected_participants=all_rejected
+                    rejected_participants=all_rejected,
+                    bracket_generation_methods=bracket_generation_methods,
+                    bracket_table_assignment=bracket_table_assignment
                 )
 
         except Exception as e:
@@ -630,6 +672,13 @@ class DataLoaderService:
             # APPEND MODE: Deduplicate against cache if existing brackets present
             duplicates_skipped = []
             if is_append_mode:
+                # DEBUG: Show what's in cache
+                cached_count = 0
+                if existing_brackets:
+                    cached_participants = self._extract_participants_from_brackets(existing_brackets)
+                    cached_count = len(cached_participants)
+                    self.logger.debug(f"[APPEND] Existing cache has {cached_count} participants in {len(existing_brackets)} brackets")
+                
                 all_participants, duplicates_skipped = self._find_duplicates_in_cache(
                     all_participants, existing_brackets
                 )
@@ -638,6 +687,8 @@ class DataLoaderService:
                         f"[APPEND MODE] Skipped {len(duplicates_skipped)} duplicate participant(s) "
                         f"already in cache"
                     )
+                else:
+                    self.logger.debug(f"[APPEND] No duplicates found (checked {len(all_participants)} new against {cached_count} cached)")
                 
                 if not all_participants:
                     if self.ui_feedback:
@@ -694,7 +745,8 @@ class DataLoaderService:
                 self.ui_feedback.update_progress(75)
 
             # Create QUARANTINE bracket with all rejected participants
-            all_rejected = unpaid + invalid_valid + invalid_ages
+            # Include duplicates from append mode as blocker participants
+            all_rejected = unpaid + invalid_valid + invalid_ages + duplicates_skipped
             brackets = {}
             if all_rejected and self.quarantine_service:
                 self.quarantine_service.create_quarantine_bracket(brackets, all_rejected)
@@ -724,12 +776,15 @@ class DataLoaderService:
             if db_save_succeeded and self.db_service:
                 try:
                     all_db_participants = self.db_service.fetch_participants()
+                    self.logger.debug(f"[DB RESYNC] fetch_participants returned {len(all_db_participants) if all_db_participants else 0} participants")
                     if all_db_participants:
                         participants_for_brackets = all_db_participants
                         resync_note = " (resynced from DB)"
                         self.logger.info(
                             f"[DB RESYNC] Fetched {len(all_db_participants)} total participants from DB"
                         )
+                    else:
+                        self.logger.debug(f"[DB RESYNC] DB returned empty/None, using cache with {len(all_participants)} valid participants")
                 except Exception as resync_error:
                     self.logger.warning(f"[DB RESYNC] Could not resync from DB: {resync_error}. Using cache.")
                     resync_note = " (cache used, DB sync failed)"

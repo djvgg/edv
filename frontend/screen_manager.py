@@ -272,6 +272,18 @@ class ScreenManager:
         # Check if screen was stale (before we mark it clean)
         was_stale = self.screen_staleness.get(screen_key, False)
         
+        # Run transformations if screen is stale or first visit
+        # This ensures data is prepared correctly (e.g., restore_quarantine for group_preview)
+        if was_stale and self.data_pipeline:
+            try:
+                wait_for_db = getattr(self.main_window, 'wait_for_db_service', None)
+                if self.data_pipeline.transform_before_entering(screen_key, wait_for_db):
+                    self.logger.debug(f"✓ Pre-entry transformations completed for {screen_key}")
+                else:
+                    self.logger.warning(f"⚠ Pre-entry transformations failed or blocked for {screen_key}")
+            except Exception as e:
+                self.logger.error(f"Error running pre-entry transformations for {screen_key}: {e}")
+        
         # Call on_show on new screen - pass staleness info so it can reload if needed
         if hasattr(new_screen, 'on_show'):
             try:

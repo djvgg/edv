@@ -11,7 +11,7 @@ Shows bracket groups (weight categories) with participant details:
 """
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import sys
 import os
 
@@ -52,14 +52,16 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
     # Debug flag - set to True for verbose logging
     DEBUG = DEBUG_VERBOSE
 
-    def __init__(self, parent, main_window=None, quarantine_service=None, db_service=None, **kwargs):
+    def __init__(self, parent, main_window=None, quarantine_service=None, db_service=None, bracket_table_assignment=None, **kwargs):
         super().__init__(parent, **kwargs)
         self.configure(bg=COLORS['bg_dark'])
         self.logger = logger
         self.main_window = main_window              # Store reference to main app for reload
         self.quarantine_service = quarantine_service  # Store reference for edit dialog
         self.db_service = db_service                  # DB service for persisting edits
-
+        self.bracket_table_assignment = bracket_table_assignment or {}  # {bracket_key: mat_id} - locked brackets
+        self.task_runner = getattr(main_window, 'task_runner', None) if main_window else None  # Background tasks
+        
         # Initialize config repository for weight classes
         try:
             config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'bracket_config.xlsx')
@@ -139,6 +141,48 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
                 self.load_data(self.main_window.brackets)
             else:
                 self.logger.warning("[RELOAD] Cannot reload: main_window or main_window.brackets not found")
+    
+    def on_hide(self):
+        """Called when screen is hidden. Save changes and mark downstream as stale.
+        
+        This ensures:
+        1. Changes made to quarantined participants are persisted to database (in background)
+        2. Downstream screens (generation_method, bracket_viewer, fight_monitoring) know to reload
+           with the updated bracket data when user navigates to them
+        """
+        # Save changes to database in background thread before leaving
+        if self.db_service and hasattr(self.main_window, 'brackets'):
+            brackets = self.main_window.brackets
+            if self.task_runner:
+                # Run save in background thread
+                self.task_runner.submit_task(
+                    'group_preview_save_groups',
+                    fn=lambda: self._save_groups_bg(brackets),
+                    on_error=lambda e: self.logger.warning(f"[LIFECYCLE] Background save failed: {e}")
+                )
+            else:
+                # Fallback to synchronous save if no task_runner available
+                try:
+                    self.db_service.save_groups(brackets)
+                    self.logger.info("[LIFECYCLE] Group Preview saved brackets to database on hide (sync)")
+                except Exception as e:
+                    self.logger.warning(f"[LIFECYCLE] Failed to save brackets on hide: {e}")
+        
+        # Invalidate downstream screens so they reload with updated data
+        if self.main_window and hasattr(self.main_window, 'screen_manager'):
+            screen_manager = self.main_window.screen_manager
+            if hasattr(screen_manager, 'invalidate_downstream'):
+                screen_manager.invalidate_downstream('group_preview')
+                self.logger.debug("[LIFECYCLE] Group Preview invalidated downstream screens on hide")
+    
+    def _save_groups_bg(self, brackets):
+        """Background thread task to save groups to database."""
+        try:
+            self.db_service.save_groups(brackets)
+            self.logger.info("[LIFECYCLE] [BG] Group Preview saved brackets to database on hide")
+        except Exception as e:
+            self.logger.warning(f"[LIFECYCLE] [BG] Failed to save brackets: {e}")
+            raise
         
     def load_data(self, brackets):
         """Load bracket data."""
@@ -275,6 +319,14 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         continue_btn.pack(side=tk.RIGHT, padx=SPACING['sm'])
 
     # Fill in Weight Classes (m | 18+ | -66kg etc..), Left Panel
+    def _get_display_text_for_bracket(self, bracket_key, fighter_count):
+        """Get display text for a bracket, including lock status if assigned to mat."""
+        text = f"{bracket_key} ({fighter_count})"
+        if bracket_key in self.bracket_table_assignment and self.bracket_table_assignment[bracket_key] is not None:
+            mat_num = self.bracket_table_assignment[bracket_key]
+            text += f" 🔒 Matte {mat_num}"
+        return text
+
     def _populate_group_list(self):
         """Populate the group list with all non-empty brackets."""
         if not self.group_listbox or not self.group_listbox.winfo_exists():
@@ -293,7 +345,7 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
                 total_participants += count
                 groups_added.append(bracket_key)
 
-                display_text = f"{bracket_key} ({count})"
+                display_text = self._get_display_text_for_bracket(bracket_key, count)
                 self.group_listbox.insert(tk.END, display_text)
                 self.group_listbox_map[display_text] = bracket_key
 
@@ -328,6 +380,7 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         
         # Display filtered groups with participant counts
         self.group_listbox.delete(0, tk.END)
+        self.group_listbox_map.clear()
         total_filtered = 0
         
         for bracket_key in sorted(filtered_keys):
@@ -335,8 +388,9 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
             count = len(fighters)
             total_filtered += count
             
-            display_text = f"{bracket_key} ({count})"
+            display_text = self._get_display_text_for_bracket(bracket_key, count)
             self.group_listbox.insert(tk.END, display_text)
+            self.group_listbox_map[display_text] = bracket_key
 
         self.preview_count_var.set(f"({total_filtered})")
         if self.DEBUG:
@@ -545,7 +599,16 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
             pass
 
     def _open_edit_dialog(self, bracket_key, fighter_idx):
-        """Open edit dialog for participant."""
+        """Open edit dialog for participant. Prevent editing if bracket is assigned to a mat."""
+        # Check if bracket is assigned to a mat - if so, prevent editing
+        if bracket_key in self.bracket_table_assignment and self.bracket_table_assignment[bracket_key] is not None:
+            mat_num = self.bracket_table_assignment[bracket_key]
+            self.logger.info(f"Cannot edit participant in '{bracket_key}': bracket is assigned to Matte {mat_num}")
+            messagebox.showwarning(
+                "Bracket Locked",
+                f"Cannot edit participants in '{bracket_key}':\n\nThis bracket is already assigned to Matte {mat_num}.\n\nTo make changes, unassign it from the mat first."
+            )
+            return
         # Use the separate Edit_Participants class to handle the dialog
         Edit_Participants(self, bracket_key, fighter_idx)
 
