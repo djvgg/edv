@@ -139,6 +139,7 @@ class _AssignmentMixin:
 
         # Track totals for each table
         table_totals = {}
+        completed_keys = self.main_window.db_service.get_completed_bracket_keys()
 
         # For each panel, create scrollable content
         for table_num, panel in self.table_panels.items():
@@ -172,8 +173,10 @@ class _AssignmentMixin:
             scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
             canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-            # Add assigned brackets to this table (read via controller)
+            # Add assigned brackets to this table, skip completed ones
             for bracket_key in self.main_window.bracket_controller.get_brackets_for_table(table_num):
+                if bracket_key in completed_keys:
+                    continue
                 if len(self.main_window.brackets.get(bracket_key, {}).get('fighters', [])) > 0:
                     # Create row frame
                     row_frame = create_dark_frame(content_frame)

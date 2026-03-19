@@ -254,6 +254,10 @@ def export_all_brackets(participants, event_year=None):
         # Create participant copy with birth_year
         p_copy = dict(p)
         p_copy['Age'] = birth_year
+        
+        # Mark as doublestart copy if participant is in multiple age groups (legitimate duplicate)
+        if len(age_groups_to_enter) > 1:
+            p_copy['is_doublestart_copy'] = True
 
         # Add fighter to each age group bracket
         for ag in age_groups_to_enter:

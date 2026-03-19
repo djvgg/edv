@@ -10,7 +10,7 @@ class BracketRepository:
         self.db = db
 
     def create(self, group_id: int, bracket_type: str) -> Bracket:
-        bracket = Bracket(group_id=group_id, bracket_type=bracket_type, status='in_progress')
+        bracket = Bracket(group_id=group_id, bracket_type=bracket_type, status='pending')
         self.db.add(bracket)
         self.db.commit()
         self.db.refresh(bracket)
@@ -24,14 +24,14 @@ class BracketRepository:
 
     def assign_mat(self, bracket_id: int, mat_id: int) -> None:
         self.db.query(Bracket).filter(Bracket.id == bracket_id).update(
-            {'mat_id': mat_id}
+            {'mat_id': mat_id, 'status': 'in_progress'}
         )
         self.db.commit()
 
     def unassign_mat(self, bracket_id: int) -> None:
-        self.db.query(Bracket).filter(Bracket.id == bracket_id).update(
-            {'mat_id': None}
-        )
+        self.db.query(Bracket).filter(
+            Bracket.id == bracket_id, Bracket.status != 'completed'
+        ).update({'mat_id': None, 'status': 'pending'})
         self.db.commit()
 
     def set_status(self, bracket_id: int, status: str) -> None:

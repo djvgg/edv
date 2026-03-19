@@ -120,6 +120,21 @@ class _ToleranceMixin:
         dialog.geometry("450x400")
         dialog.configure(bg=COLORS['bg_dark'])
         dialog.transient(self.winfo_toplevel())
+        
+        # Center window on screen with flexible sizing (percentage-based for robustness)
+        dialog.update_idletasks()
+        sw = dialog.winfo_screenwidth()
+        sh = dialog.winfo_screenheight()
+        
+        # Suggested width: 35% of screen, but at least 480px and at most 650px
+        width = max(480, min(int(sw * 0.25), 650))
+        # Suggested height: 55% of screen, but at least 450px and at most 800px
+        height = max(450, min(int(sh * 0.45), 800))
+        
+        x = (sw // 2) - (width // 2)
+        y = (sh // 2) - (height // 2)
+        dialog.geometry(f"{width}x{height}+{x}+{y}")
+        
         dialog.grab_set()
 
         title_lbl = tk.Label(dialog, text="Gewichtstoleranzen pro Gruppe",
@@ -141,12 +156,29 @@ class _ToleranceMixin:
                                   style='Dark.Vertical.TScrollbar')
         table_frame = tk.Frame(canvas, bg=COLORS['bg_dark'])
 
-        table_frame.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        def _update_scrollregion(event):
+            canvas.configure(scrollregion=canvas.bbox('all'))
+
+        table_frame.bind('<Configure>', _update_scrollregion)
         canvas.create_window((0, 0), window=table_frame, anchor='nw')
         canvas.configure(yscrollcommand=scrollbar.set)
 
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        
+        def _bind_mousewheel(event):
+            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+            
+        def _unbind_mousewheel(event):
+            canvas.unbind_all("<MouseWheel>")
+
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        dialog.bind("<Enter>", _bind_mousewheel)
+        dialog.bind("<Leave>", _unbind_mousewheel)
+        dialog.bind("<Destroy>", _unbind_mousewheel)
 
         # Collect unique (gender, age_group) combos from brackets
         group_keys = set()
@@ -210,3 +242,5 @@ class _ToleranceMixin:
                                bg=COLORS['bg_panel'], fg=COLORS['text_secondary'],
                                font=FONTS['body_md'], bd=0, padx=15, pady=8, width=20, cursor='hand2')
         cancel_btn.pack(side=tk.RIGHT, padx=10)
+
+

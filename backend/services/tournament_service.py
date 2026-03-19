@@ -62,6 +62,46 @@ class TournamentService:
         self.db.commit()
         return new_count
 
+    def update_participants(self, raw_participants: List[dict]) -> int:
+        """
+        Update existing participants by natural key, or insert if not found.
+        This is an UPSERT operation - updates fields like 'paid', 'valid', 'doublestart'.
+        
+        Matches participants by natural key (first_name, last_name, gender, birth_date, club).
+        If found: updates their record with new values.
+        If not found: inserts as new participant.
+        
+        Returns count of updated + inserted participants.
+        """
+        count = 0
+        for p in raw_participants:
+            mapped = self._map_to_model(p)
+            
+            # Find existing participant by natural key
+            existing = self.db.query(Participant).filter(
+                Participant.first_name == mapped['first_name'],
+                Participant.last_name == mapped['last_name'],
+                Participant.gender == mapped['gender'],
+                Participant.birth_date == mapped.get('birth_date'),
+                Participant.club == mapped.get('club'),
+            ).first()
+            
+            if existing:
+                # Update existing participant with new values
+                for key, value in mapped.items():
+                    if hasattr(existing, key):
+                        setattr(existing, key, value)
+                self.logger.debug(f"[UPSERT] Updated {mapped['first_name']} {mapped['last_name']}")
+                count += 1
+            else:
+                # Insert as new if not found
+                self.db.add(Participant(**mapped))
+                self.logger.debug(f"[UPSERT] Inserted {mapped['first_name']} {mapped['last_name']}")
+                count += 1
+        
+        self.db.commit()
+        return count
+
     def _check_is_duplicate(self, candidate: dict, existing: dict) -> bool:
         """Check if candidate participant matches existing participant by natural key.
         
@@ -543,7 +583,6 @@ class TournamentService:
 
             self.logger.info(f"Bracket {bracket_key}: {len(enriched)} fight rows from {len(fight_pairs)} pairs (including byes)")
 
-        self.brackets.set_status(bracket.id, 'in_progress')
         # Propagate mat assignment as table_id on all newly created fights
         self.db.refresh(bracket)
         table_id = str(bracket.mat.mat_number) if bracket.mat else None

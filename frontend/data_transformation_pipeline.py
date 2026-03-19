@@ -137,6 +137,7 @@ PRESET_GENERATION_METHOD_OPS = {
     ],
     'essential': [
         'save_groups',            # [ESSENTIAL] Persist approved groups to DB
+        'extract_locked',         # [ESSENTIAL] Remove mat-locked brackets from editing
         'extract_quarantine',     # [ESSENTIAL] Remove quarantine for calculations
         'split_u9_u11_into_pools',  # [ESSENTIAL] Re-separate for generation
         'auto_assign_generation_methods',  # [ESSENTIAL] Auto-assign methods when screen skipped
@@ -148,6 +149,7 @@ PRESET_GENERATION_METHOD_OPS = {
 PRESET_BRACKET_VIEWER_OPS = {
     'visual': [],  # No UI-only operations
     'essential': [
+        'extract_locked',              # [ESSENTIAL] Extract locked brackets after assignments
         'regenerate_stale_ko_brackets',  # [ESSENTIAL] Generate bracket structures
         'create_fights',                  # [ESSENTIAL] Create fight DB records
     ],
@@ -156,7 +158,9 @@ PRESET_BRACKET_VIEWER_OPS = {
 # FIGHT MONITORING: Live match tracking and scoring
 # Must ensure brackets and fights are current
 PRESET_FIGHT_MONITORING_OPS = {
-    'visual': [],  # No UI-only operations
+    'visual': [
+        'restore_locked',         # [UI] Show mat-locked brackets for monitoring
+    ],
     'essential': [
         'regenerate_stale_ko_brackets',  # [ESSENTIAL] Ensure brackets current
         'create_fights',                  # [ESSENTIAL] Ensure fights in DB
@@ -186,10 +190,12 @@ class DataTransformationPipeline:
                 - bracket_table_assignment (dict)
                 - db_service
                 - quarantine_service
+                - task_runner (for threading)
             headless: If True, skip UI-only transformations (visual-only ops)
         """
         self.main_window = main_window
         self.quarantine_service = main_window.quarantine_service
+        self.task_runner = getattr(main_window, 'task_runner', None)
         self.logger = logger
         self.headless = headless
 
@@ -286,6 +292,10 @@ class DataTransformationPipeline:
         - Screen is marked stale (data changed upstream), OR  
         - Headless mode (background processing)
         
+        THREADING: 
+        - Data transformations (extract_quarantine, split pools, etc.) run on main thread immediately
+        - DB operations (save_groups, create_fights) run in background to prevent UI freeze
+        
         Normal navigation to non-stale screens just calls on_show() without re-running transformations.
         
         Args:
@@ -311,23 +321,56 @@ class DataTransformationPipeline:
             return True
         
         rules = self._transformation_rules[screen_key]
-        transformations = rules['incoming_transformations']
+        all_transformations = rules['incoming_transformations']
         
-        if not transformations:
+        if not all_transformations:
             self.logger.debug(f"No transformations needed before entering {screen_key}")
             return True
         
         self.logger.debug(
-            f"Executing {len(transformations)} transformations before entering {screen_key} "
+            f"Executing {len(all_transformations)} transformations before entering {screen_key} "
             f"(first_visit={is_first_visit}, stale={is_stale}, headless={self.headless}): "
-            f"{transformations}"
+            f"{all_transformations}"
         )
         
         try:
-            for transform_name in transformations:
-                self._execute_transformation(transform_name, wait_for_db)
+            # Data transformations that must complete before screen displays
+            data_transforms = [
+                'merge_u9_u11_pools',
+                'restore_quarantine',
+                'extract_quarantine',
+                'split_u9_u11_into_pools',
+                'auto_assign_generation_methods',
+                'regenerate_stale_ko_brackets',
+            ]
             
-            self.logger.debug(f"✓ All transformations completed for {screen_key}")
+            # DB operations that can run in background (no UI dependency)
+            db_transforms = [
+                'save_groups',
+                'create_fights',
+            ]
+            
+            # Execute data transforms immediately (main thread) - needed for display
+            for transform_name in all_transformations:
+                if transform_name in data_transforms:
+                    self._execute_transformation(transform_name, wait_for_db)
+            
+            # Execute DB transforms in background (if task_runner available)
+            db_to_run = [t for t in all_transformations if t in db_transforms]
+            if db_to_run and self.task_runner:
+                # Run all DB transformations in a single background task
+                self.task_runner.submit_task(
+                    f'transform_db_{screen_key}',
+                    fn=lambda: self._execute_transformations_batch(db_to_run, wait_for_db),
+                    on_error=lambda e: self.logger.error(f"Background DB transformation failed: {e}")
+                )
+                self.logger.debug("✓ Data transforms completed, DB operations running in background")
+            else:
+                # Fallback: run DB transforms on main thread if no task_runner
+                for transform_name in db_to_run:
+                    self._execute_transformation(transform_name, wait_for_db)
+                self.logger.debug(f"✓ All transformations completed for {screen_key}")
+            
             return True
             
         except Exception:
@@ -336,6 +379,22 @@ class DataTransformationPipeline:
                 exc_info=True
             )
             return False
+    
+    def _execute_transformations_batch(self, transform_names: list, wait_for_db: callable = None) -> None:
+        """Execute a batch of transformations in background thread.
+        
+        Args:
+            transform_names: List of transformation names to execute
+            wait_for_db: Optional callable to wait for DB service
+        """
+        try:
+            self.logger.debug(f"[BG] Starting batch DB transformations: {transform_names}")
+            for transform_name in transform_names:
+                self._execute_transformation(transform_name, wait_for_db)
+            self.logger.debug("[BG] ✓ Batch DB transformations completed")
+        except Exception as e:
+            self.logger.error(f"[BG] ✗ Batch DB transformation failed: {e}", exc_info=True)
+            raise
     
     def transform_after_leaving(self, screen_key: str, wait_for_db: callable = None) -> bool:
         """
@@ -382,6 +441,12 @@ class DataTransformationPipeline:
         
         elif transform_name == 'restore_quarantine':
             self._transform_restore_quarantine()
+        
+        elif transform_name == 'extract_locked':
+            self._transform_extract_locked()
+        
+        elif transform_name == 'restore_locked':
+            self._transform_restore_locked()
         
         elif transform_name == 'save_groups':
             self._transform_save_groups(wait_for_db)
@@ -453,6 +518,37 @@ class DataTransformationPipeline:
             self.logger.debug("✓ Extracted quarantine")
         except Exception:
             self.logger.error("Failed to extract quarantine", exc_info=True)
+            raise
+    
+    def _transform_extract_locked(self):
+        """Extract locked brackets (assigned to mats) from the main cache."""
+        try:
+            if hasattr(self.main_window, 'bracket_table_assignment'):
+                locked_count = sum(1 for k, v in self.main_window.bracket_table_assignment.items() if v is not None)
+                if locked_count > 0:
+                    self.quarantine_service.extract_locked(
+                        self.main_window.brackets,
+                        self.main_window.bracket_table_assignment
+                    )
+                    self.logger.debug(f"✓ Extracted {locked_count} locked bracket(s)")
+                else:
+                    self.logger.debug("No locked brackets to extract")
+            else:
+                self.logger.warning("bracket_table_assignment not available")
+        except Exception:
+            self.logger.error("Failed to extract locked brackets", exc_info=True)
+            raise
+    
+    def _transform_restore_locked(self):
+        """Restore locked brackets (assigned to mats) for monitoring."""
+        try:
+            restored = self.quarantine_service.restore_locked(self.main_window.brackets)
+            if restored:
+                self.logger.debug(f"✓ Restored {len(self.quarantine_service.locked_brackets)} locked bracket(s)")
+            else:
+                self.logger.debug("No locked brackets to restore")
+        except Exception:
+            self.logger.error("Failed to restore locked brackets", exc_info=True)
             raise
     
     def _transform_split_u9_u11_into_pools(self):

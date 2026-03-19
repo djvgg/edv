@@ -80,6 +80,9 @@ FONTS = {
     'list_mono': ('Consolas', 10),
     'list_mono_bold': ('Consolas', 10, 'bold'),
     'preview_title': ('Rubik', 16, 'bold'), # Alias for heading_md
+    'preview_text': ('Rubik', 11),           # Alias for body_md (entry fields)
+    'preview_label': ('Rubik', 10),          # Alias for body_sm (warning labels)
+    'preview_small': ('Rubik', 9),           # Alias for body_xs (small info)
     'preview_info': ('Rubik', 10),           # Alias for body_sm
     'preview_hint': ('Rubik', 9),            # Alias for body_xs
 }

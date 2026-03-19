@@ -545,6 +545,11 @@ class GenerationMethodScreen(tk.Frame):
             self.logger.debug(f"DEBUG: Assigned {bracket_key} → {method}. Unassigned remaining: {self.unassigned}")
         self._refresh_all_displays()
         self.logger.info(f"Assigned {bracket_key} to {method}")
+        
+        # Mark downstream screens as stale (bracket structure changed - affects bracket_viewer and fight_monitoring)
+        if self.main_window and hasattr(self.main_window, 'screen_manager'):
+            self.main_window.screen_manager.invalidate_downstream('generation_method')
+            self.logger.debug("Marked downstream screens as stale due to bracket method assignment")
 
     def _unassign_bracket(self, bracket_key):
         """Unassign a bracket from a method."""
@@ -564,6 +569,11 @@ class GenerationMethodScreen(tk.Frame):
             self.logger.debug(f"DEBUG: Unassigned {bracket_key} from {old_method}. Unassigned now: {self.unassigned}")
         self._refresh_all_displays()
         self.logger.info(f"Unassigned {bracket_key}")
+        
+        # Mark downstream screens as stale (bracket structure changed - affects bracket_viewer and fight_monitoring)
+        if self.main_window and hasattr(self.main_window, 'screen_manager'):
+            self.main_window.screen_manager.invalidate_downstream('generation_method')
+            self.logger.debug("Marked downstream screens as stale due to bracket method unassignment")
 
     def _refresh_all_displays(self):
         """Refresh all listbox displays."""

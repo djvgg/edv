@@ -50,7 +50,6 @@ class FileLoaderScreen(tk.Frame):
         self.main_window = main_window
 
         # Callbacks - will be set by main window
-        self.on_load_xlsx = None
         self.on_load_database = None
         self.on_load_json = None
         self.on_split_gender = None
@@ -149,18 +148,10 @@ class FileLoaderScreen(tk.Frame):
         )
         apply_button_style(flush_btn, 'secondary')
         flush_btn.configure(fg=COLORS['accent_red'])
-        flush_btn.pack(pady=SPACING['sm'], fill="x", padx=SPACING['xl'])
+        flush_btn.pack(side="bottom", pady=(10, 0), fill="x", padx=40)
 
         self.logger.debug("File loader UI initialized")
         self.ui_initialized = True
-
-    def on_load_xlsx_click(self):
-        """Handle XLSX load button click."""
-        self.logger.info("User clicked: Load XLSX")
-        if self.DEBUG:
-            self.logger.debug("DEBUG: Executing on_load_xlsx callback")
-        if self.on_load_xlsx:
-            self.on_load_xlsx()
 
     def on_load_database_click(self):
         """Handle database load button click."""

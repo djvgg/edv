@@ -139,6 +139,7 @@ class TableAndBracketViewer(tk.Frame):
         apply_button_style(auto_btn, 'primary')
         auto_btn.pack(fill=tk.X, pady=(5, 0))
 
+
         # ===== RIGHT PANEL: Tables OR Bracket View =====
         right_frame = create_dark_frame(paned)
         paned.add(right_frame, minsize=400)
@@ -246,10 +247,11 @@ class TableAndBracketViewer(tk.Frame):
         self.update_bracket_list()
         self.update_table_panels()
         self.ui_initialized = True
+        self._poll_job = None  # holds the after() handle
         self.logger.debug("UI initialized successfully")
 
     # ===== Navigation =====
-    
+
     def _on_back_to_generation(self):
         """Handle back button to generation setup."""
         if self.main_window:
@@ -317,41 +319,36 @@ class TableAndBracketViewer(tk.Frame):
         search_term = self.search_var.get()
         self.bracket_listbox.delete(0, tk.END)
         self.bracket_listbox_map = {}
-        
-        # Get unassigned bracket keys
+
         if not hasattr(self.main_window, 'bracket_table_assignment'):
             return
-            
+
+        completed_keys = self.main_window.db_service.get_completed_bracket_keys()
+
         unassigned_keys = [k for k in sorted(self.main_window.brackets.keys())
                            if not self.main_window.bracket_table_assignment.get(k)
-                           and len(self.main_window.brackets[k].get('fighters', [])) > 0]
-        
+                           and len(self.main_window.brackets[k].get('fighters', [])) > 0
+                           and k not in completed_keys]
+
         # Move QUARANTINE_* brackets to front
         quarantine_keys = [k for k in unassigned_keys if k.startswith('QUARANTINE_')]
         normal_keys = [k for k in unassigned_keys if not k.startswith('QUARANTINE_')]
         unassigned_keys = quarantine_keys + normal_keys
-        
-        # Use shared search utility
+
         filtered_keys, matched_count, search_terms = filter_items(unassigned_keys, search_term)
-        
         if search_terms:
             self.logger.debug(f"Bracket search: {search_terms}, found {matched_count} brackets")
-        
-        total_unassigned = 0
 
-        # Display filtered brackets
+        total_unassigned = 0
         for bracket_key in filtered_keys:
             bracket_data = self.main_window.brackets.get(bracket_key, {})
             fighter_count = len(bracket_data.get('fighters', []))
             fight_count = self._calculate_number_of_fights(bracket_key)
-            
             display_text = f"{bracket_key} • {fighter_count} / {fight_count}"
-            
             self.bracket_listbox.insert(tk.END, display_text)
             self.bracket_listbox_map[display_text] = bracket_key
             total_unassigned += fighter_count
-        
-        # Update counter
+
         if hasattr(self, 'unassigned_count_var'):
             self.unassigned_count_var.set(f"({total_unassigned})")
 
@@ -397,9 +394,15 @@ class TableAndBracketViewer(tk.Frame):
         self.update_table_panels()
         self.logger.info(f"Assigned '{bracket_key}' to Matte {table_num}")
         
-        # Mark downstream screens as stale (FightMonitoring needs to refresh with new assignments)
+        # Mark upstream and downstream screens as stale so they reload with lock status
         if hasattr(self.main_window, 'screen_manager'):
-            self.main_window.screen_manager.invalidate_downstream('bracket_viewer')
+            sm = self.main_window.screen_manager
+            # Mark upstream: group_preview and generation_method need to show lock indicators
+            sm.mark_screen_stale('group_preview')
+            sm.mark_screen_stale('generation_method')
+            # Mark downstream: FightMonitoring needs to refresh with new assignments
+            sm.invalidate_downstream('bracket_viewer')
+            self.logger.debug("Marked upstream and downstream screens as stale for mat assignment")
 
     def unassign_bracket(self, bracket_key=None):
         """Unassign bracket from its table."""
@@ -424,9 +427,15 @@ class TableAndBracketViewer(tk.Frame):
         self.update_table_panels()
         self.logger.info(f"Unassigned '{bracket_key}' from Matte {old_table}")
         
-        # Mark downstream screens as stale (FightMonitoring needs to refresh with new assignments)
+        # Mark upstream and downstream screens as stale so they reload without lock status
         if hasattr(self.main_window, 'screen_manager'):
-            self.main_window.screen_manager.invalidate_downstream('bracket_viewer')
+            sm = self.main_window.screen_manager
+            # Mark upstream: group_preview and generation_method need to remove lock indicators
+            sm.mark_screen_stale('group_preview')
+            sm.mark_screen_stale('generation_method')
+            # Mark downstream: FightMonitoring needs to refresh with new assignments
+            sm.invalidate_downstream('bracket_viewer')
+            self.logger.debug("Marked upstream and downstream screens as stale for mat unassignment")
 
     def auto_assign_tables(self):
         """Automatically distribute unassigned brackets across tables."""
@@ -472,9 +481,15 @@ class TableAndBracketViewer(tk.Frame):
         self.update_bracket_list()
         self.update_table_panels()
         
-        # Mark downstream screens as stale (FightMonitoring needs to refresh with new assignments)
+        # Mark upstream and downstream screens as stale so they reload with updated lock status
         if hasattr(self.main_window, 'screen_manager'):
-            self.main_window.screen_manager.invalidate_downstream('bracket_viewer')
+            sm = self.main_window.screen_manager
+            # Mark upstream: group_preview and generation_method need to show updated lock indicators
+            sm.mark_screen_stale('group_preview')
+            sm.mark_screen_stale('generation_method')
+            # Mark downstream: FightMonitoring needs to refresh with new assignments
+            sm.invalidate_downstream('bracket_viewer')
+            self.logger.debug("Marked upstream and downstream screens as stale for mat reassignment")
 
     def update_table_panels(self):
         """Update the visual display of table assignments with scrollable content."""
@@ -488,6 +503,7 @@ class TableAndBracketViewer(tk.Frame):
 
         # Track totals for each table
         table_totals = {}
+        completed_keys = self.main_window.db_service.get_completed_bracket_keys()
 
         # For each panel, create scrollable content
         for table_num, panel in self.table_panels.items():
@@ -521,9 +537,9 @@ class TableAndBracketViewer(tk.Frame):
             scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
             canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             
-            # Add assigned brackets to this table
+            # Add assigned brackets to this table (skip completed ones)
             for bracket_key, assigned_table in self.main_window.bracket_table_assignment.items():
-                if assigned_table == table_num and len(self.main_window.brackets[bracket_key].get('fighters', [])) > 0:
+                if assigned_table == table_num and len(self.main_window.brackets[bracket_key].get('fighters', [])) > 0 and bracket_key not in completed_keys:
                     # Create row frame
                     row_frame = create_dark_frame(content_frame)
                     row_frame.pack(fill=tk.X, pady=2, padx=4)
@@ -928,10 +944,35 @@ class TableAndBracketViewer(tk.Frame):
         """Lifecycle hook called when screen is displayed."""
         self.logger.debug(f"[LIFECYCLE] TableAndBracketViewer.on_show(force_reload={force_reload})")
         if force_reload and self.main_window:
-            # Reload bracket list from main_window cache
             self.update_bracket_list()
             self.logger.info("[RELOAD] TableAndBracketViewer data reloaded from cache")
+        self._start_poll()
 
     def on_close_screen(self):
         """Cleanup when screen is hidden."""
-        pass
+        self._stop_poll()
+
+    _POLL_INTERVAL_MS = 15_000  # 15 seconds
+
+    def _start_poll(self):
+        """Begin periodic refresh of bracket list and mat panels."""
+        self._stop_poll()  # cancel any existing job first
+        self._schedule_poll()
+
+    def _stop_poll(self):
+        """Cancel the pending poll job if one exists."""
+        if self._poll_job is not None:
+            self.after_cancel(self._poll_job)
+            self._poll_job = None
+
+    def _schedule_poll(self):
+        self._poll_job = self.after(self._POLL_INTERVAL_MS, self._poll_tick)
+
+    def _poll_tick(self):
+        """Called every _POLL_INTERVAL_MS; refreshes panels then reschedules."""
+        self._poll_job = None
+        if self.main_window:
+            self.update_bracket_list()
+            self.update_table_panels()
+            self.logger.debug("[POLL] Bracket panels refreshed")
+        self._schedule_poll()
