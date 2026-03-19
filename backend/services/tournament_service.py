@@ -220,11 +220,11 @@ class TournamentService:
             except (ValueError, TypeError):
                 pass
 
-        # Normalize doublestart value (accepts German: ja/nein/höher)
+        # Normalize doublestart value (accepts German: ja/nein/höher/beides)
         ds_raw = str(raw.get('Doppelstart', raw.get('Doublestart', 'nein'))).strip().lower()
         if ds_raw in ('höher', 'hoeher', 'higher'):
             doublestart = 'höher'
-        elif ds_raw in ('ja', 'yes', 'true', '1', 'y'):
+        elif ds_raw in ('ja', 'yes', 'true', '1', 'y', 'beides', 'both'):
             doublestart = 'ja'
         else:
             doublestart = 'nein'
@@ -277,7 +277,7 @@ class TournamentService:
     # Screen 2 — participant edit (single-row update from Edit_Participants dialog)
     # ------------------------------------------------------------------
 
-    def update_participant(self, fighter: dict, new_bracket_key: str) -> None:
+    def update_participant(self, fighter: dict, old_bracket_key: str, new_bracket_key: str) -> None:
         """
         Update one participant's fields in DB and move them to the correct group.
 
@@ -305,10 +305,19 @@ class TournamentService:
         if last_name is not None:
             participant.last_name = last_name
 
-        birthyear = fighter.get('Birthyear') or fighter.get('Age')
-        if birthyear:
+        # ── Detect birth year change for 'fresh start' logic ──
+        old_birthyear = None
+        if participant.birth_date:
+            old_birthyear = participant.birth_date.year
+        
+        new_birthyear = fighter.get('Birthyear') or fighter.get('Age')
+        birthyear_changed = False
+        if new_birthyear and old_birthyear and int(new_birthyear) != old_birthyear:
+            birthyear_changed = True
+
+        if new_birthyear:
             try:
-                participant.birth_date = date(int(birthyear), 1, 1)
+                participant.birth_date = date(int(new_birthyear), 1, 1)
             except (ValueError, TypeError):
                 pass
 
@@ -332,8 +341,23 @@ class TournamentService:
             participant.gender = _normalize_gender(raw_gender)
 
         # ── Move group_participants to the new group ──
+        old_group = self.groups.get_by_name(old_bracket_key)
         new_group = self.groups.get_by_name(new_bracket_key)
-        if new_group:
+        
+        if old_group and new_group:
+            gp = (
+                self.db.query(GroupParticipant)
+                .filter_by(participant_id=participant.id, group_id=old_group.id)
+                .first()
+            )
+            if gp:
+                gp.group_id = new_group.id
+            else:
+                self.db.add(GroupParticipant(
+                    group_id=new_group.id,
+                    participant_id=participant.id,
+                ))
+        elif new_group:
             gp = (
                 self.db.query(GroupParticipant)
                 .filter_by(participant_id=participant.id)
@@ -347,7 +371,51 @@ class TournamentService:
                     participant_id=participant.id,
                 ))
 
+        # ── Fresh start logic: if birthyear changed, remove ALL other group entries ──
+        if birthyear_changed and new_group:
+            self.db.query(GroupParticipant).filter_by(participant_id=participant.id).filter(GroupParticipant.group_id != new_group.id).delete()
+            self.logger.info(f"[FRESH START] Participant removed from all other groups due to birthyear change: {participant.first_name}")
+
         self.db.commit()
+
+    def remove_participant_from_group(self, fighter: dict, bracket_key: str) -> None:
+        """Remove a participant from a specific group in the database."""
+        participant = self._find_participant(fighter)
+        if not participant:
+            return
+            
+        group = self.groups.get_by_name(bracket_key)
+        if not group:
+            return
+            
+        self.db.query(GroupParticipant).filter_by(
+            participant_id=participant.id,
+            group_id=group.id
+        ).delete()
+        self.db.commit()
+
+    def add_participant_to_group(self, fighter: dict, bracket_key: str) -> None:
+        """Add a participant to a specific group in the database (Double Start)."""
+        participant = self._find_participant(fighter)
+        if not participant:
+            return
+            
+        group = self.groups.get_by_name(bracket_key)
+        if not group:
+            return
+            
+        # Check if already in group
+        existing = (
+            self.db.query(GroupParticipant)
+            .filter_by(participant_id=participant.id, group_id=group.id)
+            .first()
+        )
+        if not existing:
+            self.db.add(GroupParticipant(
+                participant_id=participant.id,
+                group_id=group.id
+            ))
+            self.db.commit()
 
     # Screen 2 — Group Preview (after load, and after any edits)
     # ------------------------------------------------------------------

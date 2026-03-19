@@ -182,15 +182,29 @@ class DatabaseService:
 
     # ===== BRACKET & GROUP CRUD =====
 
-    def update_participant(self, fighter: dict, new_bracket_key: str) -> bool:
+    def update_participant(self, fighter: dict, old_bracket_key: str, new_bracket_key: str) -> bool:
         """
         Persist edits from edit_participant_dialog to DB.
         Updates the participants row and moves the group_participants entry.
         """
         def _update(svc: TournamentService):
-            svc.update_participant(fighter, new_bracket_key)
+            svc.update_participant(fighter, old_bracket_key, new_bracket_key)
             return True
         return self._execute_with_session(_update) is True
+
+    def remove_participant_from_group(self, fighter: dict, bracket_key: str) -> bool:
+        """Remove a participant from a specific group in the database."""
+        def _remove(svc: TournamentService):
+            svc.remove_participant_from_group(fighter, bracket_key)
+            return True
+        return self._execute_with_session(_remove) is True
+
+    def add_participant_to_group(self, fighter: dict, bracket_key: str) -> bool:
+        """Add a participant to a specific group in the database (Double Start)."""
+        def _add(svc: TournamentService):
+            svc.add_participant_to_group(fighter, bracket_key)
+            return True
+        return self._execute_with_session(_add) is True
 
     def initialize_all_groups(self) -> bool:
         """Create all possible groups from config + QUARANTINE. Called once after save_participants."""

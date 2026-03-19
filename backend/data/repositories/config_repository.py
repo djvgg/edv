@@ -65,7 +65,12 @@ class ConfigRepository:
 
     def get_age_group(self, birth_year):
         # Returns the first age group (U13, U15, etc.) for which the cell is 'X'
-        row = self.age_eligibility[self.age_eligibility['BirthYear'] == birth_year]
+        try:
+            val = int(birth_year)
+            row = self.age_eligibility[self.age_eligibility['BirthYear'].astype(float).astype(int) == val]
+        except (ValueError, TypeError):
+            row = self.age_eligibility[self.age_eligibility['BirthYear'] == birth_year]
+            
         if row.empty:
             return None
         for col in self.age_eligibility.columns[1:]:
@@ -82,7 +87,12 @@ class ConfigRepository:
         Returns:
             List of eligible age groups (e.g., ['U13', 'U15'] for double start), or empty list if none found
         """
-        row = self.age_eligibility[self.age_eligibility['BirthYear'] == birth_year]
+        try:
+            val = int(birth_year)
+            row = self.age_eligibility[self.age_eligibility['BirthYear'].astype(float).astype(int) == val]
+        except (ValueError, TypeError):
+            row = self.age_eligibility[self.age_eligibility['BirthYear'] == birth_year]
+            
         if row.empty:
             return []
         
@@ -133,6 +143,21 @@ class ConfigRepository:
             if row['MinWeight'] < weight <= row['MaxWeight'] or (weight == 0 and row['MinWeight'] == 0):
                 return row['Label']
         return 'unknown'
+
+    def get_weight_classes(self, gender, age_group):
+        """Return all available weight class labels for gender/age."""
+        gender = _normalize_gender(gender)
+        if self.weight_classes is None or self.weight_classes.empty:
+            return []
+        
+        mask = (self.weight_classes['Gender'] == gender)
+        if age_group:
+            mask = mask & (self.weight_classes['AgeGroup'] == age_group)
+        
+        subset = self.weight_classes[mask]
+        if subset.empty:
+            return []
+        return subset['Label'].unique().tolist()
     
     def get_all_group_combinations(self):
         """Return all possible group definitions from config.

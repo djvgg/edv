@@ -157,7 +157,7 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
                 # Run save in background thread
                 self.task_runner.submit_task(
                     'group_preview_save_groups',
-                    fn=lambda: self._save_groups_bg(brackets),
+                    fn=lambda **kwargs: self._save_groups_bg(brackets),
                     on_error=lambda e: self.logger.warning(f"[LIFECYCLE] Background save failed: {e}")
                 )
             else:
@@ -613,39 +613,76 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         Edit_Participants(self, bracket_key, fighter_idx)
 
     def flash_bracket(self, bracket_key):
-        """Visually flash a bracket in the listbox to indicate a participant was moved there."""
+        """Visually flash a bracket in the listbox to indicate a participant was moved/copied there."""
         if not hasattr(self, 'group_listbox') or not self.group_listbox.winfo_exists():
             return
             
-        lst = self.group_listbox.get(0, tk.END)
-        target_idx = -1
-        
-        # Find the index of the bracket in the current listbox
-        for i, display_text in enumerate(lst):
-            if self.group_listbox_map.get(display_text, display_text) == bracket_key:
-                target_idx = i
-                break
-                
-        if target_idx != -1:
-            # Scroll to make sure it's visible
-            self.group_listbox.see(target_idx)
+        def find_and_flash():
+            lst = self.group_listbox.get(0, tk.END)
+            target_idx = -1
+            for i, display_text in enumerate(lst):
+                if self.group_listbox_map.get(display_text, display_text) == bracket_key:
+                    target_idx = i
+                    break
             
-            # Apply glow
-            self.group_listbox.itemconfig(target_idx, background=COLORS['accent_green'], foreground=COLORS['bg_dark'])
-            
-            # Schedule revert after 3 seconds
-            def revert():
-                if hasattr(self, 'group_listbox') and self.group_listbox.winfo_exists():
+            if target_idx != -1:
+                self.group_listbox.see(target_idx)
+                # Intense blink sequence
+                def blink(count, colors=[(COLORS['accent_green'], COLORS['bg_dark']), ('', '')]):
+                    if count <= 0 or not self.group_listbox.winfo_exists():
+                        return
+                    bg, fg = colors[count % 2]
                     try:
-                        # Safety check: ensure the item at target_idx is still the same bracket
-                        current_text = self.group_listbox.get(target_idx)
-                        if self.group_listbox_map.get(current_text, current_text) == bracket_key:
-                            # Reverting to default listbox styling from COLORS
-                            self.group_listbox.itemconfig(target_idx, background='', foreground='')
+                        self.group_listbox.itemconfig(target_idx, background=bg, foreground=fg)
+                        self.after(400, lambda: blink(count - 1))
                     except tk.TclError:
                         pass
-                        
-            self.after(3000, revert)
+                
+                blink(6) # 3 full blinks
+            return target_idx
+
+        if find_and_flash() == -1:
+            # If not found, it might be filtered out. Clear search and try again once.
+            if self.preview_search_var and self.preview_search_var.get() and self.preview_search_var.get() != "M, W, age, or kg":
+                self.preview_search_var.set("")
+                self.after(100, find_and_flash)
+
+    def _copy_participant_to_bracket(self, old_bracket_key, fighter, new_gender, new_age_group, new_weight_class):
+        """Copy a participant to a new bracket (Double Start / Age Class Upgrade)."""
+        new_bracket_key = f"{new_gender} | {new_age_group} | {new_weight_class}"
+        if new_bracket_key not in self.brackets:
+            self.brackets[new_bracket_key] = {
+                'fighters': [],
+                'bracket': []
+            }
+            
+        import copy
+        fighter_copy = copy.deepcopy(fighter)
+        self.brackets[new_bracket_key]['fighters'].append(fighter_copy)
+        self.brackets[new_bracket_key]['bracket'] = []
+        
+        f_name = f"{fighter.get('Firstname', '')} {fighter.get('Lastname', '')}".strip() or fighter.get('Name', 'Unknown')
+        self.logger.info(f"Copied {f_name} from {old_bracket_key} to {new_bracket_key}")
+        
+        self._populate_group_list()
+        if self.preview_search_var and self.preview_search_var.get() and self.preview_search_var.get() != "M, W, age, or kg":
+            self._on_search_changed()
+            
+        return new_bracket_key
+
+    def _remove_participant_from_bracket(self, bracket_key, fighter_idx):
+        """Remove a participant from a bracket entirely (Undo Age Class Upgrade)."""
+        fighters = self.brackets[bracket_key].get('fighters', [])
+        if 0 <= fighter_idx < len(fighters):
+            f = fighters.pop(fighter_idx)
+            f_name = f"{f.get('Firstname', '')} {f.get('Lastname', '')}".strip() or f.get('Name', 'Unknown')
+            self.logger.info(f"Removed {f_name} from {bracket_key}")
+            
+            self.brackets[bracket_key]['bracket'] = []
+            
+            self._populate_group_list()
+            if self.preview_search_var and self.preview_search_var.get() and self.preview_search_var.get() != "M, W, age, or kg":
+                self._on_search_changed()
 
     def _move_participant_to_bracket(self, old_bracket_key, fighter_idx, new_gender, new_age_group, new_weight_class):
         """Move a participant from one bracket to another when weight class or age class changes."""
@@ -659,6 +696,10 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         
         # Construct new bracket key
         new_bracket_key = f"{new_gender} | {new_age_group} | {new_weight_class}"
+        
+        # FRESH START: If it's a youth category (U9/U11), use the merged key
+        if new_age_group in ('U9', 'U11'):
+            new_bracket_key = new_age_group
         
         # Remove from old bracket
         old_fighters.pop(fighter_idx)

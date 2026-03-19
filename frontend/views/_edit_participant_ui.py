@@ -124,7 +124,11 @@ class _UIBuilderMixin:
             weight_class_slot.pack(fill=tk.X)
 
         self.weight_class_frame = tk.Frame(weight_class_slot, bg=COLORS['bg_dark'])
-        if not self.is_free_match and not self.is_young_category and not self.is_quarantine:
+        
+        # Only show for adults (weight class) or non-adults with double start (age class)
+        show_assignment = self.is_adult_category or getattr(self, 'has_doppelstart', False)
+        
+        if not self.is_free_match and not self.is_young_category and not self.is_quarantine and show_assignment:
             self.weight_class_frame.pack(fill=tk.X, pady=(0, 14))
             tk.Label(self.weight_class_frame, text=label_text, bg=COLORS['bg_dark'],
                      fg=COLORS['accent_blue'], font=FONTS['preview_label']).pack(anchor=tk.W, pady=(0, 6))
@@ -152,11 +156,34 @@ class _UIBuilderMixin:
                     heavier_classes = [wc for wc in self.available_weight_classes if self._get_weight_key(wc) > current_weight_key]
                     if heavier_classes:
                         self.options_to_show = [self.current_weight_class, heavier_classes[0]]
+                
+                # SPECIAL: If this is an 18+ participant who is naturally younger, add Undo option
+                base = getattr(self, 'base_age_group', self.age_group)
+                if base and self.age_group != base:
+                    self.options_to_show.append(f"{base} (Undo Upgrade)")
+                
                 self.selected_var = self.weight_class_var
             else:
-                available_age_classes = self._get_available_age_classes(self.gender, self.age_group)
-                if available_age_classes:
-                    self.options_to_show = [self.age_group, available_age_classes[0]]
+                base = getattr(self, 'base_age_group', self.age_group)
+                # If they have doppelstart eligibility OR they are already in an upgraded/moved class (Undo needed)
+                if getattr(self, 'has_doppelstart', False) or (base and self.age_group != base):
+                    if getattr(self, 'already_upgraded', False):
+                        self.options_to_show = [self.age_group]
+                        self.dropdown_enabled[0] = False
+                        if hasattr(self, 'dropdown_info_label') and self.dropdown_info_label:
+                            self.dropdown_info_label.config(text="Already upgraded to higher age class.", fg=COLORS['text_muted'])
+                            self.dropdown_info_label.pack(anchor=tk.W, pady=(4, 0))
+                    else:
+                        if base and self.age_group != base:
+                            self.options_to_show = [self.age_group, f"{base} (Undo Upgrade)"]
+                        else:
+                            # They are in their base class and haven't upgraded yet
+                            avail = self._get_available_age_classes(self.gender, self.age_group)
+                            if avail:
+                                self.options_to_show = [self.age_group, avail[0]]
+                else:
+                    self.options_to_show = [self.age_group]
+                    self.dropdown_enabled[0] = False
                 self.selected_var = self.age_class_var
 
         if not self.is_free_match and not self.is_young_category and not self.is_quarantine:
@@ -172,21 +199,36 @@ class _UIBuilderMixin:
     def _build_dropdown_widget(self):
         self.dropdown_border = tk.Frame(self.weight_class_frame, bg=COLORS['border'], padx=1, pady=1)
         self.dropdown_border.pack(fill=tk.X)
-        self.dropdown_btn = tk.Frame(self.dropdown_border, bg=COLORS['bg_input'], cursor='hand2')
+        
+        is_enabled = self.dropdown_enabled[0]
+        bg_color = COLORS['bg_input'] if is_enabled else COLORS['bg_panel']
+        cursor = 'hand2' if is_enabled else ''
+        
+        self.dropdown_btn = tk.Frame(self.dropdown_border, bg=bg_color, cursor=cursor)
         self.dropdown_btn.pack(fill=tk.BOTH, expand=True)
 
-        self.text_label = tk.Label(self.dropdown_btn, textvariable=self.selected_var, bg=COLORS['bg_input'],
-                                   fg=COLORS['text_primary'], font=FONTS['preview_text'], anchor=tk.W, padx=10, pady=8)
+        self.text_label = tk.Label(self.dropdown_btn, textvariable=self.selected_var, bg=bg_color,
+                                   fg=COLORS['text_primary'] if is_enabled else COLORS['text_muted'],
+                                   font=FONTS['preview_text'], anchor=tk.W, padx=10, pady=8)
         self.text_label.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self.arrow_label = tk.Label(self.dropdown_btn, text="▼", bg=COLORS['bg_input'],
-                                    fg=COLORS['accent_blue'], font=FONTS['preview_small'], padx=10)
-        self.arrow_label.pack(side=tk.RIGHT, fill=tk.Y)
+        if is_enabled:
+            self.arrow_label = tk.Label(self.dropdown_btn, text="▼", bg=bg_color,
+                                        fg=COLORS['accent_blue'], font=FONTS['preview_small'], padx=10)
+            self.arrow_label.pack(side=tk.RIGHT, fill=tk.Y)
 
-        for widget in (self.dropdown_btn, self.text_label, self.arrow_label):
-            widget.bind("<Button-1>", self._handle_dropdown_click)
-            widget.bind("<Enter>", self._on_dropdown_enter)
-            widget.bind("<Leave>", self._on_dropdown_leave)
+            for widget in (self.dropdown_btn, self.text_label, self.arrow_label):
+                widget.bind("<Button-1>", self._handle_dropdown_click)
+                widget.bind("<Enter>", self._on_dropdown_enter)
+                widget.bind("<Leave>", self._on_dropdown_leave)
+        else:
+            tag_text = "(Base Class)"
+            if getattr(self, 'already_upgraded', False):
+                tag_text = "(Upgraded)"
+            
+            tk.Label(self.dropdown_btn, text=tag_text, bg=bg_color,
+                     fg=COLORS['accent_blue'] if getattr(self, 'already_upgraded', False) else COLORS['text_muted'],
+                     font=FONTS['preview_small'], padx=10).pack(side=tk.RIGHT)
 
         self.dropdown_info_label = tk.Label(self.weight_class_frame, text="", bg=COLORS['bg_dark'],
                                             fg=COLORS['accent_red'], font=FONTS['preview_hint'])

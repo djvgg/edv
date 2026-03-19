@@ -196,7 +196,8 @@ def export_all_brackets(participants, event_year=None):
             
         weight = p.get('Weight', p.get('weight', 0))
         name = p.get('Name', p.get('name', ''))
-        doublestart = str(p.get('Doublestart', p.get('doublestart', 'nein'))).strip().lower()
+        # Use 'Mode' field as requested, fallback to 'Doublestart'
+        doublestart = str(p.get('Mode', p.get('mode', p.get('Doublestart', p.get('doublestart', 'nein'))))).strip().lower()
 
         # Normalize gender to 'm'/'w' to match config group names
         gender_norm = normalize_gender(raw_gender) if raw_gender else 'Unknown'
@@ -237,19 +238,33 @@ def export_all_brackets(participants, event_year=None):
                 age_group = '18+'
 
         # Build list of age groups this participant goes into
-        age_groups_to_enter = [age_group]
-
-        if doublestart in ('höher', 'hoeher', 'higher') and birth_year is not None:
+        age_groups_to_enter = []
+        
+        # Determine higher group if eligible
+        higher_group = None
+        if birth_year is not None:
             all_eligible = bracket_config.get_all_eligible_age_groups(birth_year)
             if len(all_eligible) > 1:
-                # Primary group is the first eligible; "höher" = next one up
                 primary_idx = all_eligible.index(age_group) if age_group in all_eligible else 0
                 if primary_idx + 1 < len(all_eligible):
                     higher_group = all_eligible[primary_idx + 1]
-                    age_groups_to_enter.append(higher_group)
-                    logger.info(f"Doublestart höher: {name!r} → {age_group} + {higher_group}")
-                else:
-                    logger.warning(f"Doublestart höher: {name!r} already in highest eligible group ({age_group}), no higher group available")
+
+        # Apply membership logic based on Doublestart keyword
+        if doublestart in ('doppel', 'beides', 'both'):
+            age_groups_to_enter.append(age_group)
+            if higher_group:
+                age_groups_to_enter.append(higher_group)
+                logger.info(f"Doublestart DOPPEL: {name!r} → {age_group} + {higher_group}")
+        elif doublestart in ('höher', 'hoeher', 'higher'):
+            if higher_group:
+                age_groups_to_enter.append(higher_group)
+                logger.info(f"Doublestart HÖHER: {name!r} → {higher_group} only")
+            else:
+                age_groups_to_enter.append(age_group) # Fallback to base
+                logger.warning(f"Doublestart HÖHER: {name!r} has no higher group, staying in {age_group}")
+        else:
+            # Standard / normal
+            age_groups_to_enter.append(age_group)
 
         # Create participant copy with birth_year
         p_copy = dict(p)
@@ -471,10 +486,12 @@ def merge_u9_u11_pools(brackets):
 
     for key, data in brackets.items():
         age_group = None
-        if key.startswith('U9 | Pool'):
-            age_group = 'U9'
-        elif key.startswith('U11 | Pool'):
-            age_group = 'U11'
+        parts = [p.strip().upper() for p in key.split('|')]
+        
+        if len(parts) >= 1 and parts[0] in ('U9', 'U11'):
+            age_group = parts[0]
+        elif len(parts) >= 2 and parts[1] in ('U9', 'U11'):
+            age_group = parts[1]
 
         if age_group:
             if age_group not in collected:

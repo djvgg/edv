@@ -73,6 +73,7 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
             return False
             
         self.fighter = fighters[self.fighter_idx]
+        self.original_fighter = self.fighter.copy()
         self.logger.debug(f"Editing {self.fighter.get('Firstname', '')} {self.fighter.get('Lastname', '')} (ID: {self.fighter.get('ID', '?')})")
         
         gender, age_group, current_weight_class = self.parent._parse_bracket_key(self.bracket_key)
@@ -125,7 +126,59 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
         self.is_young_category = self.age_group in ('U9', 'U11') or str(self.bracket_key).strip() in ('U9', 'U11')
         self.is_adult_category = self.age_group == "18+"
         
+        # Initialize Doublestart status based on birth year and config
+        self.has_doppelstart = False
+        self.base_age_group = None
+        if self.parent.config_repo and self.birth_year:
+            try:
+                birth_year_int = int(float(self.birth_year))
+                
+                # Check eligibility
+                eligible_groups = self.parent.config_repo.get_all_eligible_age_groups(birth_year_int)
+                if len(eligible_groups) > 1:
+                    self.has_doppelstart = True
+                
+                # Calculate base age group
+                event_year = self.parent.config_repo.get_event_year() if self.parent.config_repo else datetime.datetime.now().year
+                if not event_year:
+                    event_year = datetime.datetime.now().year
+                calc_age = event_year - birth_year_int
+                from backend.services.bracket_service import get_age_group as get_age_group_service
+                self.base_age_group = get_age_group_service(calc_age, event_year)
+            except (ValueError, TypeError, Exception):
+                pass
+                
+        self.already_upgraded = False
+        if self.has_doppelstart and self.base_age_group and self.age_group == self.base_age_group:
+            my_full   = (f"{self.fighter.get('Firstname','')} {self.fighter.get('Lastname','')}".strip() or self.fighter.get('Name','')).strip()
+            my_club   = (self.fighter.get('Verein') or self.fighter.get('Club') or "").strip()
+            my_birth  = str(self.birth_year).strip()
+            my_norm_g = normalize_gender(self.gender)
+            
+            AGE_CLASS_ORDER = ['U9', 'U11', 'U13', 'U15', 'U18', '18+']
+            try:
+                base_idx = AGE_CLASS_ORDER.index(self.base_age_group)
+                for bk, bd in self.parent.brackets.items():
+                    g, ag, wc = self.parent._parse_bracket_key(bk)
+                    if g and normalize_gender(g) == my_norm_g and ag in AGE_CLASS_ORDER and AGE_CLASS_ORDER.index(ag) > base_idx:
+                        for f in bd.get('fighters', []):
+                            f_f     = (f"{f.get('Firstname','')} {f.get('Lastname','')}".strip() or f.get('Name','')).strip()
+                            f_club  = (f.get('Verein') or f.get('Club') or "").strip()
+                            f_birth = str(f.get('Birthyear', f.get('BirthYear', f.get('Age', "")))).strip()
+                            
+                            # Match by Name + Club + Birthyear
+                            if f_f == my_full and f_club == my_club and f_birth == my_birth:
+                                self.already_upgraded = True
+                                break
+                    if self.already_upgraded:
+                        break
+            except ValueError:
+                pass
+        
+        self.logger.debug(f"Doublestart status based on config (birth_year={self.birth_year}) -> has_doppelstart={self.has_doppelstart}, already_upgraded={self.already_upgraded}")
+        
         # Initialize UI variables
+        self.target_is_copy = False
         self.weight_class_var = tk.StringVar(value=self.current_weight_class)
         self.age_class_var = tk.StringVar(value=self.age_group)
         self.dropdown_enabled = [True]
@@ -192,16 +245,27 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
                             self.weight_popup.lift()
                             self.weight_popup_timer[0] = self.after(2500, self.weight_popup.place_forget)
                         
-                        if self.is_adult_category and not self.is_quarantine and effective_age_group == '18+':
-                            effective_weight_classes = self._get_available_weight_classes(self.gender, effective_age_group) if effective_age_group != self.age_group else self.available_weight_classes
+                        if self.is_adult_category and not self.is_quarantine:
+                            # Use '18+' as the reference for weight classes even if birthyear says U18
+                            target_ag = '18+'
+                            effective_weight_classes = self._get_available_weight_classes(self.gender, target_ag)
+                            
                             detected_natural_key = self._get_weight_key(detected)
                             allowed_weight_classes = [detected]
                             heavier = [wc for wc in effective_weight_classes if self._get_weight_key(wc) > detected_natural_key]
                             if heavier:
                                 allowed_weight_classes.append(heavier[0])
-                            allowed_weight_classes.sort(key=self._get_weight_key)
+                            
+                            # Add Undo Upgrade if applicable
+                            base = getattr(self, 'base_age_group', target_ag)
+                            if base and target_ag != base:
+                                allowed_weight_classes.append(f"{base} (Undo Upgrade)")
+                                
+                            allowed_weight_classes.sort(key=lambda wc: self._get_weight_key(wc.replace(" (Undo Upgrade)", "")))
                             self.options_to_show.clear()
                             self.options_to_show.extend(allowed_weight_classes)
+                            
+                            # Automatically snap to the detected class
                             self.weight_class_var.set(detected)
             except Exception:
                 pass
@@ -226,23 +290,24 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
                         self.age_popup_timer[0] = self.after(2500, self.age_popup.place_forget)
                     
                     if not self.is_free_match and not self.is_young_category and not self.is_quarantine:
-                        if self.is_adult_category:
-                            if auto_age_group == '18+':
-                                self.dropdown_enabled[0] = True
-                                if self.dropdown_info_label:
-                                    self.dropdown_info_label.pack_forget()
-                                self.dropdown_btn.config(cursor='hand2')
-                                self.text_label.config(fg=COLORS['text_primary'])
-                                self.arrow_label.config(fg=COLORS['accent_blue'])
-                            else:
-                                self.dropdown_enabled[0] = False
-                                self.dropdown_btn.config(cursor='')
-                                self.text_label.config(fg=COLORS['text_muted'])
-                                self.arrow_label.config(fg=COLORS['text_muted'])
-                                self.weight_class_var.set("N/A")
-                                if self.dropdown_info_label:
-                                    self.dropdown_info_label.config(text=f"→ Person is now {auto_age_group} (Only 18+ have manual weight classes)")
-                                    self.dropdown_info_label.pack(anchor=tk.W, pady=(4, 0))
+                        if auto_age_group in ('U9', 'U11'):
+                            self.dropdown_enabled[0] = False
+                            self.dropdown_btn.config(cursor='')
+                            self.text_label.config(fg=COLORS['text_muted'])
+                            self.arrow_label.config(fg=COLORS['text_muted'])
+                            self.age_class_var.set("U9/U11 (No upgrade)")
+                            if self.dropdown_info_label:
+                                self.dropdown_info_label.config(text=f"→ Group {auto_age_group} has no manual upgrades.")
+                                self.dropdown_info_label.pack(anchor=tk.W, pady=(4, 0))
+                        elif self.is_adult_category:
+                            # If they are in the adult category, stay enabled regardless of whether 
+                            # the birth year detected U18 etc (since they are playing as adult).
+                            self.dropdown_enabled[0] = True
+                            if self.dropdown_info_label:
+                                self.dropdown_info_label.pack_forget()
+                            self.dropdown_btn.config(cursor='hand2')
+                            self.text_label.config(fg=COLORS['text_primary'])
+                            self.arrow_label.config(fg=COLORS['accent_blue'])
                         else:
                             if auto_age_group == '18+':
                                 self.dropdown_enabled[0] = False
@@ -260,6 +325,12 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
                                 self.dropdown_btn.config(cursor='hand2')
                                 self.text_label.config(fg=COLORS['text_primary'])
                                 self.arrow_label.config(fg=COLORS['accent_blue'])
+                                
+                                # Automatically update the age class dropdown if it's a valid option
+                                if auto_age_group in self.options_to_show:
+                                    self.age_class_var.set(auto_age_group)
+                                elif f"{auto_age_group} (Undo Upgrade)" in self.options_to_show:
+                                    self.age_class_var.set(f"{auto_age_group} (Undo Upgrade)")
                     
                     self._on_weight_changed(show_popup=False)
             except Exception:
@@ -549,8 +620,8 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
         elif issues:
             self.logger.debug(f"Save path: participant now quarantined (issues={issues})")
             return self._handle_move_to_quarantine()
-        elif not self.is_free_match and not self.is_young_category:
-            self.logger.debug("Save path: normal participant — checking for bracket/weight class movement")
+        elif not self.is_free_match:
+            self.logger.debug("Save path: normal participant — checking for movement")
             return self._handle_normal_routing()
         return self.bracket_key, None
 
@@ -629,6 +700,68 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
         if effective_age == self.age_group and effective_weight_class == self.current_weight_class:
             return self.bracket_key, None
 
+        AGE_CLASS_ORDER = ['U9', 'U11', 'U13', 'U15', 'U18', '18+']
+        try:
+            old_idx = AGE_CLASS_ORDER.index(self.age_group)
+            new_idx = AGE_CLASS_ORDER.index(effective_age)
+        except ValueError:
+            old_idx = new_idx = 0
+
+        # Logic for duplication (Copy) or Move
+        if effective_age != self.age_group:
+            if new_idx > old_idx:
+                # Upgrade path
+                if not self.is_adult_category and self.has_doppelstart:
+                    self.logger.debug(f"Upgrading participant: age {self.age_group}→{effective_age}")
+                    new_bracket_key = self.parent._copy_participant_to_bracket(
+                        self.bracket_key, self.fighter, self.gender, effective_age, effective_weight_class
+                    )
+                    self.target_is_copy = True
+                    return self.bracket_key, new_bracket_key
+            elif new_idx < old_idx:
+                # Downgrade path (Undo)
+                # If they are currently in a higher class, we perform an Undo.
+                # If they were a 'doppel' start, they are already in the target; 
+                # if they were a 'höher' start, they are ONLY here and must be MOVED back.
+                target_base_bk = f"{self.gender} | {effective_age} | {effective_weight_class}"
+                if effective_age in ('U9', 'U11'):
+                    target_base_bk = effective_age
+                
+                # Check if they exist in any lower bracket already
+                exists_in_base = False
+                my_full = (f"{self.fighter.get('Firstname','')} {self.fighter.get('Lastname','')}".strip() or self.fighter.get('Name','')).strip()
+                my_club = (self.fighter.get('Verein') or self.fighter.get('Club') or "").strip()
+                my_birth = str(self.fighter.get('Birthyear', self.fighter.get('BirthYear', ''))).strip()
+                
+                if target_base_bk in self.parent.brackets:
+                    for f in self.parent.brackets[target_base_bk].get('fighters', []):
+                        f_f = (f"{f.get('Firstname','')} {f.get('Lastname','')}".strip() or f.get('Name','')).strip()
+                        f_club = (f.get('Verein') or f.get('Club') or "").strip()
+                        f_birth = str(f.get('Birthyear', f.get('BirthYear', ''))).strip()
+                        if f_f == my_full and f_club == my_club and f_birth == my_birth:
+                            exists_in_base = True
+                            break
+                
+                if exists_in_base:
+                    self.logger.debug(f"Undoing upgrade (Delete): age {self.age_group}→{effective_age}")
+                    self.parent._remove_participant_from_bracket(self.bracket_key, self.fighter_idx)
+                    if getattr(self.parent, 'db_service', None):
+                        self.parent.db_service.remove_participant_from_group(self.fighter, self.bracket_key)
+                else:
+                    self.logger.debug(f"Undoing upgrade (Move back): age {self.age_group}→{effective_age}")
+                    # Move also handles the UI removal and DB update
+                    self.parent._move_participant_to_bracket(self.bracket_key, self.fighter_idx, self.gender, effective_age, effective_weight_class)
+
+                # Check if any fighters are left in the current bracket
+                remaining = 0
+                if self.bracket_key in self.parent.brackets:
+                    remaining = len(self.parent.brackets[self.bracket_key].get('fighters', []))
+                
+                if remaining > 0:
+                    return self.bracket_key, target_base_bk
+                else:
+                    return target_base_bk, target_base_bk
+
         self.logger.debug(f"Moving participant: age {self.age_group}→{effective_age}, weight_class {self.current_weight_class}→{effective_weight_class}")
         new_bracket_key = self.parent._move_participant_to_bracket(
             self.bracket_key, self.fighter_idx, self.gender, effective_age, effective_weight_class
@@ -654,10 +787,44 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
         effective_age         = self.age_group
         effective_weight_class = self.current_weight_class
 
-        # 1. Non-adult: user manually upgraded age class via dropdown
-        if not self.is_adult_category:
+        # 1. Birth year changed → re-detect age group → re-detect weight class for new age
+        birth_year_val = self.birth_year_entry.get().strip()
+        if birth_year_val and len(birth_year_val) == 4 and birth_year_val.isdigit():
+            calculated_age     = datetime.datetime.now().year - int(birth_year_val)
+            detected_age_group = get_age_group_with_fallback(calculated_age)
+            if detected_age_group and detected_age_group != effective_age:
+                effective_age = detected_age_group
+        
+        # ── Fresh Start Policy: Force weight class re-detection if moving between category systems ──
+        # If moving FROM U9/U11 (no weight class) TO U13+ (fixed weight class), 
+        # we MUST find a valid weight class for the target age group.
+        needs_fixed_wc = (effective_age not in ('U9', 'U11', None))
+        currently_has_no_wc = (effective_weight_class in ('', 'no-class', None))
+        
+        if needs_fixed_wc and currently_has_no_wc:
+            if self.parent.config_repo and new_weight > 0:
+                detected_wc = self.parent.config_repo.get_weight_class(
+                    new_weight - self._group_tolerance, self.gender, effective_age
+                )
+                if detected_wc and detected_wc != 'unknown':
+                    effective_weight_class = detected_wc
+                else:
+                    # Last resort fallback: find any valid weight class for this category
+                    wcs = self._get_available_weight_classes(self.gender, effective_age)
+                    if wcs:
+                        effective_weight_class = wcs[0]
+
+        # 2. Non-adult: user manually upgraded age class via dropdown (Manual override)
+        # FRESH START POLICY: If birthyear was changed, we ignore any manual dropdown override
+        # and strictly follow the age group detected from the new birth year.
+        old_birth_start = str(self.original_fighter.get('Birthyear', self.original_fighter.get('Age', ''))).strip()
+        birthyear_changed_locally = (birth_year_val != old_birth_start)
+
+        if not birthyear_changed_locally and not (self.age_group == '18+' and effective_age == '18+'):
             new_ac = self.age_class_var.get()
-            if new_ac != self.age_group:
+            if new_ac.endswith(" (Undo Upgrade)"):
+                new_ac = new_ac.replace(" (Undo Upgrade)", "")
+            if new_ac != effective_age and new_ac != "": # If dropdown selection differs from detected/current
                 effective_age = new_ac
                 new_age_wcs = self._get_available_weight_classes(self.gender, effective_age)
                 if self.current_weight_class not in new_age_wcs:
@@ -672,49 +839,108 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
                     elif new_age_wcs:
                         effective_weight_class = new_age_wcs[0]
 
-        # 2. Adult: user manually selected a different weight class via dropdown
+        # 3. Adult: user manually selected a different weight class via dropdown
         manual_override = False
-        if self.is_adult_category:
+        if effective_age == "18+":
             dropdown_selection = self.weight_class_var.get()
-            auto_detected = None
-            if self.parent.config_repo and new_weight > 0:
-                auto_detected = self.parent.config_repo.get_weight_class(
-                    new_weight - self._group_tolerance, self.gender, effective_age
-                )
-            if (auto_detected and dropdown_selection != auto_detected) \
-                    or dropdown_selection != self.current_weight_class:
-                effective_weight_class = dropdown_selection
+            
+            # SPECIAL: Handle "Undo Upgrade" selected from weight class dropdown
+            if dropdown_selection.endswith(" (Undo Upgrade)"):
+                undo_age = dropdown_selection.replace(" (Undo Upgrade)", "")
+                effective_age = undo_age
+                # Detect natural weight class for the restored age group
+                if self.parent.config_repo and new_weight > 0:
+                    detected = self.parent.config_repo.get_weight_class(
+                        new_weight - self._group_tolerance, self.gender, effective_age
+                    )
+                    if detected and detected != 'unknown':
+                        effective_weight_class = detected
                 manual_override = True
+            else:
+                auto_detected = None
+                if self.parent.config_repo and new_weight > 0:
+                    auto_detected = self.parent.config_repo.get_weight_class(
+                        new_weight - self._group_tolerance, self.gender, effective_age
+                    )
+                if (auto_detected and dropdown_selection != auto_detected) \
+                        or dropdown_selection != self.current_weight_class:
+                    effective_weight_class = dropdown_selection
+                    manual_override = True
 
-        # 3. Auto-detect weight class from changed weight (no manual override)
+        # 4. Auto-detect weight class from changed weight (no manual override)
         if not manual_override and self.parent.config_repo and new_weight != self.weight:
             detected = self.parent.config_repo.get_weight_class(
                 new_weight - self._group_tolerance, self.gender, effective_age
             )
             if detected and detected != 'unknown':
                 effective_weight_class = detected
-
-        # 4. Birth year changed → re-detect age group → re-detect weight class for new age
-        birth_year_val = self.birth_year_entry.get().strip()
-        if birth_year_val and len(birth_year_val) == 4 and birth_year_val.isdigit():
-            calculated_age     = datetime.datetime.now().year - int(birth_year_val)
-            detected_age_group = get_age_group_with_fallback(calculated_age)
-            if detected_age_group and detected_age_group != effective_age:
-                effective_age = detected_age_group
-                if self.parent.config_repo and new_weight > 0:
-                    detected_wc = self.parent.config_repo.get_weight_class(
-                        new_weight - self._group_tolerance, self.gender, effective_age
-                    )
-                    if detected_wc and detected_wc != 'unknown':
-                        effective_weight_class = detected_wc
-
         return effective_age, effective_weight_class
+
+    def _get_available_weight_classes(self, gender, age_group):
+        """Helper to get weight classes from config repo."""
+        if self.parent.config_repo:
+            return self.parent.config_repo.get_weight_classes(gender, age_group)
+        return []
 
     def _finalize(self, values: dict, display_key, target_key):
         """Persist to DB, refresh the parent UI, and close the dialog."""
         db_svc = getattr(self.parent, 'db_service', None)
         if db_svc:
-            db_svc.update_participant(self.fighter, display_key or 'QUARANTINE')
+            if getattr(self, 'target_is_copy', False):
+                # Upgrade/Duplication path:
+                # 1. Update the original participant's details (weight, etc. - affects all classes anyway)
+                #    using their CURRENT bracket key so it doesn't move.
+                db_svc.update_participant(self.fighter, self.bracket_key, self.bracket_key)
+                # 2. ADD them to the NEW bracket.
+                db_svc.add_participant_to_group(self.fighter, target_key)
+            else:
+                # Normal move/save path
+                db_svc.update_participant(self.fighter, self.bracket_key, target_key or display_key or 'QUARANTINE')
+
+        # ── Fresh start logic for in-memory brackets ──
+        old_birth = str(self.original_fighter.get('Birthyear', self.original_fighter.get('Age', ''))).strip()
+        new_birth = str(self.fighter.get('Birthyear', '')).strip()
+        
+        if old_birth != new_birth:
+             # Identify current fighter by their unique ID (fallback to Name+Club)
+             my_id   = self.original_fighter.get('ID', self.original_fighter.get('id'))
+             my_full = (f"{self.original_fighter.get('Firstname','')} {self.original_fighter.get('Lastname','')}".strip() or self.original_fighter.get('Name','')).strip()
+             my_club = (self.original_fighter.get('Verein') or self.original_fighter.get('Club') or "").strip()
+             
+             # Remove from ALL brackets except the new one
+             exempt_bk = target_key or display_key
+             for bk, bd in list(self.parent.brackets.items()):
+                 if bk == exempt_bk: continue
+                 # Remove matching fighter from this in-memory list
+                 fighters = bd.get('fighters', [])
+                 to_remove = []
+                 for idx, f in enumerate(fighters):
+                     f_id    = f.get('ID', f.get('id'))
+                     f_f     = (f"{f.get('Firstname','')} {f.get('Lastname','')}".strip() or f.get('Name','')).strip()
+                     f_club  = (f.get('Verein') or f.get('Club') or "").strip()
+                     f_birth = str(f.get('Birthyear', f.get('BirthYear', f.get('Age', "")))).strip()
+                     
+                     matched = False
+                     if my_id and f_id:
+                         matched = (str(my_id) == str(f_id))
+                     else:
+                         matched = (f_f == my_full and f_club == my_club and f_birth == old_birth)
+                     
+                     if matched:
+                         to_remove.append(idx)
+                 
+                 # Perform removals in reverse to keep indices valid
+                 for idx in reversed(to_remove):
+                     fighters.pop(idx)
+                 
+                 # CLEANUP: If bracket is now empty, delete it
+                 if not fighters and bk not in ('U9', 'U11', 'QUARANTINE'):
+                     if bk in self.parent.brackets:
+                         del self.parent.brackets[bk]
+             
+             # Force list refresh to remove empty tabs
+             if hasattr(self.parent, '_populate_group_list'):
+                 self.parent._populate_group_list()
 
         self.fighter['Name'] = f"{values['first_name']} {values['last_name']}".strip()
         self.parent._display_participants(display_key)
