@@ -79,3 +79,17 @@ class BracketRepository:
 
     def get_all_mats(self) -> List[Mat]:
         return self.db.query(Mat).order_by(Mat.mat_number).all()
+
+    def get_bracket_types_by_group_name(self) -> dict:
+        """
+        Get all bracket types mapped by group name.
+        
+        Returns:
+            Dict of {group_name: bracket_type, ...}
+        """
+        brackets = self.db.query(Bracket).join(Bracket.group).all()
+        result = {}
+        for bracket in brackets:
+            if bracket.group and bracket.group.name and bracket.bracket_type:
+                result[bracket.group.name] = bracket.bracket_type
+        return result

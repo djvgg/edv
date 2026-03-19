@@ -209,6 +209,11 @@ class TournamentService:
         Both sources use Jahrgang (birth year) — stored directly as Jan 1 of that year.
           XLSX: 'Age' field contains birth year, club key = 'Verein'
           JSON: 'Birthyear' field contains birth year, club key = 'Club'
+        
+        Doublestart modes:
+          'standard'/'nein' → 'nein' (single age group)
+          'doppel'/'double'/'ja' → 'ja' (all eligible age groups)
+          'höher'/'hoeher' → 'höher' (primary + next higher age group)
         """
         first_name, last_name = _split_name(raw.get('Name', ''))
 
@@ -220,13 +225,16 @@ class TournamentService:
             except (ValueError, TypeError):
                 pass
 
-        # Normalize doublestart value (accepts German: ja/nein/höher)
+        # Normalize doublestart value (accepts German: ja/nein/höher/doppel)
         ds_raw = str(raw.get('Doppelstart', raw.get('Doublestart', 'nein'))).strip().lower()
         if ds_raw in ('höher', 'hoeher', 'higher'):
             doublestart = 'höher'
-        elif ds_raw in ('ja', 'yes', 'true', '1', 'y'):
+        elif ds_raw in ('ja', 'yes', 'true', '1', 'y', 'doppel', 'double', 'duplex'):
+            # Map 'doppel' and variants to 'ja' (existing database schema)
+            # Both mean "add to all eligible age groups"
             doublestart = 'ja'
         else:
+            # 'standard', 'nein', or any other value defaults to single age group
             doublestart = 'nein'
 
         return {

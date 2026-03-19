@@ -638,6 +638,31 @@ class DataLoaderService:
                     else:
                         validation_errors.append(f"Gender must be male/female/männlich/weiblich, got: {gender}")
                     
+                    # Validate optional Doublestart/mode field (modes: standard/höher/doppel)
+                    # Support both "Doublestart" and "mode" field names
+                    doublestart_value = participant.get('Doublestart') or participant.get('mode')
+                    if doublestart_value:
+                        doublestart = str(doublestart_value).strip().lower()
+                        if doublestart not in ('standard', 'nein', 'höher', 'hoeher', 'higher', 'doppel', 'double', 'duplex', ''):
+                            validation_errors.append(
+                                f"Doublestart mode must be one of: standard/höher/doppel, got: {doublestart}"
+                            )
+                        # Normalize mode names for consistency
+                        if doublestart in ('hoeher', 'höher'):
+                            participant['Doublestart'] = 'höher'
+                        elif doublestart in ('double', 'duplex'):
+                            participant['Doublestart'] = 'doppel'
+                        elif doublestart in ('nein', 'standard', ''):
+                            participant['Doublestart'] = 'standard'
+                        else:
+                            participant['Doublestart'] = 'doppel'
+                        # Remove 'mode' field if present, keep only 'Doublestart'
+                        if 'mode' in participant:
+                            del participant['mode']
+                    else:
+                        # Default to "standard" if not specified
+                        participant['Doublestart'] = 'standard'
+                    
                     if validation_errors:
                         error_msg = f"Participant {idx} validation failed:\n" + "\n".join(f"  • {err}" for err in validation_errors) + f"\nFile: {filename}"
                         self.logger.error(error_msg)
@@ -874,17 +899,24 @@ class DataLoaderService:
                                   Obtained from ToleranceConfigDialog.show() in main_window
                                   If None, only contestant files are saved without tolerances
         
-        Args:
-            input_file: Path to tournament registration XLSX file
-            save_dir: Directory to save the split JSON files
-            tolerance_dialog_class: ToleranceConfigDialog class from frontend.views
-        
         Returns:
             Tuple of (success: bool, message: str)
         """
         try:
             if self.ui_feedback:
                 self.ui_feedback.set_status("Reading tournament XLSX file...", '#999999')
+            
+            # Load config for age ranges and double start info
+            from backend.data.repositories.config_repository import ConfigRepository
+            config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'bracket_config.xlsx')
+            config_repo = None
+            if os.path.exists(config_path):
+                try:
+                    config_repo = ConfigRepository(config_path)
+                    self.logger.debug(f"Loaded ConfigRepository from {config_path}")
+                except Exception as e:
+                    self.logger.warning(f"Could not load ConfigRepository: {e}")
+                    config_repo = None
             
             # Load participants using the tournament format parser
             raw_participants = load_participants_from_xlsx(input_file)
@@ -1000,38 +1032,97 @@ class DataLoaderService:
                     json.dump(female_contestants, f, indent=2, ensure_ascii=False)
                 self.logger.info(f"Saved {female_count} female contestants to: {female_file}")
             
-            # Save tolerance settings with proper structure
+            # Save tolerance settings with config-driven structure
             if configured_tolerances:
-                tolerance_settings = {
-                    "ageRange": {
-                        "minAge": 6,
-                        "maxAge": 35
-                    },
-                    "ageClassTolerance": {
-                        "mixed": {},
-                        "male": {},
-                        "female": {}
-                    }
+                tolerance_settings = {}
+                
+                # Extract age range from config if available
+                if config_repo and hasattr(config_repo, 'age_eligibility') and config_repo.age_eligibility is not None:
+                    try:
+                        birth_years = config_repo.age_eligibility['BirthYear'].dropna().unique()
+                        if len(birth_years) > 0:
+                            min_birth_year = int(min(birth_years))
+                            max_birth_year = int(max(birth_years))
+                            current_year = config_repo.get_event_year() or 2026
+                            min_age = current_year - max_birth_year
+                            
+                            # Try to load max_age from config options first
+                            max_age = None
+                            if hasattr(config_repo, 'options') and config_repo.options is not None:
+                                try:
+                                    max_age_row = config_repo.options[config_repo.options['OptionName'] == 'max_age']
+                                    if not max_age_row.empty:
+                                        max_age = int(max_age_row.iloc[0]['Value'])
+                                        self.logger.debug(f"[TOLERANCES] Loaded max_age from config options: {max_age}")
+                                except Exception as e:
+                                    self.logger.debug(f"Could not load max_age from options: {e}")
+                            
+                            # Fallback to calculating from birth years if not in options
+                            if max_age is None:
+                                max_age = current_year - min_birth_year
+                                self.logger.debug(f"[TOLERANCES] Calculated max_age from birth years: {max_age}")
+                            
+                            tolerance_settings["ageRange"] = {
+                                "minAge": min_age,
+                                "maxAge": max_age
+                            }
+                            self.logger.debug(f"[TOLERANCES] Age range from config: {min_age}-{max_age}")
+                    except Exception as e:
+                        self.logger.warning(f"Could not extract age range from config: {e}")
+                
+                # Extract birth years eligible for double start from config
+                double_start_years = []
+                if config_repo and hasattr(config_repo, 'age_eligibility') and config_repo.age_eligibility is not None:
+                    try:
+                        # Use existing get_all_eligible_age_groups method to detect double starts
+                        for _, row in config_repo.age_eligibility.iterrows():
+                            birth_year = row.get('BirthYear')
+                            if birth_year is None:
+                                continue
+                            
+                            # A birth year allows double start if it has multiple eligible age groups
+                            eligible_groups = config_repo.get_all_eligible_age_groups(int(birth_year))
+                            if len(eligible_groups) > 1:
+                                double_start_years.append(int(birth_year))
+                        
+                        if double_start_years:
+                            tolerance_settings["doubleStartYears"] = sorted(double_start_years, reverse=True)
+                            self.logger.debug(f"[TOLERANCES] Double start years from config: {tolerance_settings['doubleStartYears']}")
+                    except Exception as e:
+                        self.logger.warning(f"Could not extract double start years from config: {e}")
+                
+                # Extract age class categories and save actual float tolerance values from dialog
+                tolerance_settings["ageClassTolerance"] = {
+                    "mixed": {},
+                    "male": {},
+                    "female": {}
                 }
                 
                 for (gender, age_group), tolerance_value in configured_tolerances.items():
-                    # Map age group: '18+' -> 'Senior'
-                    mapped_age_group = 'Senior' if age_group == '18+' else age_group
+                    # Map age group: '18+' -> 'Aktive' for the JSON output
+                    mapped_age_group = 'Aktive' if age_group == '18+' else age_group
+                    
+                    # Convert to float and preserve decimal precision
+                    try:
+                        tol_float = float(tolerance_value)
+                    except (ValueError, TypeError):
+                        tol_float = 0.0
                     
                     if gender == 'mixed':
                         # Mixed categories (U9, U11)
-                        tolerance_settings["ageClassTolerance"]["mixed"][mapped_age_group] = int(tolerance_value)
+                        tolerance_settings["ageClassTolerance"]["mixed"][mapped_age_group] = tol_float
                     else:
                         # Gender-specific categories (U13+)
                         if gender == 'm':
-                            tolerance_settings["ageClassTolerance"]["male"][mapped_age_group] = int(tolerance_value)
+                            tolerance_settings["ageClassTolerance"]["male"][mapped_age_group] = tol_float
                         elif gender == 'w':
-                            tolerance_settings["ageClassTolerance"]["female"][mapped_age_group] = int(tolerance_value)
+                            tolerance_settings["ageClassTolerance"]["female"][mapped_age_group] = tol_float
                 
                 tolerances_file = os.path.join(save_dir, 'tolerance_settings.json')
                 with open(tolerances_file, 'w', encoding='utf-8') as f:
                     json.dump(tolerance_settings, f, indent=2, ensure_ascii=False)
                 self.logger.info(f"Saved tolerance configuration to: {tolerances_file}")
+                self.logger.debug(f"[TOLERANCES] Configuration saved: {tolerance_settings}")
             
             if self.ui_feedback:
                 self.ui_feedback.set_status("Split complete! Files ready for weighing.", '#00cc00')

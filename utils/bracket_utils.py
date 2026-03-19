@@ -250,6 +250,15 @@ def export_all_brackets(participants, event_year=None):
                     logger.info(f"Doublestart höher: {name!r} → {age_group} + {higher_group}")
                 else:
                     logger.warning(f"Doublestart höher: {name!r} already in highest eligible group ({age_group}), no higher group available")
+        
+        elif doublestart in ('doppel', 'double', 'duplex', 'ja') and birth_year is not None:
+            all_eligible = bracket_config.get_all_eligible_age_groups(birth_year)
+            if len(all_eligible) > 1:
+                # "doppel"/"ja" = add to ALL eligible age groups
+                age_groups_to_enter = all_eligible
+                logger.info(f"Doublestart doppel/ja: {name!r} → entered in {len(all_eligible)} age groups: {age_groups_to_enter}")
+            else:
+                logger.debug(f"Doublestart doppel/ja: {name!r} has only one eligible age group, no duplication needed")
 
         # Create participant copy with birth_year
         p_copy = dict(p)
