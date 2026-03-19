@@ -247,7 +247,7 @@ class GenerationMethodScreen(tk.Frame):
 
         # LEFT PANEL: Unassigned Brackets
         left_panel = create_panel_frame(self.main_frame)
-        left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=False, padx=SPACING['sm'], pady=SPACING['sm'])
+        left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=SPACING['sm'], pady=SPACING['sm'])
 
         # Left title
         left_title = tk.Label(
@@ -277,7 +277,7 @@ class GenerationMethodScreen(tk.Frame):
             height=25,
         )
         apply_listbox_style(self.unassigned_listbox)
-        self.unassigned_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.unassigned_listbox.pack(side=tk.LEFT, fill=tk.X, expand=False)
         self.unassigned_listbox.bind('<<ListboxSelect>>', self.on_unassigned_select)
         scrollbar.config(command=self.unassigned_listbox.yview)
 
