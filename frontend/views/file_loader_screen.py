@@ -105,14 +105,6 @@ class FileLoaderScreen(tk.Frame):
         main_controls = create_dark_frame(self)
         main_controls.pack(pady=SPACING['md'], fill="x", expand=True)
 
-        load_xlsx_btn = tk.Button(
-            main_controls,
-            text="Teilnehmerliste laden (Excel) & Listen generieren",
-            command=self.on_load_xlsx_click,
-        )
-        apply_button_style(load_xlsx_btn, 'primary')
-        load_xlsx_btn.pack(pady=SPACING['sm'], fill="x", padx=SPACING['xl'])
-
         # Database load button
         db_btn = tk.Button(
             main_controls,
