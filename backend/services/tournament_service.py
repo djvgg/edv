@@ -220,12 +220,12 @@ class TournamentService:
             except (ValueError, TypeError):
                 pass
 
-        # Normalize doublestart value (accepts German: ja/nein/höher/beides)
-        ds_raw = str(raw.get('Doppelstart', raw.get('Doublestart', 'nein'))).strip().lower()
-        if ds_raw in ('höher', 'hoeher', 'higher'):
+        # Normalize doublestart value (accepts German: ja/nein/höher/beides, Mode: doppel, etc.)
+        ds_raw = str(raw.get('Doppelstart', raw.get('Doublestart', raw.get('Mode', 'nein')))).strip().lower()
+        if ds_raw in ('höher', 'hoeher', 'higher', 'hoher'):
             doublestart = 'höher'
-        elif ds_raw in ('ja', 'yes', 'true', '1', 'y', 'beides', 'both'):
-            doublestart = 'ja'
+        elif ds_raw in ('doppel', 'double', 'beides', 'both', 'ja', 'yes', 'true', '1', 'y'):
+            doublestart = 'doppel'
         else:
             doublestart = 'nein'
 

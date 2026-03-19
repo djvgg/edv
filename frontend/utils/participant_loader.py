@@ -167,10 +167,10 @@ def load_participants_from_xlsx(file_path):
                 if 'doppelstart' in col_lower or 'doublestart' in col_lower:
                     if pd.notna(row[col]):
                         ds_val = str(row[col]).strip().lower()
-                        if ds_val in ['höher', 'hoeher', 'higher']:
+                        if ds_val in ['höher', 'hoeher', 'higher', 'hoher']:
                             doublestart = 'höher'
-                        elif ds_val in ['ja', 'yes', 'true', '1', 'y', 'beides', 'both']:
-                            doublestart = 'ja'
+                        elif ds_val in ['doppel', 'double', 'beides', 'both', 'ja', 'yes', 'true', '1', 'y']:
+                            doublestart = 'doppel'
                         # else stays 'nein'
                     break
 
@@ -257,7 +257,7 @@ def normalize_participants(raw_participants):
             'Club': str(row.get('Club', '')).strip(),
             'Association': str(row.get('Association', '')).strip(),
             'Paid': paid,
-            'Doublestart': row.get('Doublestart', 'nein'),
+            'Doublestart': row.get('Doublestart', row.get('Mode', 'nein')),
         }
         
         normalized.append(normalized_row)

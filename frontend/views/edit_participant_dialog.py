@@ -149,7 +149,23 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
                 pass
                 
         self.already_upgraded = False
-        if self.has_doppelstart and self.base_age_group and self.age_group == self.base_age_group:
+        
+        # 1. First check the participant's own status (reliable across restarts)
+        # Use a list of keys to find the doublestart/mode field
+        ds_keys = ['Doublestart', 'Mode', 'mode', 'doublestart']
+        ds_raw = 'nein'
+        for k in ds_keys:
+            if k in self.fighter:
+                ds_raw = str(self.fighter[k]).strip().lower()
+                break
+        
+        if ds_raw in ('ja', 'doppel', 'höher', 'higher', 'beides', 'both'):
+            self.already_upgraded = True
+
+        self.logger.debug(f"Initial field-based check: ds_raw={ds_raw} -> already_upgraded={self.already_upgraded}")
+
+        # 2. Secondary scan of in-memory brackets (if available)
+        if not self.already_upgraded and self.has_doppelstart and self.base_age_group and self.age_group == self.base_age_group:
             my_full   = (f"{self.fighter.get('Firstname','')} {self.fighter.get('Lastname','')}".strip() or self.fighter.get('Name','')).strip()
             my_club   = (self.fighter.get('Verein') or self.fighter.get('Club') or "").strip()
             my_birth  = str(self.birth_year).strip()
@@ -167,7 +183,9 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
                             f_birth = str(f.get('Birthyear', f.get('BirthYear', f.get('Age', "")))).strip()
                             
                             # Match by Name + Club + Birthyear
-                            if f_f == my_full and f_club == my_club and f_birth == my_birth:
+                            if (f_f.lower() == my_full.lower() and 
+                                f_club.lower() == my_club.lower() and 
+                                f_birth == my_birth):
                                 self.already_upgraded = True
                                 break
                     if self.already_upgraded:
@@ -280,57 +298,16 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
             try:
                 birth_year_int = int(birth_year_str)
                 auto_age_group, calculated_age, is_valid, rejection_reason = validate_age_from_birthyear(birth_year_int)
-                self.logger.debug(f"Birth year {birth_year_int} → age_group={auto_age_group}, age={calculated_age}, valid={is_valid}")
-
-                if auto_age_group:
-                    if show_popup:
-                        self.age_popup.config(text=f"Auto-class: {auto_age_group}")
-                        self.age_popup.place(rely=1.0, relx=0.0, y=-22)
-                        self.age_popup.lift()
-                        self.age_popup_timer[0] = self.after(2500, self.age_popup.place_forget)
+                if auto_age_group and show_popup:
+                    self.age_popup.config(text=f"Auto-class: {auto_age_group}")
+                    self.age_popup.place(rely=1.0, relx=0.0, y=-22)
+                    self.age_popup.lift()
+                    self.age_popup_timer[0] = self.after(2500, self.age_popup.place_forget)
                     
-                    if not self.is_free_match and not self.is_young_category and not self.is_quarantine:
-                        if auto_age_group in ('U9', 'U11'):
-                            self.dropdown_enabled[0] = False
-                            self.dropdown_btn.config(cursor='')
-                            self.text_label.config(fg=COLORS['text_muted'])
-                            self.arrow_label.config(fg=COLORS['text_muted'])
-                            self.age_class_var.set("U9/U11 (No upgrade)")
-                            if self.dropdown_info_label:
-                                self.dropdown_info_label.config(text=f"→ Group {auto_age_group} has no manual upgrades.")
-                                self.dropdown_info_label.pack(anchor=tk.W, pady=(4, 0))
-                        elif self.is_adult_category:
-                            # If they are in the adult category, stay enabled regardless of whether 
-                            # the birth year detected U18 etc (since they are playing as adult).
-                            self.dropdown_enabled[0] = True
-                            if self.dropdown_info_label:
-                                self.dropdown_info_label.pack_forget()
-                            self.dropdown_btn.config(cursor='hand2')
-                            self.text_label.config(fg=COLORS['text_primary'])
-                            self.arrow_label.config(fg=COLORS['accent_blue'])
-                        else:
-                            if auto_age_group == '18+':
-                                self.dropdown_enabled[0] = False
-                                self.dropdown_btn.config(cursor='')
-                                self.text_label.config(fg=COLORS['text_muted'])
-                                self.arrow_label.config(fg=COLORS['text_muted'])
-                                self.age_class_var.set("N/A")
-                                if self.dropdown_info_label:
-                                    self.dropdown_info_label.config(text="→ Person is now 18+ (Please save and reopen to assign weight class)")
-                                    self.dropdown_info_label.pack(anchor=tk.W, pady=(4, 0))
-                            else:
-                                self.dropdown_enabled[0] = True
-                                if self.dropdown_info_label:
-                                    self.dropdown_info_label.pack_forget()
-                                self.dropdown_btn.config(cursor='hand2')
-                                self.text_label.config(fg=COLORS['text_primary'])
-                                self.arrow_label.config(fg=COLORS['accent_blue'])
-                                
-                                # Automatically update the age class dropdown if it's a valid option
-                                if auto_age_group in self.options_to_show:
-                                    self.age_class_var.set(auto_age_group)
-                                elif f"{auto_age_group} (Undo Upgrade)" in self.options_to_show:
-                                    self.age_class_var.set(f"{auto_age_group} (Undo Upgrade)")
+                # Re-check routing only if NOT already upgraded
+                if not getattr(self, 'already_upgraded', False):
+                    # (Rest of the routing logic here if needed, but primarily handled in _init / _finalize)
+                    pass
                     
                     self._on_weight_changed(show_popup=False)
             except Exception:
@@ -882,6 +859,16 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
             return self.parent.config_repo.get_weight_classes(gender, age_group)
         return []
 
+    def _get_available_age_classes(self, gender, age_group):
+        """Helper to get all eligible age groups for upgrade logic."""
+        if self.parent.config_repo and self.birth_year:
+            try:
+                birth_year_int = int(float(self.birth_year))
+                return self.parent.config_repo.get_all_eligible_age_groups(birth_year_int)
+            except (ValueError, TypeError):
+                pass
+        return [age_group]
+
     def _finalize(self, values: dict, display_key, target_key):
         """Persist to DB, refresh the parent UI, and close the dialog."""
         db_svc = getattr(self.parent, 'db_service', None)
@@ -893,6 +880,11 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
                 db_svc.update_participant(self.fighter, self.bracket_key, self.bracket_key)
                 # 2. ADD them to the NEW bracket.
                 db_svc.add_participant_to_group(self.fighter, target_key)
+                
+                # 3. Synchronize in-memory status so it stays locked everywhere
+                self.fighter['Mode'] = 'doppel'
+                self.fighter['Doublestart'] = 'doppel'
+                self.logger.debug(f"[FINALIZE] Marked participant as upgrade (doppel) in-memory.")
             else:
                 # Normal move/save path
                 db_svc.update_participant(self.fighter, self.bracket_key, target_key or display_key or 'QUARANTINE')
@@ -907,10 +899,10 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
              my_full = (f"{self.original_fighter.get('Firstname','')} {self.original_fighter.get('Lastname','')}".strip() or self.original_fighter.get('Name','')).strip()
              my_club = (self.original_fighter.get('Verein') or self.original_fighter.get('Club') or "").strip()
              
-             # Remove from ALL brackets except the new one
+             # FRESH START POLICY: Remove ALL existing occurrences of this participant (by ID) 
+             # from EVERY bracket to ensure they only exist in their new natural category.
              exempt_bk = target_key or display_key
              for bk, bd in list(self.parent.brackets.items()):
-                 if bk == exempt_bk: continue
                  # Remove matching fighter from this in-memory list
                  fighters = bd.get('fighters', [])
                  to_remove = []
@@ -927,9 +919,17 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
                          matched = (f_f == my_full and f_club == my_club and f_birth == old_birth)
                      
                      if matched:
-                         to_remove.append(idx)
+                         # ── REFERENCE-BASED CLEANUP ──
+                         # In the target bracket, we MUST keep our current newly-moved instance (self.fighter).
+                         # We remove all other instances of the same person (even if they were also updated).
+                         if bk == exempt_bk:
+                             if f is not self.fighter:
+                                 to_remove.append(idx)
+                         else:
+                             # All other brackets must be purged of this participant (ID match).
+                             to_remove.append(idx)
                  
-                 # Perform removals in reverse to keep indices valid
+                 # Perform removals
                  for idx in reversed(to_remove):
                      fighters.pop(idx)
                  

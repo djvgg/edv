@@ -28,7 +28,7 @@ class Participant(Base):
     association = Column(String(200))
     valid       = Column(Boolean, default=False)
     paid        = Column(Boolean, default=False)
-    doublestart = Column(String(10), default='nein')   # 'nein', 'ja', 'höher'
+    doublestart = Column(String(10), default='nein')   # 'nein', 'doppel', 'höher'
 
     group_participants = relationship('GroupParticipant', back_populates='participant')
 

@@ -170,9 +170,13 @@ class _UIBuilderMixin:
                     if getattr(self, 'already_upgraded', False):
                         self.options_to_show = [self.age_group]
                         self.dropdown_enabled[0] = False
-                        if hasattr(self, 'dropdown_info_label') and self.dropdown_info_label:
-                            self.dropdown_info_label.config(text="Already upgraded to higher age class.", fg=COLORS['text_muted'])
-                            self.dropdown_info_label.pack(anchor=tk.W, pady=(4, 0))
+                        
+                        # Initialize info label if not already done
+                        if not hasattr(self, 'dropdown_info_label') or not self.dropdown_info_label:
+                             self.dropdown_info_label = tk.Label(self.weight_class_frame, bg=COLORS['bg_dark'], font=FONTS['preview_hint'])
+                        
+                        self.dropdown_info_label.config(text="Already upgraded to higher age class.", fg=COLORS['text_muted'])
+                        self.dropdown_info_label.pack(anchor=tk.W, pady=(4, 0))
                     else:
                         if base and self.age_group != base:
                             self.options_to_show = [self.age_group, f"{base} (Undo Upgrade)"]
@@ -180,7 +184,15 @@ class _UIBuilderMixin:
                             # They are in their base class and haven't upgraded yet
                             avail = self._get_available_age_classes(self.gender, self.age_group)
                             if avail:
-                                self.options_to_show = [self.age_group, avail[0]]
+                                avail_filtered = [ag for ag in avail if ag != self.age_group]
+                                if avail_filtered:
+                                     self.options_to_show = [self.age_group, avail_filtered[0]]
+                        
+                        # FINAL SAFETY: If already upgraded, strip ALL other options except the current group
+                        if getattr(self, 'already_upgraded', False):
+                            self.options_to_show = [self.age_group]
+                            self.dropdown_enabled[0] = False
+                            self.logger.debug(f"[GEN_OPTIONS] REINFORCING LOCK: Participant ALREADY UPGRADED. Options set to {self.options_to_show}")
                 else:
                     self.options_to_show = [self.age_group]
                     self.dropdown_enabled[0] = False
