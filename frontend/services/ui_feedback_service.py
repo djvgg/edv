@@ -62,29 +62,29 @@ class UIFeedbackService:
         # Create a loading window
         self.loading_window = tk.Toplevel(self.root)
         self.loading_window.title("Loading...")
-        self.loading_window.geometry("400x150")
+        self.loading_window.geometry("600x160")
         self.loading_window.configure(bg=COLORS['bg_dark'])
         self.loading_window.resizable(False, False)
-        
+
         # Make it modal
         self.loading_window.transient(self.root)
         self.loading_window.grab_set()
-        
+
         # Center on parent window
         self.loading_window.update_idletasks()
-        x = self.root.winfo_x() + (self.root.winfo_width() - 400) // 2
-        y = self.root.winfo_y() + (self.root.winfo_height() - 150) // 2
+        x = self.root.winfo_x() + (self.root.winfo_width() - 600) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - 160) // 2
         self.loading_window.geometry(f"+{x}+{y}")
-        
+
         # Message label
         msg_label = tk.Label(self.loading_window, text=message)
         apply_label_style(msg_label, 'heading_md')
         msg_label.pack(pady=(20, 10))
-        
+
         # Progress bar
         self.progress_var = tk.IntVar(value=0)
         progress_bar = ttk.Progressbar(self.loading_window, variable=self.progress_var,
-                                       maximum=100, length=350, mode='determinate')
+                                       maximum=100, length=550, mode='determinate')
         progress_bar.pack(pady=10, padx=20)
         
         # Percentage label

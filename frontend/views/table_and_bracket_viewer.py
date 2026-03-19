@@ -156,7 +156,7 @@ class TableAndBracketViewer(tk.Frame):
         apply_button_style(back_to_gen_btn, 'secondary')
         back_to_gen_btn.pack(side=tk.LEFT, padx=5)
 
-        monitor_btn = tk.Button(tables_nav_frame, text='Kampfüberwachung',
+        monitor_btn = tk.Button(tables_nav_frame, text='Fertige Kampflisten',
                                 command=self._on_monitoring_clicked)
         apply_button_style(monitor_btn, 'primary')
         monitor_btn.pack(side=tk.RIGHT, padx=5)
@@ -258,9 +258,8 @@ class TableAndBracketViewer(tk.Frame):
             self.main_window.screen_manager.navigate_to('generation_method')
     
     def _on_monitoring_clicked(self):
-        """Handle fight monitoring button click."""
         if self.main_window:
-            self.main_window.screen_manager.navigate_to('fight_monitoring')
+            self.main_window.screen_manager.navigate_to('results')
 
     def show_tables(self):
         """Show table assignment view."""

@@ -245,8 +245,8 @@ class BracketViewerApp(tk.Tk):
             screen_factory=bracket_viewer_factory
         )
         self.screen_manager.register_screen(
-            'fight_monitoring', None, 'Kampfüberwachung', locked=False,
-            screen_factory=fight_monitoring_factory
+            'results', None, 'Fertige Kampflisten', locked=False,
+            screen_factory=results_factory
         )
 
         self.logger.debug("All screens registered with ScreenManager")
