@@ -88,7 +88,7 @@ class TableAndBracketViewer(tk.Frame):
         title_frame = create_dark_frame(left_frame)
         title_frame.pack(fill=tk.X, pady=(0, 5))
 
-        title_label = tk.Label(title_frame, text='Unassigned Brackets')
+        title_label = tk.Label(title_frame, text='Offene Listen')
         apply_label_style(title_label, 'heading_md')
         title_label.pack(side=tk.LEFT)
 
@@ -101,7 +101,7 @@ class TableAndBracketViewer(tk.Frame):
         search_frame = create_dark_frame(left_frame)
         search_frame.pack(fill=tk.X, pady=(0, 5))
 
-        search_label = tk.Label(search_frame, text='Search:')
+        search_label = tk.Label(search_frame, text='Suche:')
         apply_label_style(search_label, 'info')
         search_label.pack(side=tk.LEFT)
 
@@ -122,7 +122,7 @@ class TableAndBracketViewer(tk.Frame):
         assign_container = create_dark_frame(left_frame)
         assign_container.pack(pady=8, fill=tk.X, padx=5)
 
-        assign_label = tk.Label(assign_container, text='Assign Selected:')
+        assign_label = tk.Label(assign_container, text='Auswahl zuweisen:')
         apply_label_style(assign_label, 'info')
         assign_label.pack(anchor=tk.W, pady=(0, 3))
 
@@ -134,7 +134,7 @@ class TableAndBracketViewer(tk.Frame):
             btn.pack(fill=tk.X, pady=1)
 
         # Auto-assign button
-        auto_btn = tk.Button(assign_container, text='Auto-assign All',
+        auto_btn = tk.Button(assign_container, text='Alle automatisch zuweisen',
                            command=self.auto_assign_tables)
         apply_button_style(auto_btn, 'primary')
         auto_btn.pack(fill=tk.X, pady=(5, 0))
@@ -151,11 +151,16 @@ class TableAndBracketViewer(tk.Frame):
         tables_nav_frame = create_dark_frame(self.tables_frame)
         tables_nav_frame.grid(row=0, column=0, columnspan=2, sticky='ew', padx=18, pady=10)
         
-        back_to_gen_btn = tk.Button(tables_nav_frame, text='← Back to Generation Setup',
+        back_to_gen_btn = tk.Button(tables_nav_frame, text='← Zurück zur Erstellung',
                                     command=self._on_back_to_generation)
         apply_button_style(back_to_gen_btn, 'secondary')
         back_to_gen_btn.pack(side=tk.LEFT, padx=5)
 
+        monitor_btn = tk.Button(tables_nav_frame, text='Kampfüberwachung',
+                                command=self._on_monitoring_clicked)
+        apply_button_style(monitor_btn, 'primary')
+        monitor_btn.pack(side=tk.RIGHT, padx=5)
+        
         # Create table panels
         for i, (row, col) in enumerate([(1, 0), (1, 1), (2, 0), (2, 1)]):
             table_num = i + 1
@@ -179,7 +184,7 @@ class TableAndBracketViewer(tk.Frame):
         top_bar = create_dark_frame(self.bracket_view_frame)
         top_bar.pack(fill=tk.X, pady=(0, 5), padx=5)
 
-        self.viz_title_var = tk.StringVar(value='Bracket Visualization')
+        self.viz_title_var = tk.StringVar(value='Bracket Visualisierung')
         viz_title = tk.Label(top_bar, textvariable=self.viz_title_var)
         apply_label_style(viz_title, 'heading_md')
         viz_title.pack(side=tk.LEFT, pady=0)
@@ -232,7 +237,7 @@ class TableAndBracketViewer(tk.Frame):
         x_scroll.pack(side=tk.BOTTOM, fill=tk.X)
         self.bracket_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        back_btn = tk.Button(self.bracket_view_frame, text='Back to Matten',
+        back_btn = tk.Button(self.bracket_view_frame, text='Zurück zu den Matten',
                             command=self.show_tables)
         apply_button_style(back_btn, 'secondary')
         back_btn.pack(pady=5)
@@ -573,7 +578,7 @@ class TableAndBracketViewer(tk.Frame):
             total_frame = create_dark_frame(content_frame)
             total_frame.pack(fill=tk.X, pady=2, padx=4)
             
-            total_text = f"Table Total: {fighter_total} players • {fight_total} matches"
+            total_text = f"Matte Gesamt: {fighter_total} Kämpfer • {fight_total} Kämpfe"
             total_label = tk.Label(total_frame, text=total_text,
                                   justify='left', anchor='w',
                                   bg=COLORS['bg_panel'], fg=COLORS['accent_orange'],
@@ -640,7 +645,7 @@ class TableAndBracketViewer(tk.Frame):
                 return
 
             self.logger.debug(f"Rendering as KO bracket (method: {assigned_method})")
-            self.viz_title_var.set('Bracket Visualization (KO)')
+            self.viz_title_var.set('Bracket Visualisierung (KO)')
 
             # Normalize participants and generate bracket rounds
             normalized_participants = []

@@ -120,14 +120,14 @@ class ToleranceConfigDialog:
             or None if user cancelled.
         """
         self.dialog = tk.Toplevel(self.parent)
-        self.dialog.title("Configure Weight Tolerances")
+        self.dialog.title("Gewichtstoleranzen konfigurieren")
         self.dialog.geometry("450x400")
         self.dialog.configure(bg=COLORS['bg_dark'])
         self.dialog.transient(self.parent)
         self.dialog.grab_set()
         
         # Title
-        title_lbl = tk.Label(self.dialog, text="Weight Tolerances per Group",
+        title_lbl = tk.Label(self.dialog, text="Gewichtstoleranzen pro Gruppe",
                              bg=COLORS['bg_dark'], fg=COLORS['text_primary'],
                              font=FONTS['preview_title'])
         title_lbl.pack(pady=10)
@@ -135,7 +135,7 @@ class ToleranceConfigDialog:
         # Info
         info_lbl = tk.Label(
             self.dialog, 
-            text="Set clothing tolerance (0.0–2.0 kg, 100g steps) for each group:",
+            text="Toleranz (0.0–2.0 kg, 100g-Schritte) pro Gruppe festlegen:",
             bg=COLORS['bg_dark'], fg=COLORS['text_secondary'],
             font=FONTS['preview_info']
         )
@@ -178,12 +178,12 @@ class ToleranceConfigDialog:
         sorted_groups = sorted(self.group_keys, key=lambda x: (x[0], x[1]))
         
         # Header
-        hdr_group = tk.Label(table_frame, text="Group", width=20, anchor='w',
+        hdr_group = tk.Label(table_frame, text="Gruppe", width=20, anchor='w',
                              bg=COLORS['bg_dark'], fg=COLORS['accent_blue'],
                              font=FONTS['list_mono_bold'])
         hdr_group.grid(row=0, column=0, padx=5, pady=2)
         
-        hdr_tol = tk.Label(table_frame, text="Tolerance (kg)", width=15, 
+        hdr_tol = tk.Label(table_frame, text="Toleranz (kg)", width=15, 
                           anchor='w', bg=COLORS['bg_dark'], 
                           fg=COLORS['accent_blue'],
                           font=FONTS['list_mono_bold'])
@@ -197,7 +197,7 @@ class ToleranceConfigDialog:
             if g == 'mixed':
                 label_text = f"{ag} (Mixed)"
             else:
-                gender_text = 'Male' if g == 'm' else 'Female'
+                gender_text = 'Männlich' if g == 'm' else 'Weiblich'
                 label_text = f"{ag} {gender_text}"
             
             lbl = tk.Label(table_frame, text=label_text, anchor='w', width=20,
@@ -227,16 +227,16 @@ class ToleranceConfigDialog:
             logger.info(f"Saved tolerances: {self.result}")
             self.dialog.destroy()
         
-        ok_btn = tk.Button(btn_frame, text='Save', command=save_all,
+        ok_btn = tk.Button(btn_frame, text='Speichern', command=save_all,
                           bg=COLORS['accent_green'], fg=COLORS['text_primary'],
-                          font=FONTS['body_md'], bd=0, padx=15, pady=8, 
+                          font=FONTS['body_md'], bd=0, padx=15, pady=8, width=20,
                           cursor='hand2')
         ok_btn.pack(side=tk.RIGHT)
         
-        cancel_btn = tk.Button(btn_frame, text='Cancel', 
+        cancel_btn = tk.Button(btn_frame, text='Abbrechen', 
                               command=lambda: self.dialog.destroy(),
                               bg=COLORS['bg_panel'], fg=COLORS['text_secondary'],
-                              font=FONTS['body_md'], bd=0, padx=15, pady=8, 
+                              font=FONTS['body_md'], bd=0, padx=15, pady=8, width=20,
                               cursor='hand2')
         cancel_btn.pack(side=tk.RIGHT, padx=10)
         

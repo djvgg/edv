@@ -77,7 +77,7 @@ class _RendererMixin:
                 return
 
             self.logger.debug(f"Rendering as KO bracket (method: {assigned_method})")
-            self.viz_title_var.set('Bracket Visualization (KO)')
+            self.viz_title_var.set('Bracket Visualisierung (KO)')
 
             # Normalize participants and generate bracket rounds
             normalized_participants = []

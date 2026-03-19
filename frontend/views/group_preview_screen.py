@@ -242,7 +242,7 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         title_frame = create_dark_frame(left_frame)
         title_frame.pack(fill=tk.X, pady=(0, SPACING['sm']))
 
-        title_label = tk.Label(title_frame, text='Weight Groups')
+        title_label = tk.Label(title_frame, text='Gewichtsklassen')
         apply_label_style(title_label, 'heading_md')
         title_label.pack(side=tk.LEFT)
 
@@ -256,14 +256,14 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         search_frame = create_dark_frame(left_frame)
         search_frame.pack(fill=tk.X, pady=(0, SPACING['sm']))
 
-        search_label = tk.Label(search_frame, text='Search:')
+        search_label = tk.Label(search_frame, text='Suche:')
         apply_label_style(search_label, 'info')
         search_label.pack(side=tk.LEFT)
 
         self.preview_search_var = tk.StringVar()
         self.preview_search_var.trace('w', self._on_search_changed)
         search_entry = tk.Entry(search_frame, textvariable=self.preview_search_var, fg=COLORS['text_muted'])
-        search_entry.insert(0, "M, W, age, or kg")
+        search_entry.insert(0, "m, w, Alter oder kg")
         search_entry.bind('<FocusIn>', lambda e: self._on_search_focus_in(search_entry))
         apply_entry_style(search_entry)
         search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=SPACING['sm'])
@@ -281,7 +281,7 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         parent_paned.add(right_frame, minsize=450)
 
         # Title
-        self.preview_title_var = tk.StringVar(value="Participant Preview")
+        self.preview_title_var = tk.StringVar(value="Teilnehmer-Vorschau")
         title_label = tk.Label(right_frame, textvariable=self.preview_title_var)
         apply_label_style(title_label, 'heading_md')
         title_label.pack(pady=(0, SPACING['md']))
@@ -292,7 +292,7 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
 
         placeholder = tk.Label( 
             self.participant_display_frame, 
-            text="Double-click a group to preview participants",
+            text="Doppelklick zur Vorschau",
         )
         apply_label_style(placeholder, 'info')
         placeholder.pack(expand=True)
@@ -302,17 +302,17 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         button_frame = create_dark_frame(parent_frame)
         button_frame.pack(fill=tk.X, pady=(10, 0))
 
-        back_btn = tk.Button(button_frame, text='← Back to File Loader', command=self._on_back)
+        back_btn = tk.Button(button_frame, text='← Zurück zum Dateilader', command=self._on_back)
         apply_button_style(back_btn, 'secondary')
         back_btn.pack(side=tk.LEFT, padx=SPACING['sm'])
 
-        merge_btn = tk.Button(button_frame, text='⧉ Friendly Match', command=self._on_friendly_match)
+        merge_btn = tk.Button(button_frame, text='⧉ Freundschaftskampf-Modus', command=self._on_friendly_match)
         apply_button_style(merge_btn, 'secondary')
         merge_btn.pack(side=tk.LEFT, padx=SPACING['sm'])
 
         continue_btn = tk.Button(
             button_frame,
-            text='Continue to Generation Setup →',
+            text='Weiter zur Erstellung →',
             command=self._on_continue,
         )
         apply_button_style(continue_btn, 'primary')
@@ -345,7 +345,13 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
                 total_participants += count
                 groups_added.append(bracket_key)
 
-                display_text = self._get_display_text_for_bracket(bracket_key, count)
+                display_key = bracket_key
+                if bracket_key.startswith("QUARANTINE_"):
+                    reason = bracket_key.replace("QUARANTINE_", "")
+                    t_map = {"marked_invalid": "Ungültig", "unpaid": "Unbezahlt", "age_too_young": "Zu jung"}
+                    display_key = f"QUARANTÄNE_{t_map.get(reason, reason)}"
+                
+                display_text = f"{display_key} ({count})"
                 self.group_listbox.insert(tk.END, display_text)
                 self.group_listbox_map[display_text] = bracket_key
 
@@ -388,7 +394,13 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
             count = len(fighters)
             total_filtered += count
             
-            display_text = self._get_display_text_for_bracket(bracket_key, count)
+            display_key = bracket_key
+            if bracket_key.startswith("QUARANTINE_"):
+                reason = bracket_key.replace("QUARANTINE_", "")
+                t_map = {"marked_invalid": "Ungültig", "unpaid": "Unbezahlt", "age_too_young": "Zu jung"}
+                display_key = f"QUARANTÄNE_{t_map.get(reason, reason)}"
+            
+            display_text = f"{display_key} ({count})"
             self.group_listbox.insert(tk.END, display_text)
             self.group_listbox_map[display_text] = bracket_key
 
@@ -437,7 +449,13 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
             if fighters:
                 self.logger.debug(f"DEBUG: First fighter: {fighters[0]}")
 
-        self.preview_title_var.set(f"{bracket_key} - {count} participants")
+        display_key = bracket_key
+        if bracket_key.startswith("QUARANTINE_"):
+            reason = bracket_key.replace("QUARANTINE_", "")
+            t_map = {"marked_invalid": "Ungültig", "unpaid": "Unbezahlt", "age_too_young": "Zu jung"}
+            display_key = f"QUARANTÄNE_{t_map.get(reason, reason)}"
+
+        self.preview_title_var.set(f"{display_key} - {count} Teilnehmer")
 
         gender, age_group, weight_class = self._parse_bracket_key(bracket_key)
         self._create_tolerance_bar(self.participant_display_frame, gender, age_group)
@@ -511,13 +529,13 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         )
 
         header = (
-            f"{'Firstname':<{COL_FIRSTNAME}}{'Lastname':<{COL_LAST}}"
-            f"{'Birthyear':<{COL_BIRTH}}{'Club':<{COL_CLUB}}"
-            f"{'Association':<{COL_ASSOCIATION}}{'Weight':<{COL_WEIGHT}}"
-            f"{'Gender':<{COL_GENDER}}\n"
+            f"{'Vorname':<{COL_FIRSTNAME}}{'Nachname':<{COL_LAST}}"
+            f"{'Jahrgang':<{COL_BIRTH}}{'Verein':<{COL_CLUB}}"
+            f"{'Verband':<{COL_ASSOCIATION}}{'Gewicht':<{COL_WEIGHT}}"
+            f"{'Geschl.':<{COL_GENDER}}\n"
         )
         text_widget.insert(tk.END, header, 'header')
-        text_widget.insert(tk.END, "=" * SEPARATOR_LENGTH + "\n")
+        text_widget.insert(tk.END, "─" * SEPARATOR_LENGTH + "\n")
 
         for idx, fighter in enumerate(fighters, 1):
             first       = str(fighter.get('Firstname', fighter.get('name', 'N/A')))
@@ -535,10 +553,17 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
             else:
                 weight_str = str(weight)
 
+            if gender_val.lower() == 'female':
+                gender_display = 'weiblich'
+            elif gender_val.lower() == 'male':
+                gender_display = 'männlich'
+            else:
+                gender_display = gender_val
+
             row = (
                 f"{first:<{COL_FIRSTNAME}}{last:<{COL_LAST}}{birth:<{COL_BIRTH}}"
                 f"{club:<{COL_CLUB}}{association:<{COL_ASSOCIATION}}"
-                f"{weight_str:<{COL_WEIGHT}}{gender_val:<{COL_GENDER}}\n"
+                f"{weight_str:<{COL_WEIGHT}}{gender_display:<{COL_GENDER}}\n"
             )
             text_widget.insert(tk.END, row, f'row_{idx}')
 

@@ -229,24 +229,24 @@ class BracketViewerApp(tk.Tk):
 
         # Register all screens
         self.screen_manager.register_screen(
-            'file_loader', None, 'File Loader', locked=False,
+            'file_loader', None, 'Dateilader', locked=False,
             screen_factory=file_loader_factory
         )
         self.screen_manager.register_screen(
-            'group_preview', None, 'Group Preview', locked=False,
+            'group_preview', None, 'Gruppenvorschau', locked=False,
             screen_factory=group_preview_factory
         )
         self.screen_manager.register_screen(
-            'generation_method', None, 'Generation Method', locked=False,
+            'generation_method', None, 'Wettkampfsystem', locked=False,
             screen_factory=generation_method_factory
         )
         self.screen_manager.register_screen(
-            'bracket_viewer', None, 'Bracket Viewer', locked=False,
+            'bracket_viewer', None, 'Listenansicht', locked=False, 
             screen_factory=bracket_viewer_factory
         )
         self.screen_manager.register_screen(
-            'results', None, 'Fertige Kampflisten', locked=False,
-            screen_factory=results_factory
+            'fight_monitoring', None, 'Kampfüberwachung', locked=False,
+            screen_factory=fight_monitoring_factory
         )
 
         self.logger.debug("All screens registered with ScreenManager")

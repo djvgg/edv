@@ -70,16 +70,15 @@ FONTS = {
     'body_sm': ('Rubik', 10),
     'body_xs': ('Rubik', 9),
 
-    'mono_md': ('Rubik Mono', 10),          # Technical Data
-    'mono_sm': ('Rubik Mono', 9),
+    'mono_md': ('Consolas', 10),              # Standard monospaced for technical data
+    'mono_sm': ('Consolas', 9),
     
     # Aliases for clarity
-    'data_table': ('Rubik Mono', 10),
-    'list_ui': ('Rubik', 11),                # List UI elements
+    'data_table': ('Consolas', 10),
     
     # Legacy fallbacks
-    'list_mono': ('Rubik Mono', 10),
-    'list_mono_bold': ('Rubik Mono', 10, 'bold'),
+    'list_mono': ('Consolas', 10),
+    'list_mono_bold': ('Consolas', 10, 'bold'),
     'preview_title': ('Rubik', 16, 'bold'), # Alias for heading_md
     'preview_text': ('Rubik', 11),           # Alias for body_md (entry fields)
     'preview_label': ('Rubik', 10),          # Alias for body_sm (warning labels)
