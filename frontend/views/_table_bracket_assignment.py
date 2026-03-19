@@ -213,7 +213,7 @@ class _AssignmentMixin:
             total_frame = create_dark_frame(content_frame)
             total_frame.pack(fill=tk.X, pady=2, padx=4)
 
-            total_text = f"Table Total: {fighter_total} players • {fight_total} matches"
+            total_text = f"Gesamt: {fighter_total} Kämpfer • {fight_total} Kämpfe"
             total_label = tk.Label(total_frame, text=total_text,
                                   justify='left', anchor='w',
                                   bg=COLORS['bg_panel'], fg=COLORS['accent_orange'],

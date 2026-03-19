@@ -69,9 +69,9 @@ class _ToleranceMixin:
 
         # Context-aware label
         if gender and age_group:
-            label_text = f'⚖ Tolerance for {gender} {age_group}:'
+            label_text = f'⚖ Toleranz für {gender} {age_group}:'
         else:
-            label_text = '⚖ Tolerance:'
+            label_text = '⚖ Toleranz:'
 
         lbl = tk.Label(bar, text=label_text)
         apply_label_style(lbl, 'info')
@@ -90,12 +90,12 @@ class _ToleranceMixin:
         apply_label_style(kg_lbl, 'info')
         kg_lbl.pack(side=tk.LEFT)
 
-        apply_btn = tk.Button(bar, text='Apply', command=self._on_tolerance_changed)
+        apply_btn = tk.Button(bar, text='Anwenden', command=self._on_tolerance_changed)
         apply_button_style(apply_btn, 'secondary')
         apply_btn.pack(side=tk.LEFT, padx=(10, 0))
 
         # Configure All button
-        config_all_btn = tk.Button(bar, text='⚙ Configure All', command=self._open_tolerance_config_dialog)
+        config_all_btn = tk.Button(bar, text='⚙ Alle konfig.', command=self._open_tolerance_config_dialog)
         apply_button_style(config_all_btn, 'secondary')
         config_all_btn.pack(side=tk.LEFT, padx=(10, 0))
 
@@ -116,18 +116,18 @@ class _ToleranceMixin:
     def _open_tolerance_config_dialog(self):
         """Open dialog to configure tolerances for all age-group/gender combos."""
         dialog = tk.Toplevel(self.winfo_toplevel())
-        dialog.title("Configure Weight Tolerances")
+        dialog.title("Gewichtstoleranzen konfigurieren")
         dialog.geometry("450x400")
         dialog.configure(bg=COLORS['bg_dark'])
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
 
-        title_lbl = tk.Label(dialog, text="Weight Tolerances per Group",
+        title_lbl = tk.Label(dialog, text="Gewichtstoleranzen pro Gruppe",
                              bg=COLORS['bg_dark'], fg=COLORS['text_primary'],
                              font=FONTS['preview_title'])
         title_lbl.pack(pady=10)
 
-        info_lbl = tk.Label(dialog, text="Set clothing tolerance (0.0–2.0 kg, 100g steps) for each group:",
+        info_lbl = tk.Label(dialog, text="Toleranz (0.0–2.0 kg, 100g-Schritte) pro Gruppe festlegen:",
                             bg=COLORS['bg_dark'], fg=COLORS['text_secondary'],
                             font=FONTS['preview_info'])
         info_lbl.pack(pady=(0, 10))
@@ -159,11 +159,11 @@ class _ToleranceMixin:
         sorted_groups = sorted(group_keys, key=lambda x: (x[0], x[1]))
 
         # Header
-        hdr_group = tk.Label(table_frame, text="Group", width=20, anchor='w',
+        hdr_group = tk.Label(table_frame, text="Gruppe", width=20, anchor='w',
                              bg=COLORS['bg_dark'], fg=COLORS['accent_blue'],
                              font=FONTS['list_mono_bold'])
         hdr_group.grid(row=0, column=0, padx=5, pady=2)
-        hdr_tol = tk.Label(table_frame, text="Tolerance (kg)", width=15, anchor='w',
+        hdr_tol = tk.Label(table_frame, text="Toleranz (kg)", width=15, anchor='w',
                            bg=COLORS['bg_dark'], fg=COLORS['accent_blue'],
                            font=FONTS['list_mono_bold'])
         hdr_tol.grid(row=0, column=1, padx=5, pady=2)
@@ -201,12 +201,12 @@ class _ToleranceMixin:
             if self.current_bracket_key:
                 self._display_participants(self.current_bracket_key)
 
-        ok_btn = tk.Button(btn_frame, text='Save', command=save_all,
+        ok_btn = tk.Button(btn_frame, text='Speichern', command=save_all,
                            bg=COLORS['accent_green'], fg=COLORS['text_primary'],
-                           font=FONTS['body_md'], bd=0, padx=15, pady=8, cursor='hand2')
+                           font=FONTS['body_md'], bd=0, padx=15, pady=8, width=20, cursor='hand2')
         ok_btn.pack(side=tk.RIGHT)
 
-        cancel_btn = tk.Button(btn_frame, text='Cancel', command=dialog.destroy,
+        cancel_btn = tk.Button(btn_frame, text='Abbrechen', command=dialog.destroy,
                                bg=COLORS['bg_panel'], fg=COLORS['text_secondary'],
-                               font=FONTS['body_md'], bd=0, padx=15, pady=8, cursor='hand2')
+                               font=FONTS['body_md'], bd=0, padx=15, pady=8, width=20, cursor='hand2')
         cancel_btn.pack(side=tk.RIGHT, padx=10)

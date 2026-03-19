@@ -107,15 +107,33 @@ class GenerationMethodScreen(tk.Frame):
     
     def _get_button_label(self, method_key):
         """Get button label for a method key."""
+        label = method_key
         if method_key in self.method_labels:
-            return self.method_labels[method_key].get('ButtonLabel', method_key)
-        return method_key
+            label = self.method_labels[method_key].get('ButtonLabel', method_key)
+        
+        # UI Translation
+        translation_map = {
+            'Pools': 'Pools',
+            'Double': 'Doppel',
+            'KO': 'KO',
+            'Special': 'Spezial'
+        }
+        return translation_map.get(label, label)
     
     def _get_display_label(self, method_key):
         """Get display label for a method key (for table titles)."""
+        label = method_key
         if method_key in self.method_labels:
-            return self.method_labels[method_key].get('DisplayLabel', method_key)
-        return method_key
+            label = self.method_labels[method_key].get('DisplayLabel', method_key)
+            
+        # UI Translation
+        translation_map = {
+            'Pools (≤5 fighters)': 'Pools (≤5 Kämpfer)',
+            'Double Pools (6-10)': 'Doppel-Pools (6-10)',
+            'KO Brackets (11+)': 'KO-System (11+)',
+            'Special Cases': 'Sonderfälle'
+        }
+        return translation_map.get(label, label)
 
     def load_data(self, brackets_dict=None):
         """
@@ -180,7 +198,7 @@ class GenerationMethodScreen(tk.Frame):
         # --- TITLE ---
         title = tk.Label(
             self,
-            text="Assign Generation Method to Brackets",
+            text="Wettkampfliste zu Methode zuweisen",
             bg=COLORS['bg_dark'],
             fg=COLORS['text_primary'],
         )
@@ -193,14 +211,14 @@ class GenerationMethodScreen(tk.Frame):
 
         back_btn = tk.Button(
             control_frame,
-            text="← Back",
+            text="← Zurück",
             command=self.on_back,
         )
         apply_button_style(back_btn, style='secondary')
         back_btn.pack(side=tk.LEFT, padx=SPACING['sm'])
 
-        search_label = tk.Label(control_frame, text="Search:", bg=COLORS['bg_dark'], fg=COLORS['text_primary'])
-        search_label.pack(side=tk.LEFT, padx=SPACING['sm'])
+        search_lbl = tk.Label(control_frame, text="Suche:", bg=COLORS['bg_dark'], fg=COLORS['text_primary'])
+        search_lbl.pack(side=tk.LEFT, padx=SPACING['sm'])
 
         self.search_entry = tk.Entry(control_frame, width=30, bg=COLORS['bg_input'], fg=COLORS['text_primary'])
         apply_entry_style(self.search_entry)
@@ -209,7 +227,7 @@ class GenerationMethodScreen(tk.Frame):
 
         auto_assign_btn = tk.Button(
             control_frame,
-            text="Auto-Assign",
+            text="Auto-Zuweisung",
             command=self.on_auto_assign,
         )
         apply_button_style(auto_assign_btn, style='primary')
@@ -217,7 +235,7 @@ class GenerationMethodScreen(tk.Frame):
 
         close_btn = tk.Button(
             control_frame,
-            text="Proceed",
+            text="Weiter",
             command=self.on_close,
         )
         apply_button_style(close_btn, style='success')
@@ -234,7 +252,7 @@ class GenerationMethodScreen(tk.Frame):
         # Left title
         left_title = tk.Label(
             left_panel,
-            text="Unassigned Brackets",
+            text="Offene Listen",
             bg=COLORS['bg_panel'],
             fg=COLORS['text_primary'],
             font=FONTS['heading_md'],
@@ -305,7 +323,7 @@ class GenerationMethodScreen(tk.Frame):
 
         print_selected_btn = tk.Button(
             export_buttons_frame,
-            text="Print Selected",
+            text="Auswahl drucken",
             command=self.on_print_selected,
         )
         apply_button_style(print_selected_btn, style='secondary')
@@ -313,7 +331,7 @@ class GenerationMethodScreen(tk.Frame):
 
         export_all_btn = tk.Button(
             export_buttons_frame,
-            text="Export All",
+            text="Alle exportieren",
             command=self.on_export_all,
         )
         apply_button_style(export_all_btn, style='success')
@@ -453,7 +471,7 @@ class GenerationMethodScreen(tk.Frame):
         """Assign selected unassigned bracket to specified method."""
         if not self.selected_unassigned:
             self.logger.debug("Assign action failed: no bracket selected")
-            messagebox.showwarning("Warning", "Please select a bracket from the unassigned list")
+            messagebox.showwarning("Warnung", "Bitte wählen Sie ein Bracket aus der Liste aus")
             return
 
         self.logger.debug(f"Assigning {self.selected_unassigned} to {method}")
@@ -465,7 +483,7 @@ class GenerationMethodScreen(tk.Frame):
         """Unassign selected bracket from a method."""
         if method not in self.selected_in_tables:
             self.logger.debug(f"Unassign action failed: no bracket selected in {method} table")
-            messagebox.showwarning("Warning", "Please select a bracket from the table")
+            messagebox.showwarning("Warnung", "Bitte wählen Sie ein Bracket aus der Tabelle aus")
             return
 
         bracket_key = self.selected_in_tables[method]
@@ -475,7 +493,7 @@ class GenerationMethodScreen(tk.Frame):
     def on_auto_assign(self):
         """Automatically assign all unassigned brackets based on fighter count."""
         if not self.unassigned:
-            messagebox.showinfo("Info", "All brackets are already assigned!")
+            messagebox.showinfo("Info", "Alle Listen sind bereits zugewiesen!")
             return
 
         # Run in background thread to avoid UI freeze
@@ -503,12 +521,12 @@ class GenerationMethodScreen(tk.Frame):
                 assigned_count += 1
 
             self.logger.info(f"Auto-assigned {assigned_count} brackets")
-            self.master.after(0, lambda: messagebox.showinfo("Success", f"Auto-assigned {assigned_count} brackets"))
+            self.master.after(0, lambda: messagebox.showinfo("Erfolg", f"{assigned_count} Listen automatisch zugewiesen"))
 
         except Exception as e:
             error_msg = str(e)
             self.logger.error(f"Auto-assign error: {e}")
-            self.master.after(0, lambda msg=error_msg: messagebox.showerror("Error", msg))
+            self.master.after(0, lambda msg=error_msg: messagebox.showerror("Fehler", msg))
 
     def _assign_bracket(self, bracket_key, method):
         """Assign a bracket to a method."""
@@ -672,8 +690,8 @@ class GenerationMethodScreen(tk.Frame):
 
         if unassigned_count > 0:
             result = messagebox.askyesno(
-                "Warning",
-                f"You have {unassigned_count} unassigned brackets. Continue anyway?",
+                "Warnung",
+                f"Sie haben {unassigned_count} nicht zugewiesene Listen. Trotzdem fortfahren?",
             )
             if not result:
                 return
@@ -696,7 +714,7 @@ class GenerationMethodScreen(tk.Frame):
             self.master.on_generation_methods_selected(final_brackets)
         else:
             self.logger.warning("No callback set for generation method selection")
-            messagebox.showinfo("Success", "Bracket assignments finalized!")
+            messagebox.showinfo("Erfolg", "Zuweisung abgeschlossen!")
 
     def on_print_selected(self):
         """Generate Excel for the currently selected bracket only."""

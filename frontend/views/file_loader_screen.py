@@ -57,8 +57,8 @@ class FileLoaderScreen(tk.Frame):
         self.on_flush_database = None
 
         # UI state
-        self.info_var = tk.StringVar(value="[Waiting for data source...]")
-        self.status_var = tk.StringVar(value="Ready.")
+        self.info_var = tk.StringVar(value="[Warte auf Datenquelle...]")
+        self.status_var = tk.StringVar(value="Bereit.")
         self.status_label = None
         self.ui_initialized = False  # Track if UI has been built
 
@@ -73,7 +73,7 @@ class FileLoaderScreen(tk.Frame):
         # Header
         title = tk.Label(
             self,
-            text="Tournament Bracket Manager",
+            text="Turnier-Management-System",
             bg=COLORS['bg_dark'],
             fg=COLORS['text_primary'],
             font=FONTS['heading_xl'],
@@ -83,7 +83,7 @@ class FileLoaderScreen(tk.Frame):
 
         subtitle = tk.Label(
             self,
-            text="Bracket Generator & Viewer",
+            text="Listen-Generator & Ansicht",
             bg=COLORS['bg_dark'],
             fg=COLORS['text_secondary'],
         )
@@ -108,7 +108,7 @@ class FileLoaderScreen(tk.Frame):
 
         load_xlsx_btn = tk.Button(
             main_controls,
-            text="Load Participant List (XLSX) & Generate Brackets",
+            text="Teilnehmerliste laden (Excel) & Listen generieren",
             command=self.on_load_xlsx_click,
         )
         apply_button_style(load_xlsx_btn, 'primary')
@@ -117,7 +117,7 @@ class FileLoaderScreen(tk.Frame):
         # Database load button
         db_btn = tk.Button(
             main_controls,
-            text="Load from Database & Generate Brackets",
+            text="Aus Datenbank laden & Listen generieren",
             command=self.on_load_database_click,
         )
         apply_button_style(db_btn, 'primary')
@@ -126,7 +126,7 @@ class FileLoaderScreen(tk.Frame):
         # Load JSON files button
         json_btn = tk.Button(
             main_controls,
-            text="Load M/W JSON Files & Generate Brackets",
+            text="JSON-Dateien neu laden (m/w)",
             command=self.on_load_json_click,
         )
         apply_button_style(json_btn, 'primary')
@@ -135,7 +135,7 @@ class FileLoaderScreen(tk.Frame):
         # Split M/W button
         split_btn = tk.Button(
             main_controls,
-            text="Split M/W Contestants (XLSX → JSON)",
+            text="Teilnehmer nach Geschlecht trennen (Excel → JSON)",
             command=self.on_split_gender_click,
         )
         apply_button_style(split_btn, 'secondary')
@@ -144,7 +144,7 @@ class FileLoaderScreen(tk.Frame):
         # Flush Database button (moved into main stack for consistent layout)
         flush_btn = tk.Button(
             main_controls,
-            text="Flush Database (Delete All Data)",
+            text="Datenbank leeren (Alle Daten löschen)",
             command=self.on_flush_database_click,
         )
         apply_button_style(flush_btn, 'secondary')

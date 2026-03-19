@@ -344,7 +344,7 @@ class DataLoaderService:
 
             if not participants:
                 if self.ui_feedback:
-                    self.ui_feedback.set_status("Error: No valid participants found.", '#cc0000')  # accent_red
+                    self.ui_feedback.set_status("Fehler: Keine gültigen Teilnehmer gefunden.", '#cc0000')  # accent_red
                     self.ui_feedback.hide_loading_progress()
                 return
 
@@ -360,7 +360,8 @@ class DataLoaderService:
                 self.ui_feedback.update_progress(80)
 
             if self.ui_feedback:
-                self.ui_feedback.set_status(f"Success! Generated {len(brackets)} brackets.", '#00cc00')  # accent_green
+                list_word = 'Liste' if len(brackets) == 1 else 'Listen'
+                self.ui_feedback.set_status(f"Erfolgreich! {len(brackets)} {list_word} generiert.", '#00cc00')  # accent_green
                 self.ui_feedback.update_progress(100)
                 self.ui_feedback.hide_loading_progress()
 
@@ -433,9 +434,9 @@ class DataLoaderService:
 
             if not participants:
                 if self.ui_feedback:
-                    self.ui_feedback.set_status("Error: No valid participants found in database.", '#cc0000')
+                    self.ui_feedback.set_status("Fehler: Keine gültigen Teilnehmer in der Datenbank gefunden.", '#cc0000')
                     self.ui_feedback.hide_loading_progress()
-                    self.ui_feedback.show_warning("No Data", "No valid participants found in database.")
+                    self.ui_feedback.show_warning("Keine Daten", "Keine gültigen Teilnehmer in der Datenbank gefunden.")
                 return
 
             total_fighters = len(participants)
@@ -450,7 +451,8 @@ class DataLoaderService:
                 self.ui_feedback.update_progress(80)
 
             if self.ui_feedback:
-                self.ui_feedback.set_status(f"Success! Generated {len(brackets)} brackets from database.", '#00cc00')
+                list_word = 'Liste' if len(brackets) == 1 else 'Listen'
+                self.ui_feedback.set_status(f"Erfolgreich! {len(brackets)} {list_word} aus Datenbank generiert.", '#00cc00')
                 self.ui_feedback.update_progress(100)
                 self.ui_feedback.hide_loading_progress()
 
@@ -620,7 +622,7 @@ class DataLoaderService:
                 self.ui_feedback.update_progress(60)
 
             if not all_participants:
-                error_msg = "No valid participants found in JSON files."
+                error_msg = "Keine gültigen Teilnehmer in JSON-Dateien gefunden."
                 self.logger.error(error_msg)
                 if self.ui_feedback:
                     self.ui_feedback.hide_loading_progress()
@@ -700,7 +702,7 @@ class DataLoaderService:
                 self.quarantine_service.create_quarantine_bracket(brackets, all_rejected)
 
             if not all_participants:
-                error_msg = "No valid participants found in JSON files."
+                error_msg = "Keine gültigen Teilnehmer in JSON-Dateien gefunden."
                 self.logger.error(error_msg)
                 if self.ui_feedback:
                     self.ui_feedback.hide_loading_progress()
@@ -710,7 +712,8 @@ class DataLoaderService:
             total_fighters = len(all_participants)
             self.logger.info(f"Total valid participants loaded: {total_fighters}")
             if self.ui_feedback:
-                self.ui_feedback.set_info_text(f"✓ {total_fighters} valid participants loaded from JSON files")
+                valid_word = 'gültiger' if total_fighters == 1 else 'gültige'
+                self.ui_feedback.set_info_text(f"✓ {total_fighters} {valid_word} Teilnehmer aus JSON-Dateien geladen")
                 self.ui_feedback.set_status("Generating brackets...", '#888888')
                 self.ui_feedback.update_progress(85)
             self.logger.info("Starting bracket generation...")
@@ -742,24 +745,27 @@ class DataLoaderService:
             if is_append_mode and existing_brackets:
                 existing_brackets.update(new_brackets)
                 brackets = existing_brackets
+                
+                list_word_new = 'Liste' if len(new_brackets) == 1 else 'Listen'
                 merge_summary = (
-                    f"Merged {len(new_brackets)} brackets. "
-                    f"Added {len(all_participants)} participants, "
-                    f"skipped {len(duplicates_skipped)} duplicates."
+                    f"{len(new_brackets)} {list_word_new} zusammengeführt. "
+                    f"{len(all_participants)} Teilnehmer hinzugefügt, "
+                    f"{len(duplicates_skipped)} Duplikate übersprungen."
                 )
                 self.logger.info(f"[APPEND] {merge_summary}{resync_note}")
             else:
                 # Fresh import mode
                 brackets = new_brackets
-                merge_summary = f"Fresh import: {len(all_participants)} participants."
+                merge_summary = f"Neu importiert: {len(all_participants)} Teilnehmer."
                 self.logger.info(f"[FRESH] {merge_summary}{resync_note}")
             
             if self.ui_feedback:
                 self.ui_feedback.update_progress(95)
             
+            list_word = 'Liste' if len(brackets) == 1 else 'Listen'
             status_msg = (
-                f"Success! Generated {len(brackets)} brackets. {merge_summary}"
-                if merge_summary else f"Success! Generated {len(brackets)} brackets from JSON files."
+                f"Erfolgreich! {len(brackets)} {list_word} generiert. {merge_summary}"
+                if merge_summary else f"Erfolgreich! {len(brackets)} {list_word} aus JSON-Dateien generiert."
             )
             if self.ui_feedback:
                 self.ui_feedback.set_status(status_msg, '#00cc00')

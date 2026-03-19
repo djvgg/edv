@@ -157,7 +157,7 @@ class _PoolMixin:
         var = tk.StringVar(value=current_val)
         entry_kwargs = dict(
             bg='white', fg='black',
-            font=('Consolas', max(7, int(9 * self.zoom_level))),
+            font=(FONTS['body_md'][0], max(7, int(9 * self.zoom_level))),
             justify='center', relief='flat', bd=0,
             highlightthickness=0,
         )

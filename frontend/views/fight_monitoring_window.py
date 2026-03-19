@@ -157,7 +157,7 @@ class FightMonitoringScreen(_KOMixin, _PoolMixin, tk.Frame):
         self._matten_frame = create_dark_frame(self._content)
 
         hint = tk.Label(self._matten_frame,
-                        text='Click a bracket to monitor its fights.')
+                        text='Klicke auf ein Bracket, um dessen Kämpfe zu überwachen.')
         apply_label_style(hint, 'info')
         hint.grid(row=0, column=0, columnspan=2, sticky='w', pady=(0, 8))
 
@@ -185,7 +185,7 @@ class FightMonitoringScreen(_KOMixin, _PoolMixin, tk.Frame):
                         if v == t]
             logger.info(f"  Mat {t}: {len(assigned)} brackets assigned: {assigned}")
             if not assigned:
-                lbl = tk.Label(panel, text='(no brackets assigned)',
+                lbl = tk.Label(panel, text='(Keine Brackets zugewiesen)',
                                bg=COLORS['bg_panel'], fg=COLORS['text_muted'],
                                font=FONTS['body_xs'])
                 lbl.pack(pady=14)
@@ -279,7 +279,7 @@ class FightMonitoringScreen(_KOMixin, _PoolMixin, tk.Frame):
         self._zoom_bar.pack_forget()
         self._matten_frame.pack(fill=tk.BOTH, expand=True)
 
-        self._back_btn.configure(text='← Back to Bracket Manager')
+        self._back_btn.configure(text='← Zurück zur Listenansicht')
         self._breadcrumb.set('Fight Monitoring')
         self.current_bracket_key = None
         self._refresh_matten_panels()

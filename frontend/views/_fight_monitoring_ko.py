@@ -256,7 +256,7 @@ class _KOMixin:
                                      fill=COLORS['accent_orange'], width=1, dash=(6, 4))
             self._canvas.create_text(SX, div_y - int(10 * z), text='Losers Bracket',
                                      anchor='w', fill=COLORS['accent_orange'],
-                                     font=('Arial', max(8, int(11 * z)), 'bold'))
+                                     font=(FONTS['body_md'][0], max(8, int(11 * z)), 'bold'))
             lb_max_y = self._render_loser_bracket(loser_rounds, lb_y_start,
                                                    z, BW, BH, XG, YG, SX, FS, LW)
             lb_max_x = SX + len(loser_rounds) * (BW + XG) + SX

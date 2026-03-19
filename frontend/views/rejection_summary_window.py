@@ -27,7 +27,7 @@ class RejectionSummaryWindow(tk.Toplevel):
             rejected_participants: List of dicts with rejection_reason and participant data
         """
         super().__init__(parent)
-        self.title("Rejected Participants")
+        self.title("Abgelehnte Teilnehmer")
         self.geometry("900x550")
         self.minsize(600, 300)
         self.result = None
@@ -41,7 +41,7 @@ class RejectionSummaryWindow(tk.Toplevel):
         
         title_label = tk.Label(
             header_frame,
-            text=f"Rejected Participants ({len(rejected_participants)})",
+            text=f"Abgelehnte Teilnehmer ({len(rejected_participants)})",
             font=FONTS['heading_lg'],
             bg=COLORS['bg_dark'],
             fg=COLORS['text_primary']
@@ -52,7 +52,7 @@ class RejectionSummaryWindow(tk.Toplevel):
         # Continue button in header (right side)
         continue_btn = tk.Button(
             header_frame,
-            text="Continue",
+            text="Weiter",
             command=self._on_close,
             bg=COLORS['accent_green'],
             fg=COLORS['text_primary'],
@@ -80,7 +80,7 @@ class RejectionSummaryWindow(tk.Toplevel):
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         # Treeview columns
-        columns = ('Name', 'Age', 'Reason')
+        columns = ('Name', 'Alter', 'Grund')
         self.tree = ttk.Treeview(
             tree_frame,
             columns=columns,
@@ -93,13 +93,13 @@ class RejectionSummaryWindow(tk.Toplevel):
         # Define column headings and widths
         self.tree.column('#0', width=0, stretch=tk.NO)
         self.tree.column('Name', anchor=tk.W, width=280)
-        self.tree.column('Age', anchor=tk.CENTER, width=100)
-        self.tree.column('Reason', anchor=tk.W, width=450)
+        self.tree.column('Alter', anchor=tk.CENTER, width=100)
+        self.tree.column('Grund', anchor=tk.W, width=450)
         
         self.tree.heading('#0', text='', anchor=tk.W)
         self.tree.heading('Name', text='Name', anchor=tk.W)
-        self.tree.heading('Age', text='Age', anchor=tk.CENTER)
-        self.tree.heading('Reason', text='Rejection Reason', anchor=tk.W)
+        self.tree.heading('Alter', text='Alter', anchor=tk.CENTER)
+        self.tree.heading('Grund', text='Ablehnungsgrund', anchor=tk.W)
         
         # Configure styling
         style = ttk.Style()
@@ -181,7 +181,7 @@ class RejectionSummaryWindow(tk.Toplevel):
         try:
             age_val = int(age)
             if age_val > 100:  # Likely a birthyear
-                return f"(b. {age_val})"
+                return f"(geb. {age_val})"
             else:  # Likely an age
                 return str(age_val)
         except (ValueError, TypeError):
@@ -193,10 +193,10 @@ class RejectionSummaryWindow(tk.Toplevel):
         
         # Format common reasons nicely
         reason_map = {
-            'unpaid': '❌ Not paid',
-            'age_too_young': '❌ Too young (< 6 years)',
-            'age_too_old': '❌ Too old (> 120 years)',
-            'invalid_birthyear': '❌ Invalid birth year'
+            'unpaid': '❌ Nicht bezahlt',
+            'age_too_young': '❌ Zu jung (< 6 Jahre)',
+            'age_too_old': '❌ Zu alt (> 120 Jahre)',
+            'invalid_birthyear': '❌ Ungültiges Geburtsjahr'
         }
         
         return reason_map.get(reason, f"❌ {reason}")

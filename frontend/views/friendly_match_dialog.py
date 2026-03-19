@@ -45,13 +45,13 @@ class FriendlyMatchDialog(tk.Toplevel):
 
     def _build_ui(self):
         tk.Label(
-            self, text="Create Friendly Match",
+            self, text="Freundschaftskampf erstellen",
             bg=COLORS['bg_dark'], fg=COLORS['text_primary'],
             font=FONTS['preview_title'],
         ).pack(pady=15)
 
         tk.Label(
-            self, text="Select exactly 2 fighters from groups with 1-2 participants:",
+            self, text="Wähle genau 2 Kämpfer aus Gruppen mit 1-2 Teilnehmern:",
             bg=COLORS['bg_dark'], fg=COLORS['text_secondary'],
             font=FONTS['preview_info'],
         ).pack(pady=(0, 10))
@@ -82,15 +82,15 @@ class FriendlyMatchDialog(tk.Toplevel):
         btn_frame.pack(fill=tk.X, padx=20, pady=15)
 
         tk.Button(
-            btn_frame, text="Create Match", command=self._on_confirm,
+            btn_frame, text="Wettkampf erstellen", command=self._on_confirm,
             bg=COLORS['accent_green'], fg=COLORS['text_primary'],
-            font=FONTS['body_md'], bd=0, padx=15, pady=8, cursor='hand2',
+            font=FONTS['body_md'], bd=0, padx=15, pady=8, width=20, cursor='hand2',
         ).pack(side=tk.RIGHT)
 
         tk.Button(
-            btn_frame, text="Cancel", command=self.destroy,
+            btn_frame, text="Abbrechen", command=self.destroy,
             bg=COLORS['bg_panel'], fg=COLORS['text_secondary'],
-            font=FONTS['body_md'], bd=0, padx=15, pady=8, cursor='hand2',
+            font=FONTS['body_md'], bd=0, padx=15, pady=8, width=20, cursor='hand2',
         ).pack(side=tk.RIGHT, padx=10)
 
     def _populate_list(self):
