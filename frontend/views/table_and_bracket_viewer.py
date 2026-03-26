@@ -408,7 +408,7 @@ class TableAndBracketViewer(tk.Frame):
         if not bracket_key:
             selection = self.bracket_listbox.curselection()
             if not selection:
-                messagebox.showinfo('No Selection', 'Please select a bracket first.')
+                messagebox.showinfo('Keine Auswahl', 'Bitte wählen Sie zuerst einen Kampfbaum aus.')
                 return
             bracket_key = self.bracket_listbox.get(selection[0])
 
@@ -445,7 +445,7 @@ class TableAndBracketViewer(tk.Frame):
                      if not self.main_window.bracket_table_assignment.get(k)]
 
         if not unassigned:
-            messagebox.showinfo('Auto-assign', 'No unassigned brackets to assign.')
+            messagebox.showinfo('Automatisch zuweisen', 'Keine nicht zugewiesenen Kampfbäume zum Zuweisen.')
             return
 
         # Count current assignments per table
@@ -601,7 +601,7 @@ class TableAndBracketViewer(tk.Frame):
             if not bracket_data:
                 self.logger.debug(f'No bracket data found for key: {bracket_key}')
                 self.bracket_canvas.create_text(400, 300,
-                    text="No bracket data available",
+                    text="Keine Kampfbaum-Daten verfügbar",
                     font=FONTS['heading_md'], fill='red')
                 return
 
@@ -609,7 +609,7 @@ class TableAndBracketViewer(tk.Frame):
             if not participants:
                 self.logger.debug("No participants in bracket")
                 self.bracket_canvas.create_text(400, 300,
-                    text="No participants in this bracket",
+                    text="Keine Teilnehmer in diesem Kampfbaum",
                     font=FONTS['heading_md'], fill='red')
                 return
 
@@ -638,7 +638,7 @@ class TableAndBracketViewer(tk.Frame):
             
             # Render based on method
             if method in ('pools', 'double'):
-                title = f"Pool Visualization ({bracket_key})"
+                title = f"Pool-Visualisierung ({bracket_key})"
                 self.viz_title_var.set(title)
                 self._render_pool(bracket_key, participants, pool_size, generation_method=method)
                 return
@@ -661,7 +661,7 @@ class TableAndBracketViewer(tk.Frame):
             if not normalized_participants:
                 self.logger.debug("No normalized participants")
                 self.bracket_canvas.create_text(400, 300,
-                    text="Error: Could not process participants",
+                    text="Fehler: Teilnehmer konnten nicht verarbeitet werden",
                     font=FONTS['heading_md'], fill='red')
                 return
 
@@ -735,7 +735,7 @@ class TableAndBracketViewer(tk.Frame):
             self.logger.error(f"Exception rendering bracket: {e}")
             traceback.print_exc()
             self.bracket_canvas.create_text(400, 300,
-                text=f"Error rendering bracket:\n{str(e)}",
+                text=f"Fehler beim Rendern des Kampfbaums:\n{str(e)}",
                 font=FONTS['body_md'], fill='red')
 
     def _draw_loser_bracket_on_canvas(self, bracket, bracket_key, wb_positions, 
@@ -870,7 +870,7 @@ class TableAndBracketViewer(tk.Frame):
             if not normalized_participants:
                 self.logger.debug("No normalized participants for pool")
                 self.bracket_canvas.create_text(400, 300,
-                    text="Error: Could not process participants",
+                    text="Fehler: Teilnehmer konnten nicht verarbeitet werden",
                     font=FONTS['heading_md'], fill='red')
                 return
 
@@ -908,7 +908,7 @@ class TableAndBracketViewer(tk.Frame):
             self.logger.error(f"Exception rendering pool: {e}")
             traceback.print_exc()
             self.bracket_canvas.create_text(400, 300,
-                text=f"Error rendering pool:\n{str(e)}",
+                text=f"Fehler beim Rendern des Pools:\n{str(e)}",
                 font=FONTS['body_md'], fill='red')
 
     # ===== Utilities =====

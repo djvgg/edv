@@ -1,329 +1,259 @@
 <!-- SPDX-FileCopyrightText: 2026 TOP Team Combat Control
-SPDX-License-Identifier: GPL-3.0-or-later-->
+SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# EDV_Backend
+# EDV Backend
 
-Tournament management desktop application for Judo competitions.
+EDV Backend is a desktop tournament management application for Judo events. It supports importing participant data, reviewing and correcting generated groups, assigning a competition format to each bracket, exporting bracket sheets, and tracking fights during the event.
 
----
+## Features
 
-## Quick Start
+- Import participants from PostgreSQL, XLSX, or two gender-split JSON files
+- Split an XLSX registration file into male/female JSON files for downstream workflows
+- Review generated groups before continuing to bracket generation
+- Edit participant data and configure weight tolerances from the UI
+- Assign pool, double-pool, or KO-style generation methods per bracket
+- Export generated brackets to Excel files in `temp/exports/`
+- Monitor fights live and record match results inside the application
+
+## Screens And Workflow
+
+The application follows this main flow:
+
+1. Load data
+2. Review groups
+3. Adjust participants or tolerances if needed
+4. Choose the bracket format for each group
+5. View generated brackets and assign mats
+6. Run fights and record results
+
+### 1. Data Loading
+
+Use the start screen to load participants from the database, reload two JSON files, or split an Excel registration file into gender-specific JSON files.
+
+![File loader screen](Readmesource/loader.png)
+
+### 2. Configure Tolerances
+
+When you split an Excel registration file into JSON, the app asks for weight tolerances per age group and gender before creating the output files.
+
+![Tolerance configuration dialog](Readmesource/toleranz.png)
+
+### 3. Review Groups
+
+After loading data, the group preview lets you inspect the generated groups before you continue to bracket generation.
+
+![Group preview screen](Readmesource/grouppreview.png)
+
+### 4. Edit A Participant
+
+If a participant needs correction, the edit dialog lets you update personal and tournament-relevant data before continuing.
+
+![Edit participant dialog](Readmesource/editparticipant.png)
+
+### 5. Generated Competition Views
+
+Depending on bracket size and the assigned generation method, the application works with pool, double-pool, or KO-style brackets.
+
+Pool view:
+
+![Pool bracket view](Readmesource/pool.png)
+
+Double-pool view:
+
+![Double-pool bracket view](Readmesource/doublepool.png)
+
+Double-KO bracket view:
+
+![Double-KO bracket view](Readmesource/doubleko.png)
+
+### 6. Fight Monitoring
+
+Once brackets are prepared and assigned, the fight monitoring workflow lets you open a bracket, navigate to the active fight view, and enter results live.
+
+Bracket overview during monitoring:
+
+![Fight bracket overview](Readmesource/fightbracket.png)
+
+Fight entry screen:
+
+![Fight monitoring screen](Readmesource/fightscreen.png)
+
+## Installation
 
 ### Prerequisites
 
-- Python 3.10 or higher
-- PostgreSQL database
-- pip and virtualenv
+- Python 3.10 or newer
+- PostgreSQL 15 or newer for normal usage
+- `pip`
 
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd edv_backend
-   ```
-
-2. **Create and activate virtual environment**
-   ```bash
-   python -m venv venv
-   # On Windows:
-   venv\Scripts\activate
-   # On Linux/Mac:
-   source venv/bin/activate
-   ```
-
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   pip install -e .  # Install in development mode
-   ```
-
-4. **Configure database**
-   - Copy `.env.example` to `.env` (if exists)
-   - Update database credentials in `backend/data/db_config.py`
-
-5. **Run database migrations**
-   ```bash
-   # For new installations, create initial schema:
-   alembic upgrade head
-   
-   # For existing databases that used custom migrations:
-   alembic stamp head  # Mark as up-to-date
-   ```
-
-6. **Run the application**
-   ```bash
-   python -m edv_backend
-   # or
-   python main.py
-   ```
-
-### Running Tests
+### 1. Clone The Repository
 
 ```bash
-pytest tests/
+git clone <repository-url>
+cd edv_backend
 ```
 
----
+### 2. Create A Virtual Environment
 
-## Database Migrations
+Windows PowerShell:
 
-This project uses **Alembic** for database schema migrations.
-
-### Why Alembic?
-
-Alembic manages database schema changes in a controlled, versioned way:
-- ✅ **Version Control** - Track all schema changes over time
-- ✅ **Rollback Support** - Undo migrations if needed
-- ✅ **Team Collaboration** - Everyone applies the same schema changes
-- ✅ **Production Safety** - Apply changes incrementally without data loss
-
-### When Do You Need to Run Alembic?
-
-#### Scenario 1: First Time Setup (New Installation)
-**When:** Installing the application for the first time  
-**Command:**
-```bash
-alembic upgrade head
-```
-This creates all database tables and applies all migrations.
-
-#### Scenario 2: After Pulling Code (Updates from Git)
-**When:** You `git pull` and see changes in `alembic/versions/`  
-**Command:**
-```bash
-alembic upgrade head
-```
-This applies any new schema changes from other developers.
-
-#### Scenario 3: Existing Database (Migration System Change)
-**When:** Upgrading from the old custom migration system  
-**Command:**
-```bash
-alembic stamp head
-```
-This marks your database as up-to-date without re-running migrations.
-
-#### Scenario 4: You Modified Database Models
-**When:** You changed files in `backend/data/models.py`  
-**Commands:**
-```bash
-# 1. Generate migration automatically
-alembic revision --autogenerate -m "Add new column to fights table"
-
-# 2. Review the generated file in alembic/versions/
-# 3. Edit if needed (Alembic can't detect everything)
-
-# 4. Apply the migration
-alembic upgrade head
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 ```
 
-### Common Commands
+Linux or macOS:
 
 ```bash
-# Check current database version
-alembic current
-
-# View all migrations and history
-alembic history --verbose
-
-# Apply all pending migrations
-alembic upgrade head
-
-# Rollback one migration
-alembic downgrade -1
-
-# Rollback to specific version
-alembic downgrade <revision_id>
-
-# See SQL without executing
-alembic upgrade head --sql
+python -m venv .venv
+source .venv/bin/activate
 ```
 
-### Troubleshooting
+### 3. Install Dependencies
 
-**Error: "Can't locate revision identified by 'XXX'"**
-- Your database is out of sync with migrations
-- Solution: `alembic stamp head` (if you know your schema is current)
-
-**Error: "Table already exists"**
-- Database has tables but Alembic thinks it's empty
-- Solution: `alembic stamp head`
-
-**How to check if migrations are needed?**
 ```bash
-alembic current  # Shows current version
-alembic heads    # Shows latest available version
-# If they don't match, run: alembic upgrade head
+pip install -r requirements.txt
+pip install -e .
 ```
 
-### Migration History
+### 4. Start PostgreSQL
 
-- `0001` - Initial schema (groups, group_participants, brackets, fights, etc.)
-- `0002` - Add groups.name column, allow NULL in gender/age_group/weight_class
-- `0003` - Add fight metadata columns (bracket_phase, round, pos_in_round, etc.)
+For normal usage, run the application with PostgreSQL available so groups, brackets, and fight data can be persisted.
 
-### Important Notes
+Optional Docker-based database setup:
 
-⚠️ **Always backup your database before running migrations in production!**
+```bash
+docker compose up -d db
+```
 
-⚠️ **Never edit migration files after they've been applied** - create a new migration instead
+The included `docker-compose.yaml` starts PostgreSQL with these defaults:
 
-✅ **Migrations run automatically in order** - you don't need to specify which ones
+- Host: `localhost`
+- Port: `5432`
+- Database: `mydatabase`
+- User: `myuser`
 
----
+Set the password explicitly before starting the app. The application reads database settings from environment variables:
+
+- `DB_HOST`
+- `DB_PORT`
+- `DB_NAME`
+- `DB_USER`
+- `DB_PASSWORD`
+
+Example PowerShell session:
+
+```powershell
+$env:DB_HOST = "localhost"
+$env:DB_PORT = "5432"
+$env:DB_NAME = "mydatabase"
+$env:DB_USER = "myuser"
+$env:DB_PASSWORD = "mypassword"
+```
+
+Example Bash session:
+
+```bash
+export DB_HOST=localhost
+export DB_PORT=5432
+export DB_NAME=mydatabase
+export DB_USER=myuser
+export DB_PASSWORD=mypassword
+```
+
+### 5. Run The Application
+
+From the `edv_backend` directory:
+
+```bash
+python -m edv_backend
+```
+
+Alternative entry point:
+
+```bash
+python main.py
+```
+
+### 6. Offline Mode
+
+If PostgreSQL is unavailable, the application can still start in offline mode. That is useful for limited UI checks, but it is not the recommended setup for normal tournament operation because database-backed persistence and reload flows depend on a working PostgreSQL connection.
+
+## Usage
+
+### 1. Choose A Data Source
+
+On the start screen, choose one of the supported input paths:
+
+- Load from database and regenerate brackets from persisted participant data
+- Load two JSON files and merge them into the current workflow
+- Split one Excel registration file into gender-specific JSON files
+
+The JSON import expects exactly two files. The Excel split workflow opens the tolerance dialog before writing output files.
+
+### 2. Review The Generated Groups
+
+After import, the app opens the group preview. This is the checkpoint for verifying that participants were placed into sensible groups before competition formats are assigned.
+
+Typical actions on this screen:
+
+- Review group composition
+- Return to the loader if the wrong source data was used
+- Continue to the generation-method step
+- Open participant editing when a correction is needed
+
+### 3. Correct Data If Needed
+
+Use the participant editor to fix names, club data, weight, birth year, validity, payment status, and related bracket metadata before proceeding.
+
+### 4. Assign The Generation Method
+
+In the generation-method screen, assign a competition system to each bracket. The application works with three main output styles:
+
+- Pools
+- Double pools
+- KO-style brackets
+
+After confirmation, the bracket assignments are stored and the app continues to the bracket viewer.
+
+### 5. View Brackets And Export Files
+
+The bracket viewer shows the generated bracket structure and prepares the tournament for operation. From this phase, the application can export Excel files for the currently selected bracket or for all assigned brackets.
+
+Exported files are written to:
+
+```text
+temp/exports/
+```
+
+### 6. Monitor Fights Live
+
+Use the fight monitoring screen during the event to open a bracket, navigate between mat overview and fight view, and enter match outcomes.
+
+Behavior depends on the assigned bracket type:
+
+- Pool and double-pool brackets support score-cell editing
+- Double-pool workflows include a pool-finishing action that fills the KO phase
+- KO views allow winner selection directly from the bracket canvas
 
 ## Project Structure
 
-```
+```text
 edv_backend/
-├── alembic/              # Database migrations
-├── backend/
-│   ├── data/            # Database models and services
-│   └── services/        # Business logic layer
-├── frontend/
-│   ├── views/           # UI components
-│   ├── utils/           # Frontend utilities
-│   └── state.py         # Application state management
-├── tests/               # Test suite
-├── utils/               # Shared utilities
-│   ├── bracket_utils.py
-│   ├── helpers.py
-│   └── logging/
-├── config/              # Configuration files
-├── logs/                # Application logs
-├── main.py              # Application entry point
-├── pyproject.toml       # Project metadata and dependencies
-└── requirements.txt     # Python dependencies
+├── alembic/                 # Optional migration history
+├── backend/                 # Database layer and business services
+├── config/                  # Bracket configuration files
+├── frontend/                # Tkinter UI, screen manager, dialogs, views
+├── logs/                    # Application logs
+├── Readmesource/            # README screenshots
+├── temp/                    # Generated output such as Excel exports
+├── tests/                   # Automated tests
+├── main.py                  # Direct entry point
+├── pyproject.toml           # Package metadata
+├── requirements.txt         # Python dependencies
+└── docker-compose.yaml      # Optional PostgreSQL setup
 ```
-
----
-
-## Development
-
-### Code Quality
-
-```bash
-# Run tests
-pytest tests/
-
-# Run specific test file
-pytest tests/test_bracket_algorithms.py
-
-# Run with coverage
-pytest --cov=backend --cov=frontend tests/
-```
-
-### Logging
-
-Logs are written to `logs/` directory. Each module has its own log file.
-
-To enable verbose debug logging:
-```bash
-export LOG_DEBUG=1  # Linux/Mac
-set LOG_DEBUG=1     # Windows CMD
-$env:LOG_DEBUG="1"  # Windows PowerShell
-```
-
----
 
 ## License
 
 GPL-3.0-or-later
-
----
-
-## GitLab Template Information
-
-The sections below are from the GitLab README template and can be customized or removed.
-
-
-## Getting started
-
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-* [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://gitlab.rlp.net/top/26s/2-wettkampfmanagement-top-2026/edv_backend.git
-git branch -M main
-git push -uf origin main
-```
-
-## Integrate with your tools
-
-* [Set up project integrations](https://gitlab.rlp.net/top/26s/2-wettkampfmanagement-top-2026/edv_backend/-/settings/integrations)
-
-## Collaborate with your team
-
-* [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.

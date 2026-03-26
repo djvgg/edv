@@ -46,8 +46,8 @@ def build_bracket_rounds(bracket, normalized_participants):
     while len(current) > 1:
         next_round = []
         for i in range(0, len(current), 2):
-            p1 = f"Winner {i+1}"
-            p2 = f"Winner {i+2}" if i+1 < len(current) else 'Freilos'
+            p1 = f"Sieger {i+1}"
+            p2 = f"Sieger {i+2}" if i+1 < len(current) else 'Freilos'
             next_round.append((p1, p2, '', ''))
         current = next_round
         rounds.append(current)
