@@ -247,7 +247,7 @@ class GenerationMethodScreen(tk.Frame):
 
         # LEFT PANEL: Unassigned Brackets
         left_panel = create_panel_frame(self.main_frame)
-        left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=SPACING['sm'], pady=SPACING['sm'])
+        left_panel.pack(side=tk.LEFT, fill=tk.Y, expand=False, padx=SPACING['sm'], pady=SPACING['sm'])
 
         # Left title
         left_title = tk.Label(
@@ -273,11 +273,10 @@ class GenerationMethodScreen(tk.Frame):
             fg=COLORS['text_primary'],
             yscrollcommand=scrollbar.set,
             font=FONTS['body_sm'],
-            width=20,
-            height=25,
+            width=15,
         )
         apply_listbox_style(self.unassigned_listbox)
-        self.unassigned_listbox.pack(side=tk.LEFT, fill=tk.X, expand=False)
+        self.unassigned_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.unassigned_listbox.bind('<<ListboxSelect>>', self.on_unassigned_select)
         scrollbar.config(command=self.unassigned_listbox.yview)
 
@@ -737,26 +736,26 @@ class GenerationMethodScreen(tk.Frame):
         
         if not selected_bracket:
             self.logger.debug("Print selected action failed: no bracket selected")
-            messagebox.showwarning("Warning", "Please select a bracket to print")
+            messagebox.showwarning("Warnung", "Bitte wählen Sie ein Bracket zum Drucken aus")
             return
         
         bracket_data = self.brackets.get(selected_bracket)
         if not bracket_data:
             self.logger.error(f"Bracket not found: {selected_bracket}")
-            messagebox.showerror("Error", f"Bracket data not found: {selected_bracket}")
+            messagebox.showerror("Fehler", f"Bracket-Daten nicht gefunden: {selected_bracket}")
             return
         
         method = bracket_data.get("method")
         if not method:
             self.logger.warning(f"Bracket has no assigned method: {selected_bracket}")
-            messagebox.showwarning("Warning", "Please assign a method before printing")
+            messagebox.showwarning("Warnung", "Bitte weisen Sie eine Methode zum Drucken zu")
             return
         
         # Check if already printed
         if selected_bracket in self.printed_brackets:
             printed_time = self.printed_brackets[selected_bracket].strftime("%Y-%m-%d %H:%M:%S")
             result = messagebox.askyesno(
-                "Already Printed",
+                "Bereits gedruckt",
                 f"This bracket was printed on {printed_time}.\nPrint again?",
             )
             if not result:
@@ -792,7 +791,7 @@ class GenerationMethodScreen(tk.Frame):
         
         if not assigned_brackets:
             self.logger.info("Export all action: no assigned brackets to export")
-            messagebox.showinfo("Info", "No assigned brackets to export")
+            messagebox.showinfo("Info", "Keine zugewiesenen Brackets zum Exportieren")
             return
         
         self.logger.info(f"Exporting {len(assigned_brackets)} assigned brackets via TaskRunner")
@@ -800,7 +799,7 @@ class GenerationMethodScreen(tk.Frame):
         # Show progress dialog
         if self.main_window and hasattr(self.main_window, 'ui_feedback'):
             self.main_window.ui_feedback.show_loading_progress(
-                f"Exporting {len(assigned_brackets)} brackets..."
+                f"{len(assigned_brackets)} Brackets werden exportiert..."
             )
         
         # Submit to TaskRunner with proper callbacks
@@ -949,10 +948,10 @@ class GenerationMethodScreen(tk.Frame):
             if len(errors) > 5:
                 summary_text += f"\n... and {len(errors) - 5} more"
         
-        summary_text += "\n\nFiles saved to:\n/temp/exports/"
+        summary_text += "\n\nDateien gespeichert in:\n/temp/exports/"
         
         self.logger.info(f"Export completed: {summary_text.replace(chr(10), ' | ')}")
-        messagebox.showinfo("Export Complete", summary_text)
+        messagebox.showinfo("Export abgeschlossen", summary_text)
 
     def _excel_export_worker(self, bracket_keys):
         """

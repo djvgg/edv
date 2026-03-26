@@ -44,7 +44,7 @@ class _UIBuilderMixin:
 
         tk.Frame(header_frame, bg=COLORS['accent_blue'], width=5).pack(side=tk.LEFT, fill=tk.Y)
 
-        title_label = tk.Label(header_frame, text=f"Participant: {self.first_name} {self.last_name}".strip(),
+        title_label = tk.Label(header_frame, text=f"{self._translate('Participant:')} {self.first_name} {self.last_name}".strip(),
                                bg=COLORS['bg_darker'], fg=COLORS['text_primary'], font=FONTS['preview_title'])
         title_label.pack(side=tk.LEFT, padx=20, pady=20)
 
@@ -66,13 +66,13 @@ class _UIBuilderMixin:
 
         first_col = tk.Frame(name_row, bg=COLORS['bg_dark'])
         first_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-        self.first_entry = self._create_field(first_col, "First Name",
+        self.first_entry = self._create_field(first_col, self._translate("First Name"),
                                               validation_command=self.validation_command_name, hint_text=HINT_NAME)
         self._insert_value(self.first_entry, self.first_name)
 
         last_col = tk.Frame(name_row, bg=COLORS['bg_dark'])
         last_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
-        self.last_entry = self._create_field(last_col, "Last Name",
+        self.last_entry = self._create_field(last_col, self._translate("Last Name"),
                                              validation_command=self.validation_command_name, hint_text=HINT_NAME)
         self._insert_value(self.last_entry, self.last_name)
 
@@ -82,7 +82,7 @@ class _UIBuilderMixin:
 
         weight_col = tk.Frame(row_frame, bg=COLORS['bg_dark'])
         weight_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-        self.weight_entry = self._create_field(weight_col, "Weight (kg)",
+        self.weight_entry = self._create_field(weight_col, self._translate("Weight (kg)"),
                                                validation_command=self.validation_command_weight, hint_text=HINT_WEIGHT)
         self._insert_value(self.weight_entry, self.weight_str)
 
@@ -93,7 +93,7 @@ class _UIBuilderMixin:
 
         age_col = tk.Frame(row_frame, bg=COLORS['bg_dark'])
         age_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
-        self.birth_year_entry = self._create_field(age_col, "Birth Year",
+        self.birth_year_entry = self._create_field(age_col, self._translate("Birth Year"),
                                                    validation_command=self.validation_command_birthyear, hint_text=HINT_BIRTHYEAR)
         self._insert_value(self.birth_year_entry, str(self.birth_year))
 
@@ -109,16 +109,16 @@ class _UIBuilderMixin:
 
         club_col = tk.Frame(club_row, bg=COLORS['bg_dark'])
         club_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-        self.club_entry = self._create_field(club_col, "Club")
+        self.club_entry = self._create_field(club_col, self._translate("Club"))
         self._insert_value(self.club_entry, self.club)
 
         assoc_col = tk.Frame(club_row, bg=COLORS['bg_dark'])
         assoc_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
-        self.association_entry = self._create_field(assoc_col, "Association")
+        self.association_entry = self._create_field(assoc_col, self._translate("Association"))
         self._insert_value(self.association_entry, self.association)
 
     def _build_class_assignment(self):
-        label_text = "WEIGHT CLASS ASSIGNMENT" if self.is_adult_category else "AGE CLASS UPGRADE"
+        label_text = self._translate("WEIGHT CLASS ASSIGNMENT") if self.is_adult_category else self._translate("AGE CLASS UPGRADE")
         weight_class_slot = tk.Frame(self.container, bg=COLORS['bg_dark'])
         if not self.is_free_match and not self.is_young_category and not self.is_quarantine:
             weight_class_slot.pack(fill=tk.X)
@@ -165,7 +165,8 @@ class _UIBuilderMixin:
             else:
                 status_frame = tk.Frame(self.weight_class_frame, bg=COLORS['bg_panel'], padx=1, pady=1)
                 status_frame.pack(fill=tk.X)
-                status_text = f"● {self.current_weight_class} (Highest class)" if self.is_adult_category else f"● {self.age_group} (Highest class)"
+                highest_class = self._translate("Highest class")
+                status_text = f"● {self.current_weight_class} ({highest_class})" if self.is_adult_category else f"● {self.age_group} ({highest_class})"
                 tk.Label(status_frame, text=status_text, bg=COLORS['bg_input'], fg=COLORS['text_muted'],
                          font=FONTS['preview_text'], anchor=tk.W, padx=10, pady=10).pack(fill=tk.X)
 
@@ -196,12 +197,12 @@ class _UIBuilderMixin:
         vp_row.pack(fill=tk.X, pady=(0, 14))
 
         self.valid_var = tk.BooleanVar(value=self.is_valid)
-        tk.Checkbutton(vp_row, text="Valid", variable=self.valid_var, bg=COLORS['bg_dark'], fg=COLORS['text_primary'],
+        tk.Checkbutton(vp_row, text=self._translate("Valid"), variable=self.valid_var, bg=COLORS['bg_dark'], fg=COLORS['text_primary'],
                        selectcolor=COLORS['bg_input'], activebackground=COLORS['bg_dark'],
                        activeforeground=COLORS['text_primary'], font=FONTS['preview_text'], cursor='hand2').pack(side=tk.LEFT, padx=(0, 20))
 
         self.paid_var = tk.BooleanVar(value=self.is_paid)
-        tk.Checkbutton(vp_row, text="Paid", variable=self.paid_var, bg=COLORS['bg_dark'], fg=COLORS['text_primary'],
+        tk.Checkbutton(vp_row, text=self._translate("Paid"), variable=self.paid_var, bg=COLORS['bg_dark'], fg=COLORS['text_primary'],
                        selectcolor=COLORS['bg_input'], activebackground=COLORS['bg_dark'],
                        activeforeground=COLORS['text_primary'], font=FONTS['preview_text'], cursor='hand2').pack(side=tk.LEFT)
 
@@ -209,8 +210,28 @@ class _UIBuilderMixin:
         button_frame = tk.Frame(self.container, bg=COLORS['bg_dark'])
         button_frame.pack(fill=tk.X)
 
-        tk.Button(button_frame, text="SAVE CHANGES", command=self._save_changes, bg=COLORS['accent_green'],
+        tk.Button(button_frame, text=self._translate("SAVE CHANGES"), command=self._save_changes, bg=COLORS['accent_green'],
                   fg=COLORS['text_primary'], font=FONTS['heading_sm'], bd=0, relief=tk.FLAT, padx=25, pady=12, cursor='hand2').pack(side=tk.RIGHT)
 
-        tk.Button(button_frame, text="CANCEL", command=self.destroy, bg=COLORS['bg_panel'],
+        tk.Button(button_frame, text=self._translate("CANCEL"), command=self.destroy, bg=COLORS['bg_panel'],
                   fg=COLORS['text_secondary'], font=FONTS['heading_sm'], bd=0, relief=tk.FLAT, padx=25, pady=12, cursor='hand2').pack(side=tk.RIGHT, padx=10)
+
+    def _translate(self, label):
+        """Translate English labels to German."""
+        translation_map = {
+            "Participant:": "Teilnehmer:",
+            "First Name": "Vorname",
+            "Last Name": "Nachname",
+            "Weight (kg)": "Gewicht (kg)",
+            "Birth Year": "Geburtsjahr",
+            "Club": "Verein",
+            "Association": "Verband",
+            "WEIGHT CLASS ASSIGNMENT": "GEWICHTSKLASSE ZUORDNUNG",
+            "AGE CLASS UPGRADE": "ALTERSKLASSENERWEITERUNG",
+            "Highest class": "Höchste Klasse",
+            "Valid": "Gültig",
+            "Paid": "Bezahlt",
+            "SAVE CHANGES": "ÄNDERUNGEN SPEICHERN",
+            "CANCEL": "ABBRECHEN"
+        }
+        return translation_map.get(label, label)

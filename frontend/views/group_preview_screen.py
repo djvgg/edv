@@ -348,7 +348,13 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
                 display_key = bracket_key
                 if bracket_key.startswith("QUARANTINE_"):
                     reason = bracket_key.replace("QUARANTINE_", "")
-                    t_map = {"marked_invalid": "Ungültig", "unpaid": "Unbezahlt", "age_too_young": "Zu jung"}
+                    t_map = {
+                        "marked_invalid": "Ungültig", 
+                        "unpaid": "Unbezahlt", 
+                        "age_too_young": "Zu jung",
+                        "age_out_of_bounds": "Alter ungültig",
+                        "duplicate": "Duplikat"
+                    }
                     display_key = f"QUARANTÄNE_{t_map.get(reason, reason)}"
                 
                 display_text = f"{display_key} ({count})"
@@ -397,7 +403,13 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
             display_key = bracket_key
             if bracket_key.startswith("QUARANTINE_"):
                 reason = bracket_key.replace("QUARANTINE_", "")
-                t_map = {"marked_invalid": "Ungültig", "unpaid": "Unbezahlt", "age_too_young": "Zu jung"}
+                t_map = {
+                    "marked_invalid": "Ungültig", 
+                    "unpaid": "Unbezahlt", 
+                    "age_too_young": "Zu jung",
+                    "age_out_of_bounds": "Alter ungültig",
+                    "duplicate": "Duplikat"
+                }
                 display_key = f"QUARANTÄNE_{t_map.get(reason, reason)}"
             
             display_text = f"{display_key} ({count})"
@@ -452,7 +464,13 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         display_key = bracket_key
         if bracket_key.startswith("QUARANTINE_"):
             reason = bracket_key.replace("QUARANTINE_", "")
-            t_map = {"marked_invalid": "Ungültig", "unpaid": "Unbezahlt", "age_too_young": "Zu jung"}
+            t_map = {
+                "marked_invalid": "Ungültig", 
+                "unpaid": "Unbezahlt", 
+                "age_too_young": "Zu jung",
+                "age_out_of_bounds": "Alter ungültig",
+                "duplicate": "Duplikat"
+            }
             display_key = f"QUARANTÄNE_{t_map.get(reason, reason)}"
 
         self.preview_title_var.set(f"{display_key} - {count} Teilnehmer")

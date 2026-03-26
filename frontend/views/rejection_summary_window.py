@@ -188,15 +188,27 @@ class RejectionSummaryWindow(tk.Toplevel):
             return str(age)
     
     def _get_reason_display(self, participant):
-        """Format rejection reason for display."""
+        """Format rejection reason for display in German."""
         reason = participant.get('rejection_reason', 'Unknown reason')
         
-        # Format common reasons nicely
+        # Map English rejection reasons to German display text
         reason_map = {
             'unpaid': '❌ Nicht bezahlt',
+            'duplicate': '❌ Duplikat',
+            'age_out_of_bounds': '❌ Alter außerhalb der Grenzen',
             'age_too_young': '❌ Zu jung (< 6 Jahre)',
             'age_too_old': '❌ Zu alt (> 120 Jahre)',
-            'invalid_birthyear': '❌ Ungültiges Geburtsjahr'
+            'invalid_birthyear': '❌ Ungültiges Geburtsjahr',
+            'marked_invalid': '❌ Ungültig markiert',
         }
         
+        # Handle messages that contain "too young" or "too old" 
+        if 'too young' in str(reason):
+            return '❌ Zu jung'
+        elif 'too old' in str(reason):
+            return '❌ Zu alt'
+        elif 'Missing' in str(reason) or 'no age' in str(reason):
+            return '❌ Alter/Geburtsjahr fehlt'
+        
+        # Return mapped translation or fallback to English with check mark
         return reason_map.get(reason, f"❌ {reason}")

@@ -140,7 +140,6 @@ PRESET_GENERATION_METHOD_OPS = {
         'extract_locked',         # [ESSENTIAL] Remove mat-locked brackets from editing
         'extract_quarantine',     # [ESSENTIAL] Remove quarantine for calculations
         'split_u9_u11_into_pools',  # [ESSENTIAL] Re-separate for generation
-        'auto_assign_generation_methods',  # [ESSENTIAL] Auto-assign methods when screen skipped
     ],
 }
 
@@ -266,7 +265,12 @@ class DataTransformationPipeline:
                     continue
                 
                 rules = self._transformation_rules[screen_key]
-                transformations = rules['incoming_transformations']
+                transformations = list(rules['incoming_transformations'])
+                
+                # Add auto-assign ONLY when generation_method screen is skipped
+                if screen_key == 'generation_method' and 'auto_assign_generation_methods' not in transformations:
+                    transformations.append('auto_assign_generation_methods')
+                    self.logger.debug("Added auto_assign_generation_methods for skipped generation_method screen")
                 
                 if not transformations:
                     self.logger.debug(f"No transformations for skipped screen: {screen_key}")

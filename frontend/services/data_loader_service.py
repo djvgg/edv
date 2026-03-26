@@ -313,7 +313,7 @@ class DataLoaderService:
 
         # Show loading progress dialog
         if self.ui_feedback:
-            self.ui_feedback.show_loading_progress("Loading and generating brackets...")
+            self.ui_feedback.show_loading_progress("Listen werden geladen und generiert...")
         
         # Run loading in background thread via task runner
         self.task_runner.submit_task(
@@ -326,7 +326,7 @@ class DataLoaderService:
         """Background task for loading XLSX and generating brackets."""
         try:
             if self.ui_feedback:
-                self.ui_feedback.set_status("Reading XLSX file...", '#999999')  # text_secondary
+                self.ui_feedback.set_status("XLSX-Datei wird gelesen...", '#999999')  # text_secondary
                 self.ui_feedback.update_progress(10)
 
             # Load and normalize participants from XLSX
@@ -364,9 +364,9 @@ class DataLoaderService:
 
             total_fighters = len(participants)
             if self.ui_feedback:
-                self.ui_feedback.set_info_text(f"✓ {total_fighters} participants loaded")
+                self.ui_feedback.set_info_text(f"✓ {total_fighters} Teilnehmer geladen")
                 self.ui_feedback.update_progress(50)
-                self.ui_feedback.set_status("Generating brackets...", '#999999')
+                self.ui_feedback.set_status("Listen werden generiert...", '#999999')
 
             # Generate brackets using backend service
             brackets.update(export_all_brackets(participants))
@@ -389,7 +389,7 @@ class DataLoaderService:
         except Exception as e:
             self.logger.error(f"Error during load and generate: {e}")
             if self.ui_feedback:
-                self.ui_feedback.set_status(f"Error: {e}", '#cc0000')
+                self.ui_feedback.set_status(f"Fehler: {e}", '#cc0000')
                 self.ui_feedback.hide_loading_progress()
 
     def load_from_database(self, callbacks):
@@ -407,7 +407,7 @@ class DataLoaderService:
         """
         # Show loading progress dialog
         if self.ui_feedback:
-            self.ui_feedback.show_loading_progress("Reloading full cache from database...")
+            self.ui_feedback.show_loading_progress("Vollständiger Cache wird aus Datenbank neu geladen...")
         
         # Run loading in background thread via task runner
         self.task_runner.submit_task(
@@ -420,7 +420,7 @@ class DataLoaderService:
         """Background task for loading full cache from database and regenerating brackets."""
         try:
             if self.ui_feedback:
-                self.ui_feedback.set_status("Connecting to database...", '#999999')
+                self.ui_feedback.set_status("Verbindung zur Datenbank wird hergestellt...", '#999999')
                 self.ui_feedback.update_progress(10)
 
             # Fetch participants from database
@@ -433,7 +433,7 @@ class DataLoaderService:
 
             if not participants:
                 if self.ui_feedback:
-                    self.ui_feedback.set_status("Error: No participants found in database.", '#cc0000')
+                    self.ui_feedback.set_status("Fehler: Keine Teilnehmer in der Datenbank gefunden.", '#cc0000')
                     self.ui_feedback.hide_loading_progress()
                     self.ui_feedback.show_warning("No Data", "No participants found in database.")
                 return
@@ -462,9 +462,9 @@ class DataLoaderService:
 
             total_fighters = len(participants)
             if self.ui_feedback:
-                self.ui_feedback.set_info_text(f"✓ {total_fighters} participants loaded from database")
+                self.ui_feedback.set_info_text(f"✓ {total_fighters} Teilnehmer aus Datenbank geladen")
                 self.ui_feedback.update_progress(40)
-                self.ui_feedback.set_status("Generating brackets...", '#999999')
+                self.ui_feedback.set_status("Listen werden generiert...", '#999999')
 
             # Generate brackets using backend service
             brackets.update(export_all_brackets(participants))
@@ -477,7 +477,7 @@ class DataLoaderService:
             if self.db_service:
                 try:
                     if self.ui_feedback:
-                        self.ui_feedback.set_status("Loading bracket metadata...", '#999999')
+                        self.ui_feedback.set_status("Listen-Metadaten werden geladen...", '#999999')
                     
                     # Note: Full bracket metadata retrieval from DB can be added here once
                     # methods are available. For now, generation methods and table assignments
@@ -508,9 +508,9 @@ class DataLoaderService:
         except Exception as e:
             self.logger.error(f"Database error during load: {e}")
             if self.ui_feedback:
-                self.ui_feedback.set_status(f"Database Error: {e}", '#cc0000')
+                self.ui_feedback.set_status(f"Datenbankfehler: {e}", '#cc0000')
                 self.ui_feedback.hide_loading_progress()
-                self.ui_feedback.show_error("Database Error", f"Failed to load from database:\n{str(e)}")
+                self.ui_feedback.show_error("Datenbankfehler", f"Fehler beim Laden aus der Datenbank:\n{str(e)}")
 
     def load_json_and_generate(self, filepaths, callbacks, existing_brackets=None):
         """Load participants from 2 JSON files (male/female) and generate brackets.
@@ -528,8 +528,8 @@ class DataLoaderService:
         self.logger.debug(f"[JSON] Has existing brackets: {bool(existing_brackets)}")
         
         if self.ui_feedback:
-            mode = "Appending to" if existing_brackets else "Loading and generating"
-            self.ui_feedback.show_loading_progress(f"{mode} brackets from JSON...")
+            mode = "Wird angefügt an" if existing_brackets else "Listen werden geladen und generiert"
+            self.ui_feedback.show_loading_progress(f"{mode} aus JSON...")
         
         self.logger.debug("[JSON] Submitting task to task_runner")
         self.task_runner.submit_task(
@@ -554,7 +554,7 @@ class DataLoaderService:
         
         try:
             if self.ui_feedback:
-                self.ui_feedback.set_status("Reading JSON files...", '#888888')
+                self.ui_feedback.set_status("JSON-Dateien werden gelesen...", '#888888')
                 self.ui_feedback.update_progress(10)
             self.logger.info(f"Loading {len(filepaths)} JSON files")
 
@@ -750,7 +750,7 @@ class DataLoaderService:
                     )
 
             if self.ui_feedback:
-                self.ui_feedback.set_status("Filtering participants...", '#888888')
+                self.ui_feedback.set_status("Teilnehmer werden gefiltert...", '#888888')
                 self.ui_feedback.update_progress(65)
 
             # Filter out unpaid participants
@@ -791,7 +791,7 @@ class DataLoaderService:
             if self.ui_feedback:
                 valid_word = 'gültiger' if total_fighters == 1 else 'gültige'
                 self.ui_feedback.set_info_text(f"✓ {total_fighters} {valid_word} Teilnehmer aus JSON-Dateien geladen")
-                self.ui_feedback.set_status("Generating brackets...", '#888888')
+                self.ui_feedback.set_status("Listen werden generiert...", '#888888')
                 self.ui_feedback.update_progress(85)
             self.logger.info("Starting bracket generation...")
 
@@ -863,26 +863,26 @@ class DataLoaderService:
                 )
 
         except json.JSONDecodeError as e:
-            error_msg = f"JSON Parse Error: {e}"
+            error_msg = f"JSON-Parse-Fehler: {e}"
             self.logger.error(error_msg)
             if self.ui_feedback:
                 self.ui_feedback.set_status(error_msg, '#cc0000')
                 self.ui_feedback.hide_loading_progress()
-                self.ui_feedback.show_error("JSON Error", f"Failed to parse JSON file:\n{str(e)}")
+                self.ui_feedback.show_error("JSON-Fehler", f"Fehler beim Analysieren der JSON-Datei:\n{str(e)}")
         except FileNotFoundError as e:
-            error_msg = f"File not found: {e}"
+            error_msg = f"Datei nicht gefunden: {e}"
             self.logger.error(error_msg)
             if self.ui_feedback:
                 self.ui_feedback.set_status(error_msg, '#cc0000')
                 self.ui_feedback.hide_loading_progress()
-                self.ui_feedback.show_error("File Error", f"Could not find file:\n{str(e)}")
+                self.ui_feedback.show_error("Datei-Fehler", f"Datei konnte nicht gefunden werden:\n{str(e)}")
         except Exception as e:
-            error_msg = f"Unexpected error: {e}"
+            error_msg = f"Unerwarteter Fehler: {e}"
             self.logger.error(error_msg)
             if self.ui_feedback:
                 self.ui_feedback.set_status(error_msg, '#cc0000')
                 self.ui_feedback.hide_loading_progress()
-                self.ui_feedback.show_error("Error", f"Failed to load JSON files:\n{str(e)}")
+                self.ui_feedback.show_error("Fehler", f"Fehler beim Laden von JSON-Dateien:\n{str(e)}")
     def split_gender_to_json_with_tolerances(self, input_file, save_dir, configured_tolerances=None):
         """Split tournament registration XLSX by gender and save with tolerance configuration.
         
@@ -1147,5 +1147,5 @@ class DataLoaderService:
         """Handle errors from background loading tasks."""
         self.logger.error(f"Background task error: {error}", exc_info=True)
         if self.ui_feedback:
-            self.ui_feedback.set_status(f"Error: {error}", '#cc0000')
+            self.ui_feedback.set_status(f"Fehler: {error}", '#cc0000')
             self.ui_feedback.hide_loading_progress()

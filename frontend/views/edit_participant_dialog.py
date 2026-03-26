@@ -39,7 +39,7 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
         self.bracket_key = bracket_key
         self.fighter_idx = fighter_idx
         
-        self.title("Edit Participant")
+        self.title("Teilnehmer bearbeiten")
         self.geometry("500x680")
         self.configure(bg=COLORS['bg_dark'])
         self.transient(self.parent.master)
@@ -241,7 +241,7 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
                                 self.arrow_label.config(fg=COLORS['text_muted'])
                                 self.weight_class_var.set("N/A")
                                 if self.dropdown_info_label:
-                                    self.dropdown_info_label.config(text=f"→ Person is now {auto_age_group} (Only 18+ have manual weight classes)")
+                                    self.dropdown_info_label.config(text=f"→ Person ist jetzt {auto_age_group} (Nur 18+ haben manuelle Gewichtsklassen)")
                                     self.dropdown_info_label.pack(anchor=tk.W, pady=(4, 0))
                         else:
                             if auto_age_group == '18+':
@@ -251,7 +251,7 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
                                 self.arrow_label.config(fg=COLORS['text_muted'])
                                 self.age_class_var.set("N/A")
                                 if self.dropdown_info_label:
-                                    self.dropdown_info_label.config(text="→ Person is now 18+ (Please save and reopen to assign weight class)")
+                                    self.dropdown_info_label.config(text="→ Person ist jetzt 18+ (Bitte speichern und erneut öffnen, um Gewichtsklasse zuzuweisen)")
                                     self.dropdown_info_label.pack(anchor=tk.W, pady=(4, 0))
                             else:
                                 self.dropdown_enabled[0] = True
@@ -519,7 +519,7 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
         elif birth_year_raw and birth_year_raw.isdigit():
             _, _, age_is_valid, age_rejection_reason = validate_age_from_birthyear(birth_year_raw)
             if not age_is_valid:
-                errors.append(f"Invalid Age: {age_rejection_reason}")
+                errors.append(f"Ungültiges Alter: {age_rejection_reason}")
         return errors
 
     def _apply_to_fighter(self, values: dict):
