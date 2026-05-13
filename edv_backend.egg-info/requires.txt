@@ -1,0 +1,9 @@
+pandas
+openpyxl
+psycopg2-binary
+sqlalchemy
+python-dotenv
+
+[dev]
+pytest
+alembic

@@ -5,6 +5,7 @@
 
 
 from utils.logging import get_logger
+from utils.helpers import age_group_from_bracket_key, bracket_key_matches_age_lock
 from backend.services.bracket_service import export_all_brackets, validate_age_from_birthyear
 
 
@@ -221,7 +222,8 @@ class QuarantineService:
                 
         return issues
 
-    def resort_brackets(self, brackets, edited_fighter=None, group_preview_screen=None, db_service=None, bracket_table_assignment=None):
+    def resort_brackets(self, brackets, edited_fighter=None, group_preview_screen=None,
+                        db_service=None, bracket_table_assignment=None, locked_age_classes=None):
         """Re-sort brackets after changes in any QUARANTINE_* bracket.
 
         Args:
@@ -232,7 +234,8 @@ class QuarantineService:
             group_preview_screen (object, optional): Reference to group preview
                 screen — refreshed after the sort if provided.
             db_service (optional): Database service to persist changes after successful resort.
-            bracket_table_assignment (dict, optional): {bracket_key: mat_id} - locked brackets to avoid merging
+            bracket_table_assignment (dict, optional): {bracket_key: mat_id} - mat-locked brackets to avoid merging
+            locked_age_classes (set, optional): age-class lock scopes to avoid merging
         """
         self.logger.debug("RESORT: resort_brackets() called")
 
@@ -245,7 +248,9 @@ class QuarantineService:
             brackets, quarantine_keys, edited_fighter)
 
         if valid_from_quarantine:
-            self._merge_valid_into_brackets(brackets, valid_from_quarantine, bracket_table_assignment)
+            self._merge_valid_into_brackets(
+                brackets, valid_from_quarantine, bracket_table_assignment, locked_age_classes
+            )
 
         self.quarantine_brackets = {k: v for k, v in brackets.items() if k.startswith('QUARANTINE_')}
 
@@ -468,15 +473,19 @@ class QuarantineService:
         
         return True
 
-    def _merge_valid_into_brackets(self, brackets, valid_fighters, bracket_table_assignment=None):
+    def _merge_valid_into_brackets(
+        self, brackets, valid_fighters, bracket_table_assignment=None, locked_age_classes=None
+    ):
         """Generate brackets for newly-valid fighters and merge into existing brackets.
 
         Quarantine brackets are preserved throughout the operation.
         Brackets that are assigned to mats are protected from merging.
         """
         bracket_table_assignment = bracket_table_assignment or {}
+        locked_age_classes = set(locked_age_classes or [])
         temp_brackets = {k: v for k, v in brackets.items() if not k.startswith('QUARANTINE_')}
         quarantine_to_preserve = {k: v for k, v in brackets.items() if k.startswith('QUARANTINE_')}
+        age_lock_blocked = []
 
         new_brackets = export_all_brackets(valid_fighters)
 
@@ -491,6 +500,19 @@ class QuarantineService:
                 self.logger.warning(f"RESORT: Cannot merge {len(locked_fighters)} fighter(s) into '{key}' - bracket is assigned to Matte {mat_num}. Keeping in quarantine.")
                 # Skip this bracket and let fighters stay in quarantine
                 continue
+
+            if bracket_key_matches_age_lock(key, locked_age_classes):
+                age_group = age_group_from_bracket_key(key)
+                locked_fighters = new_data.get('fighters', [])
+                for fighter in locked_fighters:
+                    fighter['rejection_reason'] = 'age_class_locked'
+                    fighter['locked_age_classes'] = age_group
+                age_lock_blocked.extend(locked_fighters)
+                self.logger.warning(
+                    f"RESORT: Cannot merge {len(locked_fighters)} fighter(s) into '{key}' "
+                    f"- age class {age_group} is locked. Keeping in quarantine."
+                )
+                continue
             
             if key in brackets:
                 brackets[key]['fighters'].extend(new_data.get('fighters', []))
@@ -499,6 +521,16 @@ class QuarantineService:
             else:
                 brackets[key] = new_data
                 self.logger.debug(f"RESORT: Created new bracket {key} with {len(new_data.get('fighters', []))} fighter(s)")
+
+        if age_lock_blocked:
+            quarantine_to_preserve.setdefault('QUARANTINE_age_class_locked', {
+                'fighters': [],
+                'bracket': [],
+                'pool_size': None,
+                'is_quarantine': True,
+                'rejection_reason': 'age_class_locked',
+            })
+            quarantine_to_preserve['QUARANTINE_age_class_locked']['fighters'].extend(age_lock_blocked)
 
         brackets.update(quarantine_to_preserve)
         self.logger.debug(f"RESORT: Restored {len(quarantine_to_preserve)} quarantine bracket(s)")

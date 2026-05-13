@@ -1,0 +1,29 @@
+{
+  "ageRange": {
+    "minAge": 6,
+    "maxAge": 120
+  },
+  "doubleStartYears": [
+    2014,
+    2012,
+    2009
+  ],
+  "ageClassTolerance": {
+    "mixed": {
+      "U11": 0.0,
+      "U9": 0.0
+    },
+    "male": {
+      "Aktive": 0.0,
+      "U13": 0.0,
+      "U15": 0.0,
+      "U18": 0.0
+    },
+    "female": {
+      "Aktive": 0.0,
+      "U13": 0.0,
+      "U15": 0.5,
+      "U18": 0.0
+    }
+  }
+}

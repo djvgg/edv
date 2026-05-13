@@ -15,6 +15,7 @@ import os
 from tkinter import filedialog
 
 from utils.logging import get_logger
+from utils.helpers import age_group_from_bracket_key, bracket_key_matches_age_lock
 from utils.task_runner import TaskRunner
 from backend.services.bracket_service import export_all_brackets, validate_age_from_birthyear
 from frontend.utils import (
@@ -184,6 +185,106 @@ class DataLoaderService:
                 unique.append(new_p)
         
         return unique, duplicates
+
+    def _resolve_locked_age_classes(self, locked_age_classes=None) -> set:
+        """Combine caller-provided and DB-persisted age-class locks."""
+        locks = set(locked_age_classes or [])
+        if self.db_service:
+            try:
+                locks.update(self.db_service.get_locked_age_classes())
+            except Exception as exc:
+                self.logger.warning(f"[AGE LOCK] Could not load locks from DB: {exc}")
+        return locks
+
+    def _participant_bracket_keys(self, participant: dict) -> set:
+        """Return all bracket keys a participant would enter, including doublestarts."""
+        try:
+            participant_brackets = export_all_brackets([participant])
+        except Exception as exc:
+            name = participant.get('Name') or f"{participant.get('Firstname', '')} {participant.get('Lastname', '')}".strip()
+            self.logger.warning(f"[AGE LOCK] Could not determine target age group for {name!r}: {exc}")
+            return set()
+
+        return set(participant_brackets.keys())
+
+    def _filter_participants_blocked_by_age_locks(self, participants: list, locked_age_classes: set) -> tuple:
+        """Split participants into importable and lock-skipped buckets."""
+        if not locked_age_classes:
+            return participants, []
+
+        allowed = []
+        skipped = []
+        for participant in participants:
+            target_bracket_keys = self._participant_bracket_keys(participant)
+            locked_targets = sorted({
+                lock
+                for lock in locked_age_classes
+                for bracket_key in target_bracket_keys
+                if bracket_key_matches_age_lock(bracket_key, {lock})
+            })
+            if locked_targets:
+                entry = dict(participant)
+                entry['rejection_reason'] = 'age_class_locked'
+                entry['locked_age_classes'] = ', '.join(locked_targets)
+                skipped.append(entry)
+                name = entry.get('Name') or f"{entry.get('Firstname', '')} {entry.get('Lastname', '')}".strip()
+                self.logger.info(f"[AGE LOCK] Skipping {name!r}; locked age class(es): {locked_targets}")
+            else:
+                allowed.append(participant)
+
+        return allowed, skipped
+
+    def _age_groups_from_brackets(self, brackets: dict) -> set:
+        """Return all age groups represented by a generated bracket dict."""
+        return {
+            age_group_from_bracket_key(key)
+            for key in (brackets or {}).keys()
+            if age_group_from_bracket_key(key)
+        }
+
+    def _age_groups_from_participants(self, participants: list) -> set:
+        """Return all age groups touched by participant input rows."""
+        touched = set()
+        for participant in participants or []:
+            for bracket_key in self._participant_bracket_keys(participant):
+                age_group = age_group_from_bracket_key(bracket_key)
+                if age_group:
+                    touched.add(age_group)
+        return touched
+
+    def _merge_brackets_preserving_age_locks(
+        self,
+        existing_brackets: dict,
+        new_brackets: dict,
+        locked_age_classes: set,
+        affected_age_groups: set = None,
+    ) -> dict:
+        """Replace unlocked generated lists while preserving locked age classes."""
+        if not existing_brackets:
+            return new_brackets
+
+        affected_age_groups = set(affected_age_groups or self._age_groups_from_brackets(new_brackets))
+        merged = {}
+
+        for key, data in existing_brackets.items():
+            age_group = age_group_from_bracket_key(key)
+            if key.startswith('QUARANTINE_'):
+                merged[key] = data
+                continue
+            if bracket_key_matches_age_lock(key, locked_age_classes):
+                merged[key] = data
+                continue
+            if age_group in affected_age_groups:
+                continue
+            merged[key] = data
+
+        for key, data in new_brackets.items():
+            if bracket_key_matches_age_lock(key, locked_age_classes):
+                self.logger.warning(f"[AGE LOCK] Generated locked bracket {key!r} ignored")
+                continue
+            merged[key] = data
+
+        return merged
 
     def filter_unpaid_participants(self, all_participants):
         """Filter out unpaid participants and show a popup if any are found.
@@ -474,6 +575,7 @@ class DataLoaderService:
             # Load bracket metadata from database
             bracket_generation_methods = {}
             bracket_table_assignment = {}
+            locked_age_classes = set()
             if self.db_service:
                 try:
                     if self.ui_feedback:
@@ -483,6 +585,8 @@ class DataLoaderService:
                     # methods are available. For now, generation methods and table assignments
                     # will be empty on reload - they can be re-assigned in generation_method screen
                     self.logger.debug("Bracket metadata retrieval from DB not yet implemented, will reset on reload")
+                    locked_age_classes = self.db_service.get_locked_age_classes()
+                    self.logger.debug(f"Loaded {len(locked_age_classes)} age-class lock(s) from DB")
                     
                     if self.ui_feedback:
                         self.ui_feedback.update_progress(75)
@@ -502,7 +606,8 @@ class DataLoaderService:
                     brackets=brackets,
                     rejected_participants=all_rejected,
                     bracket_generation_methods=bracket_generation_methods,
-                    bracket_table_assignment=bracket_table_assignment
+                    bracket_table_assignment=bracket_table_assignment,
+                    locked_age_classes=locked_age_classes
                 )
 
         except Exception as e:
@@ -512,7 +617,7 @@ class DataLoaderService:
                 self.ui_feedback.hide_loading_progress()
                 self.ui_feedback.show_error("Datenbankfehler", f"Fehler beim Laden aus der Datenbank:\n{str(e)}")
 
-    def load_json_and_generate(self, filepaths, callbacks, existing_brackets=None):
+    def load_json_and_generate(self, filepaths, callbacks, existing_brackets=None, locked_age_classes=None):
         """Load participants from 2 JSON files (male/female) and generate brackets.
         
         Smart mode: if existing_brackets is None/empty → fresh import (replace)
@@ -522,6 +627,7 @@ class DataLoaderService:
             filepaths: Tuple of 2 JSON file paths
             callbacks: Dict with 'on_success' callback function
             existing_brackets: Current brackets dict for append mode detection (None = fresh import)
+            locked_age_classes: Set of age-class lock scope keys to protect during import
         """
         self.logger.info(f"[JSON] load_json_and_generate called with {len(filepaths) if filepaths else 0} files")
         self.logger.debug(f"[JSON] Filepaths: {filepaths}")
@@ -534,12 +640,14 @@ class DataLoaderService:
         self.logger.debug("[JSON] Submitting task to task_runner")
         self.task_runner.submit_task(
             'load_json',
-            fn=lambda on_progress=None: self._load_json_and_generate_thread(filepaths, callbacks, existing_brackets),
+            fn=lambda on_progress=None: self._load_json_and_generate_thread(
+                filepaths, callbacks, existing_brackets, locked_age_classes
+            ),
             on_error=self._handle_load_error
         )
         self.logger.debug("[JSON] Task submitted to task_runner")
 
-    def _load_json_and_generate_thread(self, filepaths, callbacks, existing_brackets=None):
+    def _load_json_and_generate_thread(self, filepaths, callbacks, existing_brackets=None, locked_age_classes=None):
         """Background task for loading JSON files and generating brackets.
         
         Implements smart append/replace logic:
@@ -696,35 +804,36 @@ class DataLoaderService:
                     self.ui_feedback.set_status(error_msg, '#cc0000')
                 return
 
-            # APPEND MODE: Deduplicate against cache if existing brackets present
             duplicates_skipped = []
-            if is_append_mode:
-                # DEBUG: Show what's in cache
-                cached_count = 0
-                if existing_brackets:
-                    cached_participants = self._extract_participants_from_brackets(existing_brackets)
-                    cached_count = len(cached_participants)
-                    self.logger.debug(f"[APPEND] Existing cache has {cached_count} participants in {len(existing_brackets)} brackets")
-                
-                all_participants, duplicates_skipped = self._find_duplicates_in_cache(
-                    all_participants, existing_brackets
+            locked_age_classes = self._resolve_locked_age_classes(locked_age_classes)
+            locked_skipped = []
+            if locked_age_classes:
+                self.logger.info(f"[AGE LOCK] Active locks for JSON import: {sorted(locked_age_classes)}")
+                all_participants, locked_skipped = self._filter_participants_blocked_by_age_locks(
+                    all_participants, locked_age_classes
                 )
-                if duplicates_skipped:
-                    self.logger.info(
-                        f"[APPEND MODE] Skipped {len(duplicates_skipped)} duplicate participant(s) "
-                        f"already in cache"
-                    )
-                else:
-                    self.logger.debug(f"[APPEND] No duplicates found (checked {len(all_participants)} new against {cached_count} cached)")
-                
+
                 if not all_participants:
+                    msg = (
+                        f"Keine entsperrten Teilnehmer importiert. "
+                        f"{len(locked_skipped)} Teilnehmer wurden wegen gesperrter Altersklassen übersprungen."
+                    )
                     if self.ui_feedback:
+                        self.ui_feedback.set_status(msg, '#999999')
+                        self.ui_feedback.update_progress(100)
                         self.ui_feedback.hide_loading_progress()
-                        self.ui_feedback.set_status(
-                            f"No new unique participants (all {len(duplicates_skipped)} are duplicates)", 
-                            '#999999'
+                    if 'on_success' in callbacks and callable(callbacks['on_success']) and existing_brackets:
+                        callbacks['on_success'](
+                            brackets=existing_brackets,
+                            rejected_participants=locked_skipped,
+                            load_mode='append',
+                            duplicates_skipped=0,
+                            db_available=bool(self.db_service and self.db_service.is_available()),
+                            locked_age_classes=locked_age_classes,
                         )
                     return
+
+            touched_age_groups = self._age_groups_from_participants(all_participants)
 
             if self.ui_feedback:
                 self.ui_feedback.update_progress(62)
@@ -733,7 +842,9 @@ class DataLoaderService:
             # Wrap in try-except so app continues if DB is down
             try:
                 if self.db_service:
-                    self.db_service.save_participants(all_participants)
+                    self.db_service.update_participants_respecting_locks(
+                        all_participants, locked_age_classes
+                    )
                     self.db_service.initialize_all_groups()
                     db_save_succeeded = True
                     self.logger.info("[DB] Save succeeded - cache will be synced from DB")
@@ -771,15 +882,16 @@ class DataLoaderService:
             if self.ui_feedback:
                 self.ui_feedback.update_progress(75)
 
-            # Create QUARANTINE bracket with all rejected participants
-            # Include duplicates from append mode as blocker participants
-            all_rejected = unpaid + invalid_valid + invalid_ages + duplicates_skipped
+            # Create QUARANTINE bracket with editable rejected participants only.
+            # Age-class locked participants are reported, but never moved into quarantine.
+            quarantine_rejected = unpaid + invalid_valid + invalid_ages + duplicates_skipped
+            all_rejected = quarantine_rejected + locked_skipped
             brackets = {}
-            if all_rejected and self.quarantine_service:
-                self.quarantine_service.create_quarantine_bracket(brackets, all_rejected)
+            if quarantine_rejected and self.quarantine_service:
+                self.quarantine_service.create_quarantine_bracket(brackets, quarantine_rejected)
 
             if not all_participants:
-                error_msg = "Keine gültigen Teilnehmer in JSON-Dateien gefunden."
+                error_msg = "Keine gültigen entsperrten Teilnehmer in JSON-Dateien gefunden."
                 self.logger.error(error_msg)
                 if self.ui_feedback:
                     self.ui_feedback.hide_loading_progress()
@@ -806,10 +918,16 @@ class DataLoaderService:
                     all_db_participants = self.db_service.fetch_participants()
                     self.logger.debug(f"[DB RESYNC] fetch_participants returned {len(all_db_participants) if all_db_participants else 0} participants")
                     if all_db_participants:
-                        participants_for_brackets = all_db_participants
+                        all_db_participants, _ = self._filter_participants_blocked_by_age_locks(
+                            all_db_participants, locked_age_classes
+                        )
+                        all_db_participants, _ = self.filter_unpaid_participants(all_db_participants)
+                        all_db_participants, _ = self.filter_invalid_valid(all_db_participants)
+                        all_db_participants, _ = self.filter_invalid_ages(all_db_participants)
+                        participants_for_brackets = all_db_participants or all_participants
                         resync_note = " (resynced from DB)"
                         self.logger.info(
-                            f"[DB RESYNC] Fetched {len(all_db_participants)} total participants from DB"
+                            f"[DB RESYNC] Fetched {len(participants_for_brackets)} importable participants from DB"
                         )
                     else:
                         self.logger.debug(f"[DB RESYNC] DB returned empty/None, using cache with {len(all_participants)} valid participants")
@@ -821,22 +939,26 @@ class DataLoaderService:
             new_brackets = {}
             new_brackets.update(export_all_brackets(participants_for_brackets))
             
-            # APPEND MODE: Merge with existing brackets (don't replace)
+            # APPEND MODE: Merge with existing brackets, preserving locked age classes.
             if is_append_mode and existing_brackets:
-                existing_brackets.update(new_brackets)
-                brackets = existing_brackets
+                brackets = self._merge_brackets_preserving_age_locks(
+                    existing_brackets, new_brackets, locked_age_classes, touched_age_groups
+                )
                 
                 list_word_new = 'Liste' if len(new_brackets) == 1 else 'Listen'
                 merge_summary = (
                     f"{len(new_brackets)} {list_word_new} zusammengeführt. "
-                    f"{len(all_participants)} Teilnehmer hinzugefügt, "
-                    f"{len(duplicates_skipped)} Duplikate übersprungen."
+                    f"{len(all_participants)} Teilnehmer aktualisiert, "
+                    f"{len(locked_skipped)} wegen Sperre übersprungen."
                 )
                 self.logger.info(f"[APPEND] {merge_summary}{resync_note}")
             else:
                 # Fresh import mode
                 brackets = new_brackets
-                merge_summary = f"Neu importiert: {len(all_participants)} Teilnehmer."
+                merge_summary = (
+                    f"Neu importiert: {len(all_participants)} Teilnehmer. "
+                    f"{len(locked_skipped)} wegen Sperre übersprungen."
+                )
                 self.logger.info(f"[FRESH] {merge_summary}{resync_note}")
             
             if self.ui_feedback:
@@ -859,7 +981,8 @@ class DataLoaderService:
                     rejected_participants=all_rejected,
                     load_mode='append' if is_append_mode else 'fresh',
                     duplicates_skipped=len(duplicates_skipped),
-                    db_available=db_save_succeeded
+                    db_available=db_save_succeeded,
+                    locked_age_classes=locked_age_classes
                 )
 
         except json.JSONDecodeError as e:

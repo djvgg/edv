@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from sqlalchemy import text
 
-from ..data.models import Fight, Group, Participant, GroupParticipant
+from ..data.models import AgeClassLock, Bracket, Fight, Group, Participant, GroupParticipant
 from ..data.repositories.participant_repository import ParticipantRepository
 from ..data.repositories.group_repository import GroupRepository
 from ..data.repositories.bracket_repository import BracketRepository
@@ -19,7 +19,13 @@ if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
 from utils.logging import get_logger  # noqa: E402
 import re as _re  # noqa: E402
-from utils.helpers import normalize_gender as _normalize_gender, split_name as _split_name, parse_bracket_key as _parse_bracket_key  # noqa: E402
+from utils.helpers import (  # noqa: E402
+    age_class_scope_key as _age_class_scope_key,
+    age_group_from_bracket_key as _age_group_from_bracket_key,
+    normalize_gender as _normalize_gender,
+    parse_bracket_key as _parse_bracket_key,
+    split_name as _split_name,
+)
 
 def _is_pool_key(key: str) -> bool:
     """Return True for 'U9 | Pool N' or 'U11 | Pool N' style bracket keys."""
@@ -194,13 +200,87 @@ class TournamentService:
         """
         # Children first → parents last (reverse FK order)
         # brackets must come before group_participants: brackets.first/second/third_place are FKs → group_participants
-        for table in ('fights', 'brackets', 'group_participants', 'groups', 'mats', 'participants'):
+        for table in ('fights', 'brackets', 'group_participants', 'groups', 'mats', 'age_class_locks', 'participants'):
             self.db.execute(text(f"DELETE FROM {table}"))
         # Reset all sequences so IDs start from 1 on next insert
         for seq in ('fights_id_seq', 'group_participants_id_seq', 'brackets_id_seq',
-                     'groups_id_seq', 'mats_id_seq', 'participants_id_seq'):
+                     'groups_id_seq', 'mats_id_seq', 'age_class_locks_id_seq',
+                     'participants_id_seq'):
             self.db.execute(text(f"ALTER SEQUENCE {seq} RESTART WITH 1"))
         self.db.commit()
+
+    # ------------------------------------------------------------------
+    # Age-class locks — protect started classes from weigh-in re-imports
+    # ------------------------------------------------------------------
+
+    def lock_age_class(self, age_group: str, gender: str = None, reason: str = 'manual') -> None:
+        """Persist a lock for an entire age class, optionally narrowed by gender."""
+        if not age_group:
+            raise ValueError("age_group is required")
+
+        normalized_gender = _normalize_gender(gender) if gender else None
+        scope_key = _age_class_scope_key(age_group, normalized_gender)
+        existing = self.db.query(AgeClassLock).filter_by(scope_key=scope_key).first()
+        if existing:
+            existing.reason = reason
+            self.logger.info(f"[AGE LOCK] Existing lock refreshed: {scope_key}")
+        else:
+            self.db.add(AgeClassLock(
+                scope_key=scope_key,
+                age_group=age_group,
+                gender=normalized_gender,
+                reason=reason,
+            ))
+            self.logger.info(f"[AGE LOCK] Created lock: {scope_key}")
+        self.db.commit()
+
+    def unlock_age_class(self, age_group: str, gender: str = None) -> None:
+        """Remove a persisted age-class lock."""
+        if not age_group:
+            raise ValueError("age_group is required")
+
+        scope_key = _age_class_scope_key(age_group, _normalize_gender(gender) if gender else None)
+        deleted = self.db.query(AgeClassLock).filter_by(scope_key=scope_key).delete()
+        self.db.commit()
+        self.logger.info(f"[AGE LOCK] Removed lock {scope_key}: {deleted} row(s)")
+
+    def get_locked_age_classes(self) -> set:
+        """Return persisted age-class lock scope keys."""
+        rows = self.db.query(AgeClassLock.scope_key).all()
+        return {row.scope_key for row in rows}
+
+    def get_age_class_activity(self, age_group: str, gender: str = None) -> dict:
+        """Return fight/bracket activity counts for an age class."""
+        normalized_gender = _normalize_gender(gender) if gender else None
+        matching_group_ids = []
+
+        for group in self.db.query(Group).all():
+            group_age = group.age_group or _age_group_from_bracket_key(group.name)
+            if group_age != age_group:
+                continue
+            if normalized_gender and group.gender and _normalize_gender(group.gender) != normalized_gender:
+                continue
+            matching_group_ids.append(group.id)
+
+        if not matching_group_ids:
+            return {'bracket_count': 0, 'fight_count': 0, 'completed_fight_count': 0}
+
+        brackets = self.db.query(Bracket).filter(Bracket.group_id.in_(matching_group_ids)).all()
+        bracket_ids = [bracket.id for bracket in brackets]
+        if not bracket_ids:
+            return {'bracket_count': 0, 'fight_count': 0, 'completed_fight_count': 0}
+
+        fight_count = self.db.query(Fight).filter(Fight.bracket_id.in_(bracket_ids)).count()
+        completed_count = (
+            self.db.query(Fight)
+            .filter(Fight.bracket_id.in_(bracket_ids), Fight.status == 'completed')
+            .count()
+        )
+        return {
+            'bracket_count': len(bracket_ids),
+            'fight_count': fight_count,
+            'completed_fight_count': completed_count,
+        }
 
     @staticmethod
     def _map_to_model(raw: dict) -> dict:

@@ -58,6 +58,7 @@ from ..styles import (  # noqa: E402
     COLORS,
     SCROLLBAR_STYLE,
     SCROLLBAR_ACTIVE_STYLE,
+    toggle_theme,
 )
 
 # Import screen components
@@ -142,6 +143,7 @@ class BracketViewerApp(tk.Tk):
         self.brackets = {}  # {bracket_key: Bracket data}
         self.bracket_generation_methods = {}  # {bracket_key: method_name}
         self.bracket_table_assignment = {}  # {bracket_key: table_number or None}
+        self.locked_age_classes = set()  # {'U15', 'm|U18', ...}
 
         # Fight monitoring state – persists across window open/close
         # {bracket_key: {(round_idx, match_idx): winner_name}}
@@ -171,6 +173,7 @@ class BracketViewerApp(tk.Tk):
 
         # Inject screen manager into nav bar for staleness tracking
         self.nav_bar.set_screen_manager(self.screen_manager)
+        self.nav_bar.on_theme_toggle = self._toggle_theme
 
         # Create data transformation pipeline (orchestrates business logic)
         # headless=False means include UI-only operations (normal mode)
@@ -211,6 +214,7 @@ class BracketViewerApp(tk.Tk):
                 quarantine_service=self.quarantine_service,
                 db_service=self.db_service,
                 bracket_table_assignment=self.bracket_table_assignment,
+                locked_age_classes=self.locked_age_classes,
             )
 
         def file_loader_factory(main_window):
@@ -269,6 +273,8 @@ class BracketViewerApp(tk.Tk):
             # Update data_loader_service with initialized db_service and task_runner
             self.data_loader.db_service = self.db_service
             self.data_loader.task_runner = self.task_runner
+            self.locked_age_classes = self.db_service.get_locked_age_classes()
+            self.logger.debug(f"Loaded age-class locks: {sorted(self.locked_age_classes)}")
             
             self.logger.debug("Database service initialized successfully")
         except Exception as e:
@@ -323,6 +329,17 @@ class BracketViewerApp(tk.Tk):
         style.map(self.SCROLLBAR_HORIZONTAL,
                  background=[('active', SCROLLBAR_ACTIVE_STYLE['background'])],
                  arrowcolor=[('active', SCROLLBAR_ACTIVE_STYLE['arrowcolor'])])
+
+    def _toggle_theme(self):
+        toggle_theme()
+        self.configure(bg=COLORS['bg_dark'])
+        self.content_frame.configure(bg=COLORS['bg_dark'])
+        self.setup_ttk_styles()
+        self.nav_bar.refresh_theme()
+        current = self.screen_manager.current_screen_key
+        if current:
+            self.screen_manager.invalidate_all_screens()
+            self.screen_manager.navigate_to(current)
 
     def check_screen_prerequisites(self, screen_key):
         """
@@ -380,7 +397,8 @@ class BracketViewerApp(tk.Tk):
             screen.on_continue = lambda: self.screen_manager.navigate_to('generation_method')
             screen.on_resort = lambda edited_fighter: (
                 self.quarantine_service.resort_brackets(
-                    self.brackets, edited_fighter, screen, self.db_service, self.bracket_table_assignment
+                    self.brackets, edited_fighter, screen, self.db_service,
+                    self.bracket_table_assignment, self.locked_age_classes
                 ),
                 self.screen_manager.invalidate_downstream('group_preview')
             )
@@ -546,6 +564,7 @@ class BracketViewerApp(tk.Tk):
             self.brackets = {}
             self.match_results = {}
             self.loser_match_results = {}
+            self.locked_age_classes = set()
             self.logger.info("Database flushed successfully")
         else:
             self.logger.error("Failed to flush database")
@@ -558,7 +577,8 @@ class BracketViewerApp(tk.Tk):
 
     def _on_brackets_loaded(self, brackets=None, rejected_participants=None, load_mode='fresh', 
                             duplicates_skipped=0, db_available=True, 
-                            bracket_generation_methods=None, bracket_table_assignment=None):
+                            bracket_generation_methods=None, bracket_table_assignment=None,
+                            locked_age_classes=None):
         """Callback when brackets are successfully loaded (called from background thread).
 
         Args:
@@ -569,15 +589,26 @@ class BracketViewerApp(tk.Tk):
             db_available: True if DB save succeeded, False if offline
             bracket_generation_methods: Dict of {bracket_key: method_name} loaded from DB (or None to reset)
             bracket_table_assignment: Dict of {bracket_key: mat_id} loaded from DB (or None to reset)
+            locked_age_classes: Set of age-class locks loaded from DB or preserved from cache
         """
         # The brackets are already merged (if append mode) by the loader
         if brackets:
             self.brackets = brackets
 
+        if locked_age_classes is not None:
+            self.locked_age_classes = set(locked_age_classes)
+            self.logger.debug(f"Reloaded {len(self.locked_age_classes)} age-class lock(s)")
+
         # Reload bracket metadata from DB if provided; otherwise reset to start fresh
         if bracket_generation_methods is not None:
             self.bracket_generation_methods = bracket_generation_methods
             self.logger.debug(f"Reloaded {len(bracket_generation_methods)} bracket generation methods from database")
+        elif load_mode == 'append':
+            self.bracket_generation_methods = {
+                key: value for key, value in self.bracket_generation_methods.items()
+                if key in self.brackets
+            }
+            self.logger.debug("Preserved generation methods for append import")
         else:
             # Reset generation methods when reloading from DB (regenerated brackets need re-assignment)
             self.bracket_generation_methods = {}
@@ -586,6 +617,12 @@ class BracketViewerApp(tk.Tk):
         if bracket_table_assignment is not None:
             self.bracket_table_assignment = bracket_table_assignment
             self.logger.debug(f"Reloaded {len(bracket_table_assignment)} bracket table assignments from database")
+        elif load_mode == 'append':
+            self.bracket_table_assignment = {
+                key: value for key, value in self.bracket_table_assignment.items()
+                if key in self.brackets
+            }
+            self.logger.debug("Preserved table assignments for append import")
         else:
             # Reset table assignments when reloading from DB (need re-assignment to new brackets)
             self.bracket_table_assignment = {}
@@ -659,7 +696,8 @@ class BracketViewerApp(tk.Tk):
                 callbacks={
                     'on_success': self._on_brackets_loaded
                 },
-                existing_brackets=self.brackets if self.brackets else None
+                existing_brackets=self.brackets if self.brackets else None,
+                locked_age_classes=self.locked_age_classes,
             )
             self.logger.debug("[JSON] load_json_and_generate delegated to data_loader")
         except Exception as e:

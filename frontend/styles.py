@@ -3,10 +3,12 @@
 
 """
 Reusable UI styles for Tournament Management frontend.
-Dark theme with modern, clean aesthetics based on an 8px grid.
+Supports dark and light themes with modern, clean aesthetics based on an 8px grid.
 """
 
 import tkinter as tk
+import json
+import os
 
 # ============================================================================
 # DESIGN TOKENS
@@ -23,37 +25,73 @@ SPACING = {
 }
 
 # ============================================================================
-# COLOR PALETTE
+# COLOR PALETTES
 # ============================================================================
 
-COLORS = {
-    # Dark theme colors
-    'bg_dark': '#292C34',           # Main background (shadow grey)
-    'bg_darker': '#6D737C',         # Darker variant (slate grey)
-    'bg_panel': '#252525',          # Panel background
-    'bg_input': '#2d2d2d',          # Input fields
+_COLORS_DARK = {
+    'bg_dark': '#292C34',
+    'bg_darker': '#6D737C',
+    'bg_panel': '#252525',
+    'bg_input': '#2d2d2d',
 
-    # Text colors
-    'text_primary': '#ffffff',      # Primary text (white)
-    'text_secondary': '#ADB0B8',    # Secondary text (pale slate)
-    'text_muted': '#ADB0B8',        # Muted text (light gray)
-    'text_disabled': '#B58B82',     # Disabled text (pink)
+    'text_primary': '#ffffff',
+    'text_secondary': '#ADB0B8',
+    'text_muted': '#ADB0B8',
+    'text_disabled': '#B58B82',
 
-    # Accent colors
-    'accent_blue': '#7F85C5',       # Primary blue (soft periwinkle)
-    'accent_blue_hover': '#22AAF0', # Fresh sky
-    'accent_purple': '#9F80F8',     # Bright lavender
-    'accent_violet': '#E590E8',     # Light violet
-    'accent_green': '#4CCD70',      # Emerald
-    'accent_red': '#B58B82',        # Rosy taupe
-    'accent_orange': '#F5CA74',     # Jasmine
+    'accent_blue': '#6068B0',
+    'accent_blue_hover': '#1E90D0',
+    'accent_purple': '#9F80F8',
+    'accent_violet': '#E590E8',
+    'accent_green': '#38A85A',
+    'accent_red': '#E8ADA3',
+    'accent_orange': '#F5CA74',
 
-    # Neutral colors
-    'border': '#3a3a3a',            # Border color
-    'border_light': '#ADB0B8',      # Light border (pale slate)
+    'border': '#3a3a3a',
+    'border_light': '#ADB0B8',
     'white': '#ffffff',
     'black': '#000000',
 }
+
+_COLORS_LIGHT = {
+    'bg_dark': '#F0F2F5',
+    'bg_darker': '#D5D8DC',
+    'bg_panel': '#FFFFFF',
+    'bg_input': '#FFFFFF',
+
+    'text_primary': '#1A1A2E',
+    'text_secondary': '#5A5E6B',
+    'text_muted': '#7A7E8B',
+    'text_disabled': '#B0A8A4',
+
+    'accent_blue': '#5B63B7',
+    'accent_blue_hover': '#1A8FD0',
+    'accent_purple': '#7B5FD4',
+    'accent_violet': '#C06CC4',
+    'accent_green': '#2EA84E',
+    'accent_red': '#C0766A',
+    'accent_orange': '#D4A840',
+
+    'border': '#D0D3D8',
+    'border_light': '#B0B4BC',
+    'white': '#ffffff',
+    'black': '#000000',
+}
+
+_THEME_PREFS_PATH = os.path.join(os.path.dirname(__file__), '..', '.theme_preference')
+_current_theme = 'dark'
+
+def _load_saved_theme():
+    try:
+        with open(_THEME_PREFS_PATH) as f:
+            data = json.load(f)
+            return data.get('theme', 'dark')
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        return 'dark'
+
+_current_theme = _load_saved_theme()
+
+COLORS = dict(_COLORS_LIGHT if _current_theme == 'light' else _COLORS_DARK)
 
 # ============================================================================
 # TYPOGRAPHY (Rubik Scale)
@@ -103,6 +141,8 @@ BUTTON_STYLES = {
         'activeforeground': COLORS['text_primary'],
         'cursor': 'hand2',
         'borderwidth': 0,
+        'highlightthickness': 0,
+        'highlightbackground': COLORS['accent_blue'],
     },
     'success': {
         'bg': COLORS['accent_green'],
@@ -115,6 +155,8 @@ BUTTON_STYLES = {
         'activeforeground': COLORS['white'],
         'cursor': 'hand2',
         'borderwidth': 0,
+        'highlightthickness': 0,
+        'highlightbackground': COLORS['accent_green'],
     },
     'secondary': {
         'bg': COLORS['border'],
@@ -127,6 +169,8 @@ BUTTON_STYLES = {
         'activeforeground': COLORS['white'],
         'cursor': 'hand2',
         'borderwidth': 0,
+        'highlightthickness': 0,
+        'highlightbackground': COLORS['border'],
     },
     'small': {
         'bg': COLORS['accent_blue'],
@@ -139,6 +183,8 @@ BUTTON_STYLES = {
         'activeforeground': COLORS['text_primary'],
         'cursor': 'hand2',
         'borderwidth': 0,
+        'highlightthickness': 0,
+        'highlightbackground': COLORS['accent_blue'],
     },
 }
 
@@ -285,4 +331,100 @@ TABLE_PANEL_STYLE = {
 def apply_table_panel_style(labelframe):
     """Apply styling to table assignment panels."""
     labelframe.config(**TABLE_PANEL_STYLE)
+
+
+# ============================================================================
+# THEME SWITCHING
+# ============================================================================
+
+def get_theme():
+    return _current_theme
+
+
+def set_theme(theme_name):
+    global _current_theme
+    if theme_name not in ('dark', 'light'):
+        raise ValueError(f"Unknown theme: {theme_name}")
+
+    _current_theme = theme_name
+    source = _COLORS_LIGHT if theme_name == 'light' else _COLORS_DARK
+    COLORS.update(source)
+    _rebuild_component_styles()
+
+    try:
+        with open(_THEME_PREFS_PATH, 'w') as f:
+            json.dump({'theme': theme_name}, f)
+    except OSError:
+        pass
+
+
+def toggle_theme():
+    set_theme('light' if _current_theme == 'dark' else 'dark')
+
+
+def _rebuild_component_styles():
+    BUTTON_STYLES['primary'].update({
+        'bg': COLORS['accent_blue'],
+        'fg': COLORS['text_primary'],
+        'activebackground': COLORS['accent_blue_hover'],
+        'activeforeground': COLORS['text_primary'],
+    })
+    BUTTON_STYLES['success'].update({
+        'bg': COLORS['accent_green'],
+        'fg': COLORS['text_primary'],
+        'activebackground': COLORS['accent_green'],
+        'activeforeground': COLORS['white'],
+    })
+    BUTTON_STYLES['secondary'].update({
+        'bg': COLORS['border'],
+        'fg': COLORS['text_primary'],
+        'activebackground': COLORS['border_light'],
+        'activeforeground': COLORS['white'],
+    })
+    BUTTON_STYLES['small'].update({
+        'bg': COLORS['accent_blue'],
+        'fg': COLORS['text_primary'],
+        'activebackground': COLORS['accent_blue_hover'],
+        'activeforeground': COLORS['text_primary'],
+    })
+
+    FRAME_STYLES['dark'].update({'bg': COLORS['bg_dark']})
+    FRAME_STYLES['panel'].update({'bg': COLORS['bg_panel']})
+
+    for key in LABEL_STYLES:
+        if 'fg' in LABEL_STYLES[key]:
+            if key.startswith('status_'):
+                continue
+            LABEL_STYLES[key]['fg'] = COLORS['text_primary'] if key.startswith('heading') or key == 'body' else COLORS['text_secondary'] if key == 'subtitle' else COLORS['text_muted']
+
+    LABEL_STYLES['status_success']['fg'] = COLORS['accent_green']
+    LABEL_STYLES['status_error']['fg'] = COLORS['accent_red']
+
+    LISTBOX_STYLE.update({
+        'bg': COLORS['bg_input'],
+        'fg': COLORS['text_primary'],
+        'selectbackground': COLORS['accent_blue'],
+        'selectforeground': COLORS['text_primary'],
+    })
+    ENTRY_STYLE.update({
+        'bg': COLORS['bg_input'],
+        'fg': COLORS['text_primary'],
+        'insertbackground': COLORS['text_primary'],
+    })
+    SCROLLBAR_STYLE.update({
+        'background': COLORS['bg_panel'],
+        'troughcolor': COLORS['bg_dark'],
+        'bordercolor': COLORS['bg_dark'],
+        'arrowcolor': COLORS['text_secondary'],
+        'lightcolor': COLORS['bg_panel'],
+        'darkcolor': COLORS['bg_panel'],
+    })
+    SCROLLBAR_ACTIVE_STYLE.update({
+        'background': COLORS['bg_input'],
+        'arrowcolor': COLORS['text_primary'],
+    })
+    TABLE_PANEL_STYLE.update({
+        'bg': COLORS['bg_panel'],
+        'fg': COLORS['text_primary'],
+    })
 

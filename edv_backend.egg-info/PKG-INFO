@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: edv-backend
+Version: 0.1.0
+Summary: Tournament management desktop app for Judo competitions
+Requires-Python: >=3.10
+Requires-Dist: pandas
+Requires-Dist: openpyxl
+Requires-Dist: psycopg2-binary
+Requires-Dist: sqlalchemy
+Requires-Dist: python-dotenv
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: alembic; extra == "dev"

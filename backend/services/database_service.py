@@ -151,6 +151,21 @@ class DatabaseService:
         result = self._execute_with_session(_update)
         return result is True
 
+    def update_participants_respecting_locks(self, participants: list, locked_age_classes=None) -> bool:
+        """
+        Upsert participants after the caller filtered age-class locks.
+
+        The lock set is logged here so JSON import code can use one persistence
+        entry point while keeping the backend boundary explicit.
+        """
+        locked_age_classes = set(locked_age_classes or [])
+        if locked_age_classes:
+            self.logger.info(
+                f"Upserting {len(participants)} participant(s) with age locks active: "
+                f"{sorted(locked_age_classes)}"
+            )
+        return self.update_participants(participants)
+
     def flush_database(self) -> bool:
         """Wipe all tournament data (explicit user action via Flush button)."""
         self.logger.warning("[FLUSH] User requested full database flush")
@@ -230,6 +245,42 @@ class DatabaseService:
         
         result = self._execute_with_session(_save)
         return result is True
+
+    # ===== AGE-CLASS LOCK CRUD =====
+
+    def lock_age_class(self, age_group: str, gender: str = None, reason: str = 'manual') -> bool:
+        """Persist a lock that protects an age class from editing/import updates."""
+        def _lock(svc: TournamentService):
+            svc.lock_age_class(age_group, gender=gender, reason=reason)
+            return True
+
+        return self._execute_with_session(_lock) is True
+
+    def unlock_age_class(self, age_group: str, gender: str = None) -> bool:
+        """Remove a persisted age-class lock."""
+        def _unlock(svc: TournamentService):
+            svc.unlock_age_class(age_group, gender=gender)
+            return True
+
+        return self._execute_with_session(_unlock) is True
+
+    def get_locked_age_classes(self) -> set:
+        """Return all persisted age-class lock scope keys."""
+        def _fetch(svc: TournamentService):
+            return svc.get_locked_age_classes()
+
+        return self._execute_with_session(_fetch) or set()
+
+    def get_age_class_activity(self, age_group: str, gender: str = None) -> dict:
+        """Return bracket/fight counts for unlock warnings."""
+        def _fetch(svc: TournamentService):
+            return svc.get_age_class_activity(age_group, gender=gender)
+
+        return self._execute_with_session(_fetch) or {
+            'bracket_count': 0,
+            'fight_count': 0,
+            'completed_fight_count': 0,
+        }
 
     def reconstruct_bracket_from_db(
         self,

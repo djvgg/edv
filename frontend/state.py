@@ -28,6 +28,9 @@ class TournamentState:
         # {bracket_key: table_number | None}
         self.bracket_table_assignment: dict = {}
 
+        # {'U15', 'm|U18', ...}
+        self.locked_age_classes: set = set()
+
         # {bracket_key: {(round_idx, match_idx): winner_name}}
         self.match_results: dict = {}
 
@@ -48,6 +51,7 @@ class TournamentState:
         self.brackets.clear()
         self.bracket_generation_methods.clear()
         self.bracket_table_assignment.clear()
+        self.locked_age_classes.clear()
         self.match_results.clear()
         self.loser_match_results.clear()
         self.pool_cell_values.clear()

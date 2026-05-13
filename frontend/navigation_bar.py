@@ -17,7 +17,7 @@ if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
 
 from utils.logging import get_logger  # noqa: E402
-from .styles import COLORS, FONTS, SPACING  # noqa: E402
+from .styles import COLORS, FONTS, SPACING, get_theme  # noqa: E402
 
 # Debug flag
 DEBUG = True
@@ -58,8 +58,22 @@ class NavigationBar(tk.Frame):
         
         # Tabs container frame (centered)
         self.tabs_frame = tk.Frame(self.container, bg=COLORS['bg_dark'])
-        self.tabs_frame.pack(anchor=tk.CENTER, padx=5)
-        
+        self.tabs_frame.pack(side=tk.LEFT, expand=True, padx=5)
+
+        # Theme toggle button
+        self.on_theme_toggle = None
+        self._theme_btn = tk.Label(
+            self.container,
+            text=self._theme_icon(),
+            bg=COLORS['bg_dark'],
+            fg=COLORS['text_secondary'],
+            font=FONTS['heading_md'],
+            cursor='hand2',
+            padx=SPACING['sm'],
+        )
+        self._theme_btn.pack(side=tk.RIGHT, padx=SPACING['sm'])
+        self._theme_btn.bind('<Button-1>', lambda e: self._on_theme_toggle())
+
         self.logger.debug("NavigationBar initialized")
     
     def set_screen_manager(self, screen_manager):
@@ -223,3 +237,22 @@ class NavigationBar(tk.Frame):
             self.tabs[screen_key]['locked'] = True
             self.logger.info(f"Tab disabled: {screen_key}")
             self._render_tabs()
+
+    @staticmethod
+    def _theme_icon():
+        return '☾' if get_theme() == 'dark' else '☀'
+
+    def _on_theme_toggle(self):
+        if self.on_theme_toggle and callable(self.on_theme_toggle):
+            self.on_theme_toggle()
+
+    def refresh_theme(self):
+        self.configure(bg=COLORS['bg_dark'])
+        self.container.configure(bg=COLORS['bg_dark'])
+        self.tabs_frame.configure(bg=COLORS['bg_dark'])
+        self._theme_btn.configure(
+            text=self._theme_icon(),
+            bg=COLORS['bg_dark'],
+            fg=COLORS['text_secondary'],
+        )
+        self._render_tabs()

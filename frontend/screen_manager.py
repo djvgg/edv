@@ -419,6 +419,17 @@ class ScreenManager:
             self.nav_bar.disable_tab(screen_key)
             self.logger.info(f"Locked screen: {screen_key}")
     
+    def invalidate_all_screens(self):
+        for key, screen in list(self.screen_instances.items()):
+            try:
+                screen.destroy()
+            except Exception:
+                pass
+        self.screen_instances.clear()
+        for key in self.screen_staleness:
+            self.screen_staleness[key] = True
+        self.current_screen_key = None
+
     def close_app(self):
         """
         Close the application.

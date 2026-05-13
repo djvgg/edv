@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 from sqlalchemy import (
-    Column, Integer, String, Boolean, Numeric, Date,
+    Column, Integer, String, Boolean, Numeric, Date, DateTime,
     ForeignKey, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
+from datetime import datetime
 from .database import Base
 
 
@@ -44,6 +45,20 @@ class Group(Base):
 
     group_participants = relationship('GroupParticipant', back_populates='group')
     bracket            = relationship('Bracket', back_populates='group', uselist=False)
+
+
+class AgeClassLock(Base):
+    __tablename__ = 'age_class_locks'
+    __table_args__ = (
+        UniqueConstraint('scope_key', name='uix_age_class_lock_scope'),
+    )
+
+    id         = Column(Integer, primary_key=True)
+    scope_key  = Column(String(30), nullable=False)
+    age_group  = Column(String(20), nullable=False)
+    gender     = Column(String(10), nullable=True)
+    locked_at  = Column(DateTime, default=datetime.utcnow, nullable=False)
+    reason     = Column(String(200), nullable=True)
 
 
 class GroupParticipant(Base):

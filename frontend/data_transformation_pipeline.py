@@ -365,7 +365,7 @@ class DataTransformationPipeline:
                 # Run all DB transformations in a single background task
                 self.task_runner.submit_task(
                     f'transform_db_{screen_key}',
-                    fn=lambda: self._execute_transformations_batch(db_to_run, wait_for_db),
+                    fn=lambda on_progress=None: self._execute_transformations_batch(db_to_run, wait_for_db),
                     on_error=lambda e: self.logger.error(f"Background DB transformation failed: {e}")
                 )
                 self.logger.debug("✓ Data transforms completed, DB operations running in background")

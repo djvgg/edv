@@ -12,6 +12,7 @@ class TestTournamentState:
         assert state.brackets == {}
         assert state.bracket_generation_methods == {}
         assert state.bracket_table_assignment == {}
+        assert state.locked_age_classes == set()
         assert state.match_results == {}
         assert state.loser_match_results == {}
         assert state.pool_cell_values == {}
@@ -30,6 +31,7 @@ class TestTournamentState:
         state.brackets['key'] = {}
         state.match_results['key'] = {(0, 0): 'Alice'}
         state.bracket_table_assignment['key'] = 2
+        state.locked_age_classes.add('U15')
         state.ko_match_results['key'] = {(1, 0): 'Bob'}
 
         state.reset()
@@ -37,6 +39,7 @@ class TestTournamentState:
         assert state.brackets == {}
         assert state.match_results == {}
         assert state.bracket_table_assignment == {}
+        assert state.locked_age_classes == set()
         assert state.ko_match_results == {}
 
     def test_reset_is_idempotent(self):

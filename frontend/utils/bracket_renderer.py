@@ -128,19 +128,19 @@ def draw_bracket_on_canvas(canvas, rounds, positions, box_width, box_height,
             
             logger.debug(f"Round {r}, Match {m}: {p1_display} vs {p2_display} @ ({x}, {y})")
             
-            # Draw box (white outline)
+            # Draw box
             canvas.create_rectangle(x, y, x + box_width, y + box_height,
-                                   outline=colors['white'], width=line_width)
+                                   outline=colors['text_primary'], width=line_width)
             canvas.create_line(x, y + box_height // 2, x + box_width, y + box_height // 2,
                              fill=colors['text_secondary'], dash=(2, 2))
-            
+
             # Draw fighter names
             canvas.create_text(x + box_width // 2, y + box_height // 4,
                              text=p1_display, anchor='c',
-                             fill=colors['white'], font=scaled_font)
+                             fill=colors['text_primary'], font=scaled_font)
             canvas.create_text(x + box_width // 2, y + 3 * box_height // 4,
                              text=p2_display, anchor='c',
-                             fill=colors['white'], font=scaled_font)
+                             fill=colors['text_primary'], font=scaled_font)
             
             # Draw "vs" separator
             canvas.create_text(x + box_width // 2, y + box_height // 2,
@@ -156,7 +156,7 @@ def draw_bracket_on_canvas(canvas, rounds, positions, box_width, box_height,
                     x + box_width, y + box_height // 2,
                     nx, ny + box_height // 2,
                     arrow=tk.LAST, width=line_width,
-                    fill=colors['white']
+                    fill=colors['text_primary']
                 )
 
 

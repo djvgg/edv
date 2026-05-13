@@ -20,7 +20,11 @@ if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
 
 from utils.logging import get_logger, DEBUG_VERBOSE  # noqa: E402
-from utils.helpers import parse_bracket_key as _parse_bracket_key_helper  # noqa: E402
+from utils.helpers import (  # noqa: E402
+    age_group_from_bracket_key,
+    bracket_key_matches_age_lock,
+    parse_bracket_key as _parse_bracket_key_helper,
+)
 from backend.data.repositories.config_repository import ConfigRepository  # noqa: E402
 from ..styles import (  # noqa: E402
     COLORS, FONTS, SPACING,
@@ -52,7 +56,8 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
     # Debug flag - set to True for verbose logging
     DEBUG = DEBUG_VERBOSE
 
-    def __init__(self, parent, main_window=None, quarantine_service=None, db_service=None, bracket_table_assignment=None, **kwargs):
+    def __init__(self, parent, main_window=None, quarantine_service=None, db_service=None,
+                 bracket_table_assignment=None, locked_age_classes=None, **kwargs):
         super().__init__(parent, **kwargs)
         self.configure(bg=COLORS['bg_dark'])
         self.logger = logger
@@ -60,6 +65,7 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         self.quarantine_service = quarantine_service  # Store reference for edit dialog
         self.db_service = db_service                  # DB service for persisting edits
         self.bracket_table_assignment = bracket_table_assignment or {}  # {bracket_key: mat_id} - locked brackets
+        self.locked_age_classes = set(locked_age_classes or [])
         self.task_runner = getattr(main_window, 'task_runner', None) if main_window else None  # Background tasks
         
         # Initialize config repository for weight classes
@@ -187,6 +193,8 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
     def load_data(self, brackets):
         """Load bracket data."""
         self.brackets = brackets
+        if self.main_window and hasattr(self.main_window, 'locked_age_classes'):
+            self.locked_age_classes = set(self.main_window.locked_age_classes)
         self.logger.info(f"Loaded {len(brackets)} brackets for preview")
         if self.DEBUG:
             self.logger.debug(f"DEBUG: Bracket keys: {list(brackets.keys())}")
@@ -319,12 +327,30 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         continue_btn.pack(side=tk.RIGHT, padx=SPACING['sm'])
 
     # Fill in Weight Classes (m | 18+ | -66kg etc..), Left Panel
+    def _display_key_for_bracket(self, bracket_key):
+        """Return the human-readable sidebar/title key for a bracket."""
+        if bracket_key.startswith("QUARANTINE_"):
+            reason = bracket_key.replace("QUARANTINE_", "")
+            t_map = {
+                "marked_invalid": "Ungültig",
+                "unpaid": "Unbezahlt",
+                "age_too_young": "Zu jung",
+                "age_out_of_bounds": "Alter ungültig",
+                "duplicate": "Duplikat",
+                "age_class_locked": "Altersklasse gesperrt",
+            }
+            return f"QUARANTÄNE_{t_map.get(reason, reason)}"
+        return bracket_key
+
     def _get_display_text_for_bracket(self, bracket_key, fighter_count):
         """Get display text for a bracket, including lock status if assigned to mat."""
-        text = f"{bracket_key} ({fighter_count})"
+        text = f"{self._display_key_for_bracket(bracket_key)} ({fighter_count})"
+        if bracket_key_matches_age_lock(bracket_key, self.locked_age_classes):
+            age_group = age_group_from_bracket_key(bracket_key)
+            text += f" [Gesperrt {age_group}]"
         if bracket_key in self.bracket_table_assignment and self.bracket_table_assignment[bracket_key] is not None:
             mat_num = self.bracket_table_assignment[bracket_key]
-            text += f" 🔒 Matte {mat_num}"
+            text += f" [Matte {mat_num}]"
         return text
 
     def _populate_group_list(self):
@@ -345,19 +371,7 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
                 total_participants += count
                 groups_added.append(bracket_key)
 
-                display_key = bracket_key
-                if bracket_key.startswith("QUARANTINE_"):
-                    reason = bracket_key.replace("QUARANTINE_", "")
-                    t_map = {
-                        "marked_invalid": "Ungültig", 
-                        "unpaid": "Unbezahlt", 
-                        "age_too_young": "Zu jung",
-                        "age_out_of_bounds": "Alter ungültig",
-                        "duplicate": "Duplikat"
-                    }
-                    display_key = f"QUARANTÄNE_{t_map.get(reason, reason)}"
-                
-                display_text = f"{display_key} ({count})"
+                display_text = self._get_display_text_for_bracket(bracket_key, count)
                 self.group_listbox.insert(tk.END, display_text)
                 self.group_listbox_map[display_text] = bracket_key
 
@@ -400,19 +414,7 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
             count = len(fighters)
             total_filtered += count
             
-            display_key = bracket_key
-            if bracket_key.startswith("QUARANTINE_"):
-                reason = bracket_key.replace("QUARANTINE_", "")
-                t_map = {
-                    "marked_invalid": "Ungültig", 
-                    "unpaid": "Unbezahlt", 
-                    "age_too_young": "Zu jung",
-                    "age_out_of_bounds": "Alter ungültig",
-                    "duplicate": "Duplikat"
-                }
-                display_key = f"QUARANTÄNE_{t_map.get(reason, reason)}"
-            
-            display_text = f"{display_key} ({count})"
+            display_text = self._get_display_text_for_bracket(bracket_key, count)
             self.group_listbox.insert(tk.END, display_text)
             self.group_listbox_map[display_text] = bracket_key
 
@@ -442,6 +444,92 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         except ValueError:
             return None, None, None
 
+    def _create_age_lock_bar(self, parent, bracket_key):
+        """Create controls for locking/unlocking the selected age class."""
+        age_group = age_group_from_bracket_key(bracket_key)
+        if not age_group:
+            return
+
+        locked = bracket_key_matches_age_lock(bracket_key, self.locked_age_classes)
+        lock_frame = create_dark_frame(parent)
+        lock_frame.pack(fill=tk.X, pady=(0, SPACING['sm']))
+
+        status = "gesperrt" if locked else "frei"
+        label = tk.Label(lock_frame, text=f"Altersklasse {age_group}: {status}")
+        apply_label_style(label, 'info')
+        label.pack(side=tk.LEFT)
+
+        btn_text = "Altersklasse entsperren" if locked else "Altersklasse sperren"
+        lock_btn = tk.Button(
+            lock_frame,
+            text=btn_text,
+            command=lambda ag=age_group, is_locked=locked: self._toggle_age_class_lock(ag, is_locked),
+        )
+        apply_button_style(lock_btn, 'secondary')
+        lock_btn.pack(side=tk.RIGHT)
+
+    def _toggle_age_class_lock(self, age_group, currently_locked):
+        """Persist and mirror an age-class lock toggle."""
+        db_service = self.db_service or getattr(self.main_window, 'db_service', None)
+
+        if currently_locked:
+            activity = {'fight_count': 0, 'completed_fight_count': 0}
+            if db_service:
+                activity = db_service.get_age_class_activity(age_group)
+
+            if activity.get('fight_count', 0) or activity.get('completed_fight_count', 0):
+                ok = messagebox.askyesno(
+                    "Altersklasse entsperren",
+                    f"In {age_group} existieren bereits {activity.get('fight_count', 0)} Kämpfe "
+                    f"({activity.get('completed_fight_count', 0)} mit Ergebnis).\n\n"
+                    "Entsperren erlaubt wieder manuelle Änderungen und den Wiege-Import für diese Altersklasse. "
+                    "Bitte nur fortfahren, wenn die Kampfliste bewusst nachbearbeitet werden soll.",
+                    icon='warning',
+                    parent=self,
+                )
+            else:
+                ok = messagebox.askyesno(
+                    "Altersklasse entsperren",
+                    f"Altersklasse {age_group} wieder zur Bearbeitung freigeben?",
+                    parent=self,
+                )
+            if not ok:
+                return
+
+            success = db_service.unlock_age_class(age_group) if db_service else True
+            if success:
+                self.locked_age_classes.discard(age_group)
+                if self.main_window and hasattr(self.main_window, 'locked_age_classes'):
+                    self.main_window.locked_age_classes.discard(age_group)
+        else:
+            ok = messagebox.askyesno(
+                "Altersklasse sperren",
+                f"Altersklasse {age_group} sperren?\n\n"
+                "Teilnehmer dieser Altersklasse können dann nicht mehr manuell editiert werden "
+                "und werden beim JSON-Rückimport übersprungen.",
+                parent=self,
+            )
+            if not ok:
+                return
+
+            success = db_service.lock_age_class(age_group, reason='manual') if db_service else True
+            if success:
+                self.locked_age_classes.add(age_group)
+                if self.main_window and hasattr(self.main_window, 'locked_age_classes'):
+                    self.main_window.locked_age_classes.add(age_group)
+
+        if not success:
+            messagebox.showerror(
+                "Sperre konnte nicht gespeichert werden",
+                "Die Altersklassen-Sperre konnte nicht in der Datenbank gespeichert werden.",
+                parent=self,
+            )
+            return
+
+        self._populate_group_list()
+        if self.current_bracket_key:
+            self._display_participants(self.current_bracket_key)
+
     def _display_participants(self, bracket_key):
         """Display participant details for the selected group."""
         for widget in self.participant_display_frame.winfo_children():
@@ -461,22 +549,15 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
             if fighters:
                 self.logger.debug(f"DEBUG: First fighter: {fighters[0]}")
 
-        display_key = bracket_key
-        if bracket_key.startswith("QUARANTINE_"):
-            reason = bracket_key.replace("QUARANTINE_", "")
-            t_map = {
-                "marked_invalid": "Ungültig", 
-                "unpaid": "Unbezahlt", 
-                "age_too_young": "Zu jung",
-                "age_out_of_bounds": "Alter ungültig",
-                "duplicate": "Duplikat"
-            }
-            display_key = f"QUARANTÄNE_{t_map.get(reason, reason)}"
+        display_key = self._display_key_for_bracket(bracket_key)
 
         self.preview_title_var.set(f"{display_key} - {count} Teilnehmer")
 
+        self._create_age_lock_bar(self.participant_display_frame, bracket_key)
+
         gender, age_group, weight_class = self._parse_bracket_key(bracket_key)
-        self._create_tolerance_bar(self.participant_display_frame, gender, age_group)
+        if not bracket_key_matches_age_lock(bracket_key, self.locked_age_classes):
+            self._create_tolerance_bar(self.participant_display_frame, gender, age_group)
 
         text_widget = self._build_scrollable_text(self.participant_display_frame)
         text_widget.bind('<Double-Button-1>', lambda e: self._on_row_double_click(text_widget, bracket_key, count))
@@ -642,14 +723,28 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
             pass
 
     def _open_edit_dialog(self, bracket_key, fighter_idx):
-        """Open edit dialog for participant. Prevent editing if bracket is assigned to a mat."""
+        """Open edit dialog for participant unless the list is protected."""
+        if bracket_key_matches_age_lock(bracket_key, self.locked_age_classes):
+            age_group = age_group_from_bracket_key(bracket_key)
+            self.logger.info(f"Cannot edit participant in '{bracket_key}': age class {age_group} is locked")
+            messagebox.showwarning(
+                "Altersklasse gesperrt",
+                f"Die Altersklasse {age_group} ist gesperrt.\n\n"
+                "Entsperren Sie die Altersklasse zuerst, um Teilnehmer zu bearbeiten.",
+                parent=self,
+            )
+            return
+
         # Check if bracket is assigned to a mat - if so, prevent editing
         if bracket_key in self.bracket_table_assignment and self.bracket_table_assignment[bracket_key] is not None:
             mat_num = self.bracket_table_assignment[bracket_key]
             self.logger.info(f"Cannot edit participant in '{bracket_key}': bracket is assigned to Matte {mat_num}")
             messagebox.showwarning(
                 "Bracket Locked",
-                f"Cannot edit participants in '{bracket_key}':\n\nThis bracket is already assigned to Matte {mat_num}.\n\nTo make changes, unassign it from the mat first."
+                f"Cannot edit participants in '{bracket_key}':\n\n"
+                f"This bracket is already assigned to Matte {mat_num}.\n\n"
+                "To make changes, unassign it from the mat first.",
+                parent=self,
             )
             return
         # Use the separate Edit_Participants class to handle the dialog
@@ -702,6 +797,16 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         
         # Construct new bracket key
         new_bracket_key = f"{new_gender} | {new_age_group} | {new_weight_class}"
+
+        if bracket_key_matches_age_lock(new_bracket_key, self.locked_age_classes):
+            messagebox.showwarning(
+                "Altersklasse gesperrt",
+                f"Teilnehmer können nicht nach {new_age_group} verschoben werden, "
+                "solange diese Altersklasse gesperrt ist.",
+                parent=self,
+            )
+            self.logger.warning(f"Blocked move into locked bracket '{new_bracket_key}'")
+            return old_bracket_key
         
         # Remove from old bracket
         old_fighters.pop(fighter_idx)

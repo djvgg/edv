@@ -4,7 +4,13 @@
 """Tests for utils/helpers.py — the canonical domain utility functions."""
 
 import pytest
-from utils.helpers import normalize_gender, split_name, parse_bracket_key
+from utils.helpers import (
+    age_group_from_bracket_key,
+    bracket_key_matches_age_lock,
+    normalize_gender,
+    parse_bracket_key,
+    split_name,
+)
 
 
 class TestNormalizeGender:
@@ -102,3 +108,27 @@ class TestParseBracketKey:
         assert gender == 'm'
         assert age == '18+'
         assert weight == '+100kg'
+
+
+class TestAgeClassLocks:
+    def test_age_group_from_standard_bracket_key(self):
+        assert age_group_from_bracket_key('m | U13 | -50kg') == 'U13'
+
+    def test_age_group_from_young_age_key(self):
+        assert age_group_from_bracket_key('U9') == 'U9'
+
+    def test_age_group_from_pool_key(self):
+        assert age_group_from_bracket_key('U11 | Pool 2') == 'U11'
+
+    def test_age_group_ignores_quarantine(self):
+        assert age_group_from_bracket_key('QUARANTINE_unpaid') is None
+
+    def test_bracket_matches_whole_age_lock(self):
+        assert bracket_key_matches_age_lock('w | U15 | -63kg', {'U15'})
+
+    def test_bracket_does_not_match_other_age_lock(self):
+        assert not bracket_key_matches_age_lock('w | U15 | -63kg', {'U13'})
+
+    def test_bracket_matches_gender_scoped_lock(self):
+        assert bracket_key_matches_age_lock('m | U18 | -66kg', {'m|U18'})
+        assert not bracket_key_matches_age_lock('w | U18 | -66kg', {'m|U18'})

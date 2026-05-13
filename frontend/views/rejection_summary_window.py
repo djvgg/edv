@@ -200,6 +200,7 @@ class RejectionSummaryWindow(tk.Toplevel):
             'age_too_old': '❌ Zu alt (> 120 Jahre)',
             'invalid_birthyear': '❌ Ungültiges Geburtsjahr',
             'marked_invalid': '❌ Ungültig markiert',
+            'age_class_locked': '❌ Altersklasse gesperrt',
         }
         
         # Handle messages that contain "too young" or "too old" 
@@ -209,6 +210,9 @@ class RejectionSummaryWindow(tk.Toplevel):
             return '❌ Zu alt'
         elif 'Missing' in str(reason) or 'no age' in str(reason):
             return '❌ Alter/Geburtsjahr fehlt'
+        elif reason == 'age_class_locked':
+            locked = participant.get('locked_age_classes')
+            return f"❌ Altersklasse gesperrt ({locked})" if locked else '❌ Altersklasse gesperrt'
         
         # Return mapped translation or fallback to English with check mark
         return reason_map.get(reason, f"❌ {reason}")

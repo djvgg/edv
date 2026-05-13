@@ -14,7 +14,7 @@ _edv_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'
 if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
 from utils.logging import get_logger, DEBUG_VERBOSE  # noqa: E402
-from utils.helpers import normalize_gender  # noqa: E402
+from utils.helpers import bracket_key_matches_age_lock, normalize_gender  # noqa: E402
 from backend.services.bracket_service import get_age_group as get_age_group_with_fallback  # noqa: E402
 from backend.services.bracket_service import validate_age_from_birthyear  # noqa: E402
 
@@ -520,6 +520,22 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
             _, _, age_is_valid, age_rejection_reason = validate_age_from_birthyear(birth_year_raw)
             if not age_is_valid:
                 errors.append(f"Ungültiges Alter: {age_rejection_reason}")
+
+        if (
+            not errors
+            and not self.is_quarantine
+            and not self.is_free_match
+            and not self.is_young_category
+        ):
+            new_weight = float(weight_raw)
+            effective_age, effective_weight_class = self._resolve_effective_class(new_weight)
+            target_key = f"{self.gender} | {effective_age} | {effective_weight_class}"
+            locked_age_classes = getattr(self.parent, 'locked_age_classes', set())
+            if target_key != self.bracket_key and bracket_key_matches_age_lock(target_key, locked_age_classes):
+                errors.append(
+                    f"Ziel-Altersklasse {effective_age} ist gesperrt. "
+                    "Bitte zuerst in der Gruppenvorschau entsperren."
+                )
         return errors
 
     def _apply_to_fighter(self, values: dict):
@@ -563,7 +579,9 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
         self.fighter['_tracking_id'] = tracking_id
         self.parent.quarantine_service.resort_brackets(
             self.parent.brackets, edited_fighter=self.fighter, group_preview_screen=self.parent,
-            db_service=self.parent.db_service
+            db_service=self.parent.db_service,
+            bracket_table_assignment=getattr(self.parent, 'bracket_table_assignment', None),
+            locked_age_classes=getattr(self.parent, 'locked_age_classes', None),
         )
 
         target_key = None
