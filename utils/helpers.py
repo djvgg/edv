@@ -89,6 +89,66 @@ def age_class_scope_key(age_group: str, gender: str | None = None) -> str:
     return age
 
 
+# P3 — Canonical sort order for bracket keys across all screens.
+# Lower number = sorted earlier. Aliased so the U9/U10 and U11/U12
+# pool-pairs collapse to the same tier.
+_AGE_ORDER = {
+    'U9': 0, 'U10': 0,
+    'U11': 1, 'U12': 1,
+    'U13': 2,
+    'U14': 3, 'U15': 4,
+    'U16': 5,
+    'U18': 6,
+    'Aktive': 7, '18+': 7, 'Senioren': 7,
+}
+
+
+def format_bracket_label(bracket_key: str) -> str:
+    """Display label for a bracket key in the canonical sort order.
+
+    Internal keys use ``'gender | age | weight'`` (e.g. ``'m | U13 | -31kg'``)
+    but for the user we show them in the same order they are sorted by:
+    Age → Gender → Weight, so a glanced-over list reads naturally::
+
+        'm | U13 | -31kg'   →   'U13 | m | -31kg'
+
+    Quarantine buckets and unparseable keys are returned unchanged so callers
+    can rely on this never throwing.
+    """
+    if not bracket_key or bracket_key.startswith('QUARANTINE_'):
+        return bracket_key
+    try:
+        gender, age, weight = parse_bracket_key(bracket_key)
+    except ValueError:
+        return bracket_key
+    return f"{age} | {gender} | {weight}"
+
+
+def bracket_sort_key(bracket_key: str) -> tuple:
+    """Return a sort tuple for any bracket key used in the screens.
+
+    Sorting:
+        Tier 0 — Quarantine buckets (broken / rejected) always on top
+        Tier 1 — Regular brackets: Age → Gender → Weight (numeric) → key
+        Tier 2 — Unparseable keys, alphabetically at the bottom
+
+    Use as `sorted(keys, key=bracket_sort_key)`.
+    """
+    import re
+    if not bracket_key:
+        return (2, '', '', 0, '')
+    if bracket_key.startswith('QUARANTINE_'):
+        return (0, 0, '', 0, bracket_key)
+    try:
+        gender, age, weight = parse_bracket_key(bracket_key)
+    except ValueError:
+        return (2, 0, '', 0, bracket_key)
+    age_rank = _AGE_ORDER.get(age.strip(), 99)
+    m = re.search(r'(\d+)', weight or '')
+    weight_num = int(m.group(1)) if m else 999
+    return (1, age_rank, gender.lower(), weight_num, bracket_key)
+
+
 def lock_matches_age_group(scope_key: str, age_group: str, gender: str | None = None) -> bool:
     """Return True if a persisted age-class lock applies to this age/gender."""
     if not scope_key or not age_group:

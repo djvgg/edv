@@ -252,6 +252,27 @@ class DataLoaderService:
                     touched.add(age_group)
         return touched
 
+    @staticmethod
+    def _bracket_fighter_signature(bracket_data: dict) -> frozenset:
+        """P4 — natural-key signature for the participants of a bracket.
+
+        Same identity scheme as `_extract_participants_from_brackets`:
+        ``(first_name, last_name, gender)`` lowercase + stripped. Two brackets
+        with the same signature contain the same set of athletes, regardless
+        of seeding order, so the existing bracket can be re-used as-is.
+        """
+        if not isinstance(bracket_data, dict):
+            return frozenset()
+        fighter_list = bracket_data.get('participants') or bracket_data.get('fighters', [])
+        sig = set()
+        for p in fighter_list:
+            sig.add((
+                str(p.get('first_name', p.get('Firstname', ''))).strip().lower(),
+                str(p.get('last_name', p.get('Lastname', ''))).strip().lower(),
+                str(p.get('gender', p.get('Gender', ''))).strip().lower(),
+            ))
+        return frozenset(sig)
+
     def _merge_brackets_preserving_age_locks(
         self,
         existing_brackets: dict,
@@ -259,12 +280,18 @@ class DataLoaderService:
         locked_age_classes: set,
         affected_age_groups: set = None,
     ) -> dict:
-        """Replace unlocked generated lists while preserving locked age classes."""
+        """Replace unlocked generated lists while preserving locked age classes.
+
+        P4 — additionally, any bracket whose participant set is identical
+        between old and new is kept *as-is* (existing seeding, pool config,
+        mat assignment etc. all survive the re-import).
+        """
         if not existing_brackets:
             return new_brackets
 
         affected_age_groups = set(affected_age_groups or self._age_groups_from_brackets(new_brackets))
         merged = {}
+        kept_identical = 0  # P4 — count brackets we skipped re-generating
 
         for key, data in existing_brackets.items():
             age_group = age_group_from_bracket_key(key)
@@ -275,6 +302,14 @@ class DataLoaderService:
                 merged[key] = data
                 continue
             if age_group in affected_age_groups:
+                # P4 — short-circuit if the new bracket has exactly the same
+                # participants as the existing one; reuse the existing record
+                # so seeding/pool/mat assignment are preserved.
+                if key in new_brackets:
+                    if self._bracket_fighter_signature(data) == self._bracket_fighter_signature(new_brackets[key]):
+                        merged[key] = data
+                        kept_identical += 1
+                        continue
                 continue
             merged[key] = data
 
@@ -282,7 +317,16 @@ class DataLoaderService:
             if bracket_key_matches_age_lock(key, locked_age_classes):
                 self.logger.warning(f"[AGE LOCK] Generated locked bracket {key!r} ignored")
                 continue
+            if key in merged:
+                # Already kept via the P4 identical-signature path above.
+                continue
             merged[key] = data
+
+        if kept_identical:
+            self.logger.info(
+                f"[P4] {kept_identical} Liste(n) unverändert übernommen "
+                f"(gleiche Teilnehmer, Matten- und Pool-Zuweisung bleibt erhalten)"
+            )
 
         return merged
 
@@ -580,14 +624,24 @@ class DataLoaderService:
                 try:
                     if self.ui_feedback:
                         self.ui_feedback.set_status("Listen-Metadaten werden geladen...", '#999999')
-                    
-                    # Note: Full bracket metadata retrieval from DB can be added here once
-                    # methods are available. For now, generation methods and table assignments
-                    # will be empty on reload - they can be re-assigned in generation_method screen
-                    self.logger.debug("Bracket metadata retrieval from DB not yet implemented, will reset on reload")
+
+                    # P2 — hydrate generation methods + mat assignments from the
+                    # `brackets` table so the user doesn't have to redo those
+                    # steps every time the app is opened.
+                    bracket_meta = self.db_service.get_bracket_metadata()
+                    for bracket_key, meta in bracket_meta.items():
+                        if meta.get('bracket_type'):
+                            bracket_generation_methods[bracket_key] = meta['bracket_type']
+                        if meta.get('mat_number') is not None:
+                            bracket_table_assignment[bracket_key] = meta['mat_number']
+                    self.logger.info(
+                        f"[P2] Hydrated {len(bracket_meta)} bracket metadata entries "
+                        f"({len(bracket_generation_methods)} types, {len(bracket_table_assignment)} mat assignments)"
+                    )
+
                     locked_age_classes = self.db_service.get_locked_age_classes()
                     self.logger.debug(f"Loaded {len(locked_age_classes)} age-class lock(s) from DB")
-                    
+
                     if self.ui_feedback:
                         self.ui_feedback.update_progress(75)
                 except Exception as e:

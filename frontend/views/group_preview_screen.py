@@ -23,6 +23,8 @@ from utils.logging import get_logger, DEBUG_VERBOSE  # noqa: E402
 from utils.helpers import (  # noqa: E402
     age_group_from_bracket_key,
     bracket_key_matches_age_lock,
+    bracket_sort_key,
+    format_bracket_label,
     parse_bracket_key as _parse_bracket_key_helper,
 )
 from backend.data.repositories.config_repository import ConfigRepository  # noqa: E402
@@ -81,7 +83,13 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         self.brackets = {}  # {bracket_key: bracket_data} - Dictionary of weight classes
         self.group_listbox_map = {}  # Headings of the left sidebar
         self.current_bracket_key = None  # Which group is being edited/selected in the left sidebar
-        self.tolerances = {}  # {(gender, age_group): float} — per-group clothing tolerance in kg
+        # Share the single tolerance store with main_window so the Konfiguration
+        # tab and this screen + edit-dialog see the same values. Falling back
+        # to a fresh dict for the rare standalone-test path.
+        if main_window is not None and hasattr(main_window, 'tolerances'):
+            self.tolerances = main_window.tolerances
+        else:
+            self.tolerances = {}  # {(gender, age_group): float} — per-group clothing tolerance in kg
 
         # UI References
         self.group_listbox = None # left listbox
@@ -340,7 +348,8 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
                 "age_class_locked": "Altersklasse gesperrt",
             }
             return f"QUARANTÄNE_{t_map.get(reason, reason)}"
-        return bracket_key
+        # P3 — show in sort order (Age | Gender | Weight).
+        return format_bracket_label(bracket_key)
 
     def _get_display_text_for_bracket(self, bracket_key, fighter_count):
         """Get display text for a bracket, including lock status if assigned to mat."""
@@ -364,7 +373,8 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         total_participants = 0
         groups_added = []
 
-        for bracket_key in sorted(self.brackets.keys()):
+        # P3 — Age → Gender → Weight ordering (Quarantine first).
+        for bracket_key in sorted(self.brackets.keys(), key=bracket_sort_key):
             fighters = self.brackets[bracket_key].get('fighters', [])
             if fighters:
                 count = len(fighters)
@@ -379,9 +389,13 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         if self.DEBUG:
             self.logger.debug(f"DEBUG: Populated {len(groups_added)} groups: {groups_added}")
 
+    # Placeholder strings the search-entry may carry (both legacy English and
+    # current German must be recognised as "no filter active").
+    _SEARCH_PLACEHOLDERS = {"m, w, age, or kg", "m, w, alter oder kg"}
+
     def _on_search_focus_in(self, search_entry):
         """Clear placeholder text on focus."""
-        if search_entry.get() == "M, W, age, or kg":
+        if search_entry.get().lower().strip() in self._SEARCH_PLACEHOLDERS:
             search_entry.delete(0, tk.END)
             search_entry.config(fg=COLORS['text_primary'])
 
@@ -393,7 +407,7 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         search_term = self.preview_search_var.get().lower().strip()
 
         # Skip placeholder or empty
-        if search_term == "m, w, age, or kg" or not search_term:
+        if search_term in self._SEARCH_PLACEHOLDERS or not search_term:
             self.logger.debug("Search cleared - showing all groups")
             self._populate_group_list()
             return
@@ -409,11 +423,12 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         self.group_listbox_map.clear()
         total_filtered = 0
         
-        for bracket_key in sorted(filtered_keys):
+        # P3 — same Age → Gender → Weight ordering as the unfiltered view.
+        for bracket_key in sorted(filtered_keys, key=bracket_sort_key):
             fighters = self.brackets[bracket_key].get('fighters', [])
             count = len(fighters)
             total_filtered += count
-            
+
             display_text = self._get_display_text_for_bracket(bracket_key, count)
             self.group_listbox.insert(tk.END, display_text)
             self.group_listbox_map[display_text] = bracket_key
@@ -833,7 +848,9 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         self._populate_group_list()
         
         # Re-apply search filter if active
-        if self.preview_search_var and self.preview_search_var.get() and self.preview_search_var.get() != "M, W, age, or kg":
+        # Only re-apply the search if it's a real user filter, not the placeholder.
+        current_search = (self.preview_search_var.get() if self.preview_search_var else '').lower().strip()
+        if current_search and current_search not in self._SEARCH_PLACEHOLDERS:
             self._on_search_changed()
         
         # Return the new bracket key so caller knows which bracket to display

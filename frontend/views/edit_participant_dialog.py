@@ -645,6 +645,9 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
         effective_age, effective_weight_class = self._resolve_effective_class(new_weight)
 
         if effective_age == self.age_group and effective_weight_class == self.current_weight_class:
+            self.logger.debug(
+                f"_handle_normal_routing: no class change ({self.age_group}/{self.current_weight_class}) — staying in {self.bracket_key}"
+            )
             return self.bracket_key, None
 
         self.logger.debug(f"Moving participant: age {self.age_group}→{effective_age}, weight_class {self.current_weight_class}→{effective_weight_class}")
@@ -730,9 +733,20 @@ class Edit_Participants(_UIBuilderMixin, tk.Toplevel):
 
     def _finalize(self, values: dict, display_key, target_key):
         """Persist to DB, refresh the parent UI, and close the dialog."""
+        self.logger.debug(
+            f"_finalize: display_key={display_key!r}, target_key={target_key!r}, "
+            f"fighter_id={self.fighter.get('id')}, "
+            f"new_values={{name:{values['first_name']} {values['last_name']}, "
+            f"weight:{values['weight_raw']}, year:{values['birth_year_raw']}, "
+            f"club:{values['club']}, association:{values['association']}}}"
+        )
+
         db_svc = getattr(self.parent, 'db_service', None)
         if db_svc:
-            db_svc.update_participant(self.fighter, display_key or 'QUARANTINE')
+            ok = db_svc.update_participant(self.fighter, display_key or 'QUARANTINE')
+            self.logger.debug(f"_finalize: DB update_participant returned {ok!r}")
+        else:
+            self.logger.warning("_finalize: no db_service available — change not persisted")
 
         self.fighter['Name'] = f"{values['first_name']} {values['last_name']}".strip()
         self.parent._display_participants(display_key)

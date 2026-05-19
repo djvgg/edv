@@ -20,6 +20,12 @@ if _edv_backend_path not in sys.path:
     sys.path.insert(0, _edv_backend_path)
 
 from utils.logging import get_logger, DEBUG_VERBOSE  # noqa: E402
+from utils.helpers import (  # noqa: E402
+    age_group_from_bracket_key,
+    bracket_key_matches_age_lock,
+    bracket_sort_key,
+    format_bracket_label,
+)
 from backend.data.repositories.config_repository import ConfigRepository  # noqa: E402
 from backend.services.bracket_excel_generator import BracketExcelGenerator  # noqa: E402
 from backend.services.pool_excel_generator import PoolExcelGenerator  # noqa: E402
@@ -589,9 +595,14 @@ class GenerationMethodScreen(tk.Frame):
             self.logger.warning("[GEN_METHOD] unassigned_listbox is None!")
             return
         self.unassigned_listbox.delete(0, tk.END)
-        
-        self.logger.debug(f"[GEN_METHOD] Populating unassigned listbox with {len(self.filtered_keys)} items")
-        for bracket_key in self.filtered_keys:
+
+        # P3 — Sort by Age → Gender → Weight (Quarantine first) before display.
+        # Sorting at render time keeps `self.filtered_keys` semantically free
+        # (search adds/removes, the order doesn't have to be maintained there).
+        ordered_keys = sorted(self.filtered_keys, key=bracket_sort_key)
+
+        self.logger.debug(f"[GEN_METHOD] Populating unassigned listbox with {len(ordered_keys)} items")
+        for bracket_key in ordered_keys:
             bracket_data = self.brackets[bracket_key]
             display_text = self._format_bracket_display(bracket_key, bracket_data["tuple"])
             self.unassigned_listbox.insert(tk.END, display_text)
@@ -606,10 +617,15 @@ class GenerationMethodScreen(tk.Frame):
             return
         listbox.delete(0, tk.END)
 
-        for bracket_key, bracket_data in self.brackets.items():
-            if bracket_data["method"] == method:
-                display_text = self._format_bracket_display(bracket_key, bracket_data["tuple"])
-                listbox.insert(tk.END, display_text)
+        # P3 — Age → Gender → Weight order for assigned brackets too.
+        assigned_keys = sorted(
+            (k for k, d in self.brackets.items() if d["method"] == method),
+            key=bracket_sort_key,
+        )
+        for bracket_key in assigned_keys:
+            bracket_data = self.brackets[bracket_key]
+            display_text = self._format_bracket_display(bracket_key, bracket_data["tuple"])
+            listbox.insert(tk.END, display_text)
 
     def _count_fighters(self, bracket_tuple):
         """Count fighters in a bracket tuple (list of fighter dicts)."""
@@ -642,10 +658,19 @@ class GenerationMethodScreen(tk.Frame):
                 weight_str = f"{max_weight:g}"
             except (TypeError, ValueError):
                 weight_str = '?'
+            # U9/U11 pool keys are already "U11 | Pool 1" — no gender slot
+            # to reorder, just append weight + count.
             display_text = f"{bracket_key} | -{weight_str}kg ({n})"
         else:
             fighter_count = self._count_fighters(bracket_tuple)
-            display_text = f"{bracket_key} ({fighter_count})"
+            # P3 — display label in sort order (Age | Gender | Weight).
+            display_text = f"{format_bracket_label(bracket_key)} ({fighter_count})"
+
+        # P6 — surface age-class lock so the user sees why a bracket can't be edited.
+        locks = getattr(self.main_window, 'locked_age_classes', set()) if self.main_window else set()
+        if bracket_key_matches_age_lock(bracket_key, locks):
+            age = age_group_from_bracket_key(bracket_key) or ''
+            display_text += f" [Gesperrt {age}]".rstrip()
         
         # Add print status indicator
         if bracket_key in self.printed_brackets:

@@ -114,10 +114,10 @@ class FileLoaderScreen(tk.Frame):
         apply_button_style(db_btn, 'primary')
         db_btn.pack(pady=SPACING['sm'], fill="x", padx=SPACING['xl'])
 
-        # Load JSON files button
+        # Load JSON file button (single file, m+w mixed)
         json_btn = tk.Button(
             main_controls,
-            text="JSON-Dateien neu laden (m/w)",
+            text="JSON-Datei laden",
             command=self.on_load_json_click,
         )
         apply_button_style(json_btn, 'primary')

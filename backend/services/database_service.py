@@ -264,6 +264,17 @@ class DatabaseService:
 
         return self._execute_with_session(_unlock) is True
 
+    def get_bracket_metadata(self) -> dict:
+        """P2 — wrapper for TournamentService.get_bracket_metadata().
+
+        Returns ``{bracket_key: {'mat_number', 'bracket_type'}}``, or an
+        empty dict if the DB service is down.
+        """
+        def _fetch(svc: TournamentService):
+            return svc.get_bracket_metadata()
+        result = self._execute_with_session(_fetch)
+        return result if isinstance(result, dict) else {}
+
     def get_locked_age_classes(self) -> set:
         """Return all persisted age-class lock scope keys."""
         def _fetch(svc: TournamentService):

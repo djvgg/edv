@@ -14,6 +14,12 @@ from tkinter import messagebox, ttk
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from utils.logging import get_logger  # noqa: E402
+from utils.helpers import (  # noqa: E402
+    age_group_from_bracket_key,
+    bracket_key_matches_age_lock,
+    bracket_sort_key,
+    format_bracket_label,
+)
 from backend.services.bracket_service import make_bracket  # noqa: E402
 
 from ..styles import (  # noqa: E402
@@ -61,6 +67,9 @@ class TableAndBracketViewer(tk.Frame):
         self.current_bracket_key = None
         self.bracket_listbox_map = {}
         self.table_panels = {}
+        # Inner scrollable canvas per table panel — kept so we can preserve
+        # scroll position across `update_table_panels()` rebuilds (Bug P5).
+        self.table_canvases = {}
         self.ui_initialized = False  # Track if UI has been built
         
         # Build complete UI with left panel + right panel
@@ -315,6 +324,21 @@ class TableAndBracketViewer(tk.Frame):
         if not hasattr(self, 'search_var') or not self.main_window:
             return
 
+        # P5 fix — Preserve the listbox scroll position across rebuild.
+        # delete(0, END) followed by re-insert resets yview() to (0.0, …).
+        # We snapshot the top-fraction here and restore it after refill.
+        try:
+            saved_top = self.bracket_listbox.yview()[0]
+        except Exception:
+            saved_top = 0.0
+        # Also remember the highlighted selection so it stays selected if the
+        # entry is still present after the rebuild.
+        try:
+            saved_sel = self.bracket_listbox.curselection()
+            saved_sel_text = self.bracket_listbox.get(saved_sel[0]) if saved_sel else None
+        except Exception:
+            saved_sel_text = None
+
         search_term = self.search_var.get()
         self.bracket_listbox.delete(0, tk.END)
         self.bracket_listbox_map = {}
@@ -324,15 +348,16 @@ class TableAndBracketViewer(tk.Frame):
 
         completed_keys = self.main_window.db_service.get_completed_bracket_keys()
 
-        unassigned_keys = [k for k in sorted(self.main_window.brackets.keys())
-                           if not self.main_window.bracket_table_assignment.get(k)
-                           and len(self.main_window.brackets[k].get('fighters', [])) > 0
-                           and k not in completed_keys]
-
-        # Move QUARANTINE_* brackets to front
-        quarantine_keys = [k for k in unassigned_keys if k.startswith('QUARANTINE_')]
-        normal_keys = [k for k in unassigned_keys if not k.startswith('QUARANTINE_')]
-        unassigned_keys = quarantine_keys + normal_keys
+        # P3 — sort open lists by Age → Gender → Weight (Quarantine first,
+        # unparseable last). The dedicated sort key replaces the previous
+        # alphabetical sort plus separate Quarantine-on-top pass.
+        unassigned_keys = sorted(
+            (k for k in self.main_window.brackets.keys()
+             if not self.main_window.bracket_table_assignment.get(k)
+             and len(self.main_window.brackets[k].get('fighters', [])) > 0
+             and k not in completed_keys),
+            key=bracket_sort_key,
+        )
 
         filtered_keys, matched_count, search_terms = filter_items(unassigned_keys, search_term)
         if search_terms:
@@ -343,13 +368,39 @@ class TableAndBracketViewer(tk.Frame):
             bracket_data = self.main_window.brackets.get(bracket_key, {})
             fighter_count = len(bracket_data.get('fighters', []))
             fight_count = self._calculate_number_of_fights(bracket_key)
-            display_text = f"{bracket_key} • {fighter_count} / {fight_count}"
+            # P3 — display label in sort order (Age | Gender | Weight).
+            display_text = f"{format_bracket_label(bracket_key)} • {fighter_count} / {fight_count}"
+            # P6 — append lock marker if this age class is locked.
+            locks = getattr(self.main_window, 'locked_age_classes', set()) if self.main_window else set()
+            if bracket_key_matches_age_lock(bracket_key, locks):
+                age = age_group_from_bracket_key(bracket_key) or ''
+                display_text += f" [Gesperrt {age}]".rstrip()
             self.bracket_listbox.insert(tk.END, display_text)
             self.bracket_listbox_map[display_text] = bracket_key
             total_unassigned += fighter_count
 
         if hasattr(self, 'unassigned_count_var'):
             self.unassigned_count_var.set(f"({total_unassigned})")
+
+        # P5 fix — Restore scroll + selection now that the list is re-populated.
+        # Done via after_idle so the listbox has had a chance to recompute its
+        # visible range and `yview_moveto` actually has something to scroll to.
+        def _restore_scroll(top=saved_top, sel_text=saved_sel_text):
+            try:
+                if sel_text is not None:
+                    for i in range(self.bracket_listbox.size()):
+                        if self.bracket_listbox.get(i) == sel_text:
+                            self.bracket_listbox.selection_clear(0, tk.END)
+                            self.bracket_listbox.selection_set(i)
+                            self.bracket_listbox.activate(i)
+                            break
+                self.bracket_listbox.yview_moveto(top)
+            except Exception:
+                pass
+        try:
+            self.bracket_listbox.after_idle(_restore_scroll)
+        except Exception:
+            pass
 
     def on_bracket_select(self, event):
         """Called when user clicks a bracket in the list."""
@@ -376,6 +427,10 @@ class TableAndBracketViewer(tk.Frame):
 
         if not self.main_window:
             return
+
+        # P6 (revised) — a lock only protects the participant list from being
+        # rewritten on a re-import; operational steps like mat assignment,
+        # scoring, and saving results stay possible.
 
         # Assign the bracket
         self.main_window.bracket_table_assignment[bracket_key] = table_num
@@ -495,10 +550,25 @@ class TableAndBracketViewer(tk.Frame):
         if not self.main_window:
             return
 
+        # P5 fix — Preserve scroll position per-panel across the rebuild.
+        # Each rebuild destroys all widgets in the panels and recreates the
+        # canvases, which resets `yview()` to (0.0, 1.0). We snapshot the
+        # current vertical scroll fraction here and restore it after the
+        # new canvas has been laid out.
+        saved_scroll = {}
+        for table_num, old_canvas in self.table_canvases.items():
+            try:
+                if old_canvas.winfo_exists():
+                    saved_scroll[table_num] = old_canvas.yview()[0]
+            except Exception:
+                # Defensive: if the canvas is in a torn-down state, skip.
+                pass
+
         # Clear all panels
         for panel in self.table_panels.values():
             for widget in panel.winfo_children():
                 widget.destroy()
+        self.table_canvases.clear()
 
         # Track totals for each table
         table_totals = {}
@@ -508,6 +578,7 @@ class TableAndBracketViewer(tk.Frame):
         for table_num, panel in self.table_panels.items():
             # Create canvas for scrollable content
             canvas = tk.Canvas(panel, bg=COLORS['bg_panel'], highlightthickness=0, borderwidth=0)
+            self.table_canvases[table_num] = canvas
             scrollbar = ttk.Scrollbar(panel, orient=tk.VERTICAL, command=canvas.yview, style='Vertical.TScrollbar')
             
             # Frame inside canvas to hold content
@@ -551,9 +622,10 @@ class TableAndBracketViewer(tk.Frame):
                     table_totals[table_num]['fighters'] += fighter_count
                     table_totals[table_num]['fights'] += fight_count
                     
-                    # Truncate long names
-                    display_text = bracket_key[:25] + '...' if len(bracket_key) > 25 else bracket_key
-                    display_text = f"{display_text} • {fighter_count} / {fight_count}"
+                    # P3 — show in sort order, then truncate.
+                    label_text = format_bracket_label(bracket_key)
+                    label_text = label_text[:25] + '...' if len(label_text) > 25 else label_text
+                    display_text = f"{label_text} • {fighter_count} / {fight_count}"
                     label = tk.Label(row_frame, text=display_text, wraplength=110,
                                    justify='left', anchor='w', cursor='hand2',
                                    bg=COLORS['bg_panel'], fg=COLORS['text_primary'],
@@ -586,6 +658,19 @@ class TableAndBracketViewer(tk.Frame):
             
             content_frame.update_idletasks()
             canvas.configure(scrollregion=canvas.bbox('all'))
+
+        # P5 fix — Restore previously-saved scroll position per panel.
+        # Done after all panels were rebuilt (and scrollregion configured)
+        # so yview_moveto has a valid range to move within.
+        for table_num, fraction in saved_scroll.items():
+            new_canvas = self.table_canvases.get(table_num)
+            if new_canvas is None:
+                continue
+            try:
+                # Defer one event loop tick so the layout is fully realized.
+                new_canvas.after_idle(lambda c=new_canvas, f=fraction: c.yview_moveto(f))
+            except Exception:
+                pass
 
     # ===== Bracket Rendering =====
 

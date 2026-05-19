@@ -15,6 +15,11 @@ import platform
 import subprocess
 
 def select_json_files():
+    """P1 — pick a single JSON file containing all participants (m+w mixed).
+
+    Returns a one-element tuple ``(path,)`` so the downstream loader, which
+    iterates over the result, doesn't need to know whether it's one or many.
+    """
     # Linux: use Zenity for native modern dialog
     if platform.system() == "Linux":
         try:
@@ -22,8 +27,6 @@ def select_json_files():
                 [
                     "zenity",
                     "--file-selection",
-                    "--multiple",
-                    "--separator=|",
                     "--file-filter=JSON files | *.json"
                 ],
                 capture_output=True,
@@ -31,16 +34,17 @@ def select_json_files():
             )
 
             if result.returncode == 0 and result.stdout:
-                return result.stdout.strip().split("|")
+                return (result.stdout.strip(),)
 
         except FileNotFoundError:
             pass  # zenity not installed → fallback
 
     # Windows / fallback
-    return filedialog.askopenfilenames(
-        title="Select 2 JSON Files (Male & Female)",
+    path = filedialog.askopenfilename(
+        title="JSON-Datei mit Teilnehmern auswählen",
         filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
     )
+    return (path,) if path else ()
 
 # Setup sys.path for backend imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -68,6 +72,7 @@ from .group_preview_screen import GroupPreviewScreen  # noqa: E402
 from .fight_monitoring_window import FightMonitoringScreen  # noqa: E402
 from .rejection_summary_window import RejectionSummaryWindow  # noqa: E402
 from .tolerance_config_dialog import ToleranceConfigDialog  # noqa: E402
+from .tournament_config_screen import TournamentConfigScreen  # noqa: E402
 from .table_and_bracket_viewer import TableAndBracketViewer  # noqa: E402
 from .results_screen import ResultsScreen  # noqa: E402
 from ..services.quarantine_service import QuarantineService  # noqa: E402
@@ -144,6 +149,7 @@ class BracketViewerApp(tk.Tk):
         self.bracket_generation_methods = {}  # {bracket_key: method_name}
         self.bracket_table_assignment = {}  # {bracket_key: table_number or None}
         self.locked_age_classes = set()  # {'U15', 'm|U18', ...}
+        self.tolerances = {}  # {(gender, age_group): float kg} — managed by TournamentConfigScreen
 
         # Fight monitoring state – persists across window open/close
         # {bracket_key: {(round_idx, match_idx): winner_name}}
@@ -189,6 +195,9 @@ class BracketViewerApp(tk.Tk):
 
         def results_factory(main_window):
             return ResultsScreen(self.content_frame, main_window=self)
+
+        def tournament_config_factory(main_window):
+            return TournamentConfigScreen(self.content_frame, main_window=self)
         
         def fight_monitoring_factory(main_window):
             """Factory for FightMonitoringScreen - requires data from main_window"""
@@ -252,6 +261,10 @@ class BracketViewerApp(tk.Tk):
             'results', None, 'Fertige Kampflisten', locked=False,
             screen_factory=results_factory
         )
+        self.screen_manager.register_screen(
+            'tournament_config', None, 'Konfiguration', locked=False,
+            screen_factory=tournament_config_factory
+        )
 
         self.logger.debug("All screens registered with ScreenManager")
 
@@ -269,13 +282,32 @@ class BracketViewerApp(tk.Tk):
             self.logger.debug("Starting database service initialization in background thread...")
             # Get database service (may take time due to connection pooling)
             self.db_service = get_database_service()
-            
+
             # Update data_loader_service with initialized db_service and task_runner
             self.data_loader.db_service = self.db_service
             self.data_loader.task_runner = self.task_runner
             self.locked_age_classes = self.db_service.get_locked_age_classes()
             self.logger.debug(f"Loaded age-class locks: {sorted(self.locked_age_classes)}")
-            
+
+            # P2 — auto-load brackets, mat assignments and generation methods
+            # from the DB if there's existing tournament data. Otherwise the
+            # user would always have to click "Aus Datenbank laden" first
+            # after starting the app.
+            try:
+                participants = self.db_service.fetch_participants() or []
+                if participants:
+                    self.logger.info(
+                        f"[P2] Found {len(participants)} participant(s) in DB — "
+                        f"auto-loading on startup"
+                    )
+                    # Trigger the load on the UI thread; load_from_database
+                    # itself dispatches a task_runner background task.
+                    self.after(0, self.load_from_database)
+                else:
+                    self.logger.debug("[P2] DB empty — staying on file-loader screen")
+            except Exception as auto_exc:
+                self.logger.warning(f"[P2] Auto-load check failed: {auto_exc}")
+
             self.logger.debug("Database service initialized successfully")
         except Exception as e:
             self.logger.error(f"Failed to initialize database service: {e}")
@@ -670,23 +702,16 @@ class BracketViewerApp(tk.Tk):
             'on_success': self._on_brackets_loaded
         })
     def load_json_and_generate(self):
-        """Load 2 JSON files (male/female), merge them, and generate brackets (wrapper to DataLoaderService)."""
+        """P1 — load a single JSON file (m+w mixed) and generate brackets."""
         try:
             self.logger.debug("[JSON] load_json_and_generate called")
-            
-            # Select 2 JSON files
+
             self.logger.debug("[JSON] Opening file dialog...")
             filepaths = select_json_files()
-            self.logger.debug(f"[JSON] File dialog result: {len(filepaths)} files selected")
+            self.logger.debug(f"[JSON] File dialog result: {len(filepaths)} file(s) selected")
 
             if not filepaths:
-                self.logger.debug("[JSON] No files selected, returning")
-                return
-
-            if len(filepaths) != 2:
-                self.logger.debug(f"[JSON] Wrong number of files: {len(filepaths)}, need 2")
-                messagebox.showerror("Invalid Selection",
-                                   f"Please select exactly 2 JSON files.\nYou selected {len(filepaths)} file(s).")
+                self.logger.debug("[JSON] No file selected, returning")
                 return
 
             # Delegate to DataLoaderService with current cache state for smart append

@@ -249,6 +249,36 @@ class TournamentService:
         rows = self.db.query(AgeClassLock.scope_key).all()
         return {row.scope_key for row in rows}
 
+    def get_bracket_metadata(self) -> dict:
+        """P2 — return ``{bracket_key: {'mat_number', 'bracket_type'}}``.
+
+        Used on startup to hydrate ``main_window.bracket_table_assignment``
+        and ``main_window.bracket_generation_methods`` from the database
+        without going through the whole import flow again.
+
+        Skips groups whose name doesn't follow the 3-part bracket-key
+        format (e.g. QUARANTINE or legacy pool groups).
+        """
+        result = {}
+        for bracket in self.db.query(Bracket).all():
+            group = bracket.group
+            if not group:
+                continue
+            # Use the group name as the bracket-key if it follows the
+            # canonical format; otherwise rebuild from components.
+            if group.name and ' | ' in group.name:
+                bracket_key = group.name
+            elif group.gender and group.age_group and group.weight_class:
+                bracket_key = f"{group.gender} | {group.age_group} | {group.weight_class}"
+            else:
+                continue
+
+            result[bracket_key] = {
+                'mat_number': bracket.mat.mat_number if bracket.mat else None,
+                'bracket_type': bracket.bracket_type or '',
+            }
+        return result
+
     def get_age_class_activity(self, age_group: str, gender: str = None) -> dict:
         """Return fight/bracket activity counts for an age class."""
         normalized_gender = _normalize_gender(gender) if gender else None
