@@ -123,9 +123,9 @@ class Fight(Base):
     participant1_id = Column(Integer, ForeignKey('group_participants.id'), nullable=True)
     participant2_id = Column(Integer, ForeignKey('group_participants.id'), nullable=True)
     fight_number    = Column(Integer)
-    score1          = Column(String(20))
-    score2          = Column(String(20))
-    duration        = Column(String(20))
+    score1          = Column(Integer, nullable=True)
+    score2          = Column(Integer, nullable=True)
+    duration        = Column(Integer, nullable=True)
     status          = Column(String(20), default='pending')
 
     # Bracket position metadata
@@ -144,7 +144,7 @@ class Fight(Base):
     # wb/lb: NULL
 
     # Mat / table assignment (set when bracket is assigned to a mat)
-    table_id      = Column(String(20), nullable=True)
+    table_id      = Column(Integer, nullable=True)
 
     # Result
     winner_id     = Column(Integer, ForeignKey('group_participants.id'), nullable=True)

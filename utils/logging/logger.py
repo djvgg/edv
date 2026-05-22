@@ -20,8 +20,10 @@
 # logger.error('An error occurred')
 
 import os
+import sys
 import threading
 import datetime
+import traceback
 from .handlers import FileHandler, ConsoleHandler
 
 
@@ -47,10 +49,35 @@ class Logger:
         self.console_handler = ConsoleHandler()
         self.debug_verbose = debug_verbose  # Optional, defaults to False
 
-    def _write(self, level, message):
+    @staticmethod
+    def _format_exc_info(exc_info):
+        # Match stdlib logging.Logger semantics: exc_info may be True, an
+        # exception instance, or a (type, value, tb) tuple. Anything truthy
+        # else is treated as "use current exception".
+        if not exc_info:
+            return ''
+        if isinstance(exc_info, BaseException):
+            tb_lines = traceback.format_exception(type(exc_info), exc_info, exc_info.__traceback__)
+        elif isinstance(exc_info, tuple) and len(exc_info) == 3:
+            tb_lines = traceback.format_exception(*exc_info)
+        else:
+            current = sys.exc_info()
+            if current[0] is None:
+                return ''
+            tb_lines = traceback.format_exception(*current)
+        return '\n' + ''.join(tb_lines).rstrip()
+
+    def _write(self, level, message, args=(), exc_info=False):
         with self._lock:  # Thread-safe write
             timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            log_entry = f'[{timestamp}] [{level.upper()}] {message}\n'
+            # stdlib-compatible: msg % args when args provided. Best-effort:
+            # if formatting fails (mismatched specifiers), fall back to repr.
+            if args:
+                try:
+                    message = message % args
+                except (TypeError, ValueError):
+                    message = f'{message} {args!r}'
+            log_entry = f'[{timestamp}] [{level.upper()}] {message}{self._format_exc_info(exc_info)}\n'
             # Write to all-level log
             self.all_handler.emit(log_entry)
             # Write to level-specific log
@@ -68,17 +95,17 @@ class Logger:
                     self.console_handler.emit(log_entry)
 
 
-    def info(self, message):
-        self._write('info', message)
+    def info(self, message, *args, exc_info=False, **_kwargs):
+        self._write('info', message, args, exc_info)
 
-    def error(self, message):
-        self._write('error', message)
+    def error(self, message, *args, exc_info=False, **_kwargs):
+        self._write('error', message, args, exc_info)
 
-    def warning(self, message):
-        self._write('warning', message)
+    def warning(self, message, *args, exc_info=False, **_kwargs):
+        self._write('warning', message, args, exc_info)
 
-    def debug(self, message):
-        self._write('debug', message)
+    def debug(self, message, *args, exc_info=False, **_kwargs):
+        self._write('debug', message, args, exc_info)
     
     def close(self):
         """Close all file handlers."""
