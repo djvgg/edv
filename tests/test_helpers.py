@@ -7,6 +7,8 @@ import pytest
 from utils.helpers import (
     age_group_from_bracket_key,
     bracket_key_matches_age_lock,
+    bracket_sort_key,
+    format_bracket_label,
     normalize_gender,
     parse_bracket_key,
     split_name,
@@ -132,3 +134,80 @@ class TestAgeClassLocks:
     def test_bracket_matches_gender_scoped_lock(self):
         assert bracket_key_matches_age_lock('m | U18 | -66kg', {'m|U18'})
         assert not bracket_key_matches_age_lock('w | U18 | -66kg', {'m|U18'})
+
+
+class TestBracketSortKey:
+    """P3 — Age → Gender → Weight ordering, with Quarantine on top."""
+
+    def test_quarantine_sorts_before_regular(self):
+        a = bracket_sort_key('QUARANTINE_unpaid')
+        b = bracket_sort_key('m | U13 | -50kg')
+        assert a < b, "Quarantine should sort before any regular bracket"
+
+    def test_unparseable_sorts_after_regular(self):
+        a = bracket_sort_key('m | U13 | -50kg')
+        b = bracket_sort_key('not-a-valid-key')
+        assert a < b
+
+    def test_age_groups_in_order(self):
+        u9  = bracket_sort_key('m | U9 | -30kg')
+        u13 = bracket_sort_key('m | U13 | -30kg')
+        u18 = bracket_sort_key('m | U18 | -30kg')
+        aktive = bracket_sort_key('m | Aktive | -73kg')
+        assert u9 < u13 < u18 < aktive
+
+    def test_male_before_female_within_age(self):
+        m = bracket_sort_key('m | U15 | -50kg')
+        w = bracket_sort_key('w | U15 | -50kg')
+        assert m < w
+
+    def test_weight_numeric_not_lex(self):
+        # Lex-ordering would put '-100kg' before '-78kg' (since '1' < '7').
+        # Numeric ordering must put -78kg before -100kg.
+        light = bracket_sort_key('m | U18 | -78kg')
+        heavy = bracket_sort_key('m | U18 | -100kg')
+        assert light < heavy
+
+    def test_full_canonical_ordering(self):
+        """Mirrors a realistic snapshot of mixed brackets."""
+        keys = [
+            'w | U15 | -52kg',
+            'QUARANTINE_unpaid',
+            'm | U13 | -50kg',
+            'm | U13 | -40kg',
+            'w | U13 | -40kg',
+        ]
+        keys.sort(key=bracket_sort_key)
+        assert keys == [
+            'QUARANTINE_unpaid',
+            'm | U13 | -40kg',
+            'm | U13 | -50kg',
+            'w | U13 | -40kg',
+            'w | U15 | -52kg',
+        ]
+
+    def test_pool_pair_collapses_to_same_age_tier(self):
+        # U9 and U10 are in the same tier 0, sorted by full key alphabetically next.
+        u9  = bracket_sort_key('m | U9 | -30kg')
+        u10 = bracket_sort_key('m | U10 | -30kg')
+        # Both Tier 0 — relative order falls back to the full key.
+        assert u9[1] == u10[1]
+
+
+class TestFormatBracketLabel:
+    """P3 — display label flips into Age | Gender | Weight reading order."""
+
+    def test_regular_key_reordered(self):
+        assert format_bracket_label('m | U13 | -50kg') == 'U13 | m | -50kg'
+
+    def test_aktive(self):
+        assert format_bracket_label('w | Aktive | +78kg') == 'Aktive | w | +78kg'
+
+    def test_quarantine_unchanged(self):
+        assert format_bracket_label('QUARANTINE_unpaid') == 'QUARANTINE_unpaid'
+
+    def test_empty_returns_empty(self):
+        assert format_bracket_label('') == ''
+
+    def test_unparseable_returns_input(self):
+        assert format_bracket_label('not-a-key') == 'not-a-key'
