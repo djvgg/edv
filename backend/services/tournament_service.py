@@ -935,6 +935,72 @@ class TournamentService:
 
         return result
 
+    def compute_pool_standings(self, bracket_id):
+        """Welle 2B.1: Pool-Rangliste fuer ein Bracket.
+
+        Identische Hierarchie zu JudgeFrontend's `_compute_pool_standings`
+        (s. JudgeFrontend/main.py — Spiegel-Implementierung, gleiche
+        DJB-Hierarchie: Siege -> direkter Vergleich -> Pluspunkt-Diff ->
+        gp_id stable). Wird vom GUI-Backup-Pfad genutzt; Live-Pfad rechnet
+        in JudgeFrontend. Code-Aenderungen muessen beide Seiten parallel
+        anfassen, sonst Divergenz.
+
+        Returns: geordnete Liste der gp_ids, [1.Platz, 2.Platz, ...].
+        """
+        from ..data.models import Fight
+
+        fights = (
+            self.db.query(Fight)
+            .filter(Fight.bracket_id == bracket_id, Fight.bracket_phase == "pool")
+            .all()
+        )
+
+        gp_ids = set()
+        for f in fights:
+            if f.participant1_id is not None:
+                gp_ids.add(f.participant1_id)
+            if f.participant2_id is not None and f.participant2_id != f.participant1_id:
+                gp_ids.add(f.participant2_id)
+
+        wins = {gp: 0 for gp in gp_ids}
+        plus = {gp: 0 for gp in gp_ids}
+        minus = {gp: 0 for gp in gp_ids}
+        head_to_head = {}
+
+        for f in fights:
+            if f.status not in ("finished", "bye"):
+                continue
+            if f.participant1_id is None or f.participant2_id is None:
+                continue
+            s1 = f.score1 or 0
+            s2 = f.score2 or 0
+            plus[f.participant1_id] = plus.get(f.participant1_id, 0) + s1
+            minus[f.participant1_id] = minus.get(f.participant1_id, 0) + s2
+            if f.participant2_id != f.participant1_id:
+                plus[f.participant2_id] = plus.get(f.participant2_id, 0) + s2
+                minus[f.participant2_id] = minus.get(f.participant2_id, 0) + s1
+            if f.winner_id is not None:
+                wins[f.winner_id] = wins.get(f.winner_id, 0) + 1
+                if f.participant2_id != f.participant1_id:
+                    key = tuple(sorted([f.participant1_id, f.participant2_id]))
+                    head_to_head[key] = f.winner_id
+
+        def sort_key(gp):
+            return (-wins.get(gp, 0), -(plus.get(gp, 0) - minus.get(gp, 0)), gp)
+
+        ordered = sorted(gp_ids, key=sort_key)
+
+        i = 0
+        while i < len(ordered) - 1:
+            a, b = ordered[i], ordered[i + 1]
+            if wins.get(a, 0) == wins.get(b, 0) and (plus.get(a, 0) - minus.get(a, 0)) == (plus.get(b, 0) - minus.get(b, 0)):
+                key = tuple(sorted([a, b]))
+                if head_to_head.get(key) == b:
+                    ordered[i], ordered[i + 1] = b, a
+            i += 1
+
+        return ordered
+
     def record_pool_score(
         self,
         bracket_key: str,

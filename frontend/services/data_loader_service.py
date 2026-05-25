@@ -234,6 +234,25 @@ class DataLoaderService:
 
         return allowed, skipped
 
+    def _export_age_class_locked(self, full_name, birthyear, gender_normalized,
+                                 doublestart, locked_age_classes) -> bool:
+        """True if a participant's (gendered) age class is locked → omit from export.
+
+        Age-lock matching only looks at gender + age group, so the weight (still 0 at
+        export time, filled during weighing) is irrelevant here.
+        """
+        if not locked_age_classes:
+            return False
+        probe = {
+            'Name': full_name,
+            'Birthyear': birthyear,
+            'Gender': gender_normalized,
+            'Weight': 0,
+            'Doublestart': doublestart,
+        }
+        return any(bracket_key_matches_age_lock(key, locked_age_classes)
+                   for key in self._participant_bracket_keys(probe))
+
     def _age_groups_from_brackets(self, brackets: dict) -> set:
         """Return all age groups represented by a generated bracket dict."""
         return {
@@ -1060,22 +1079,26 @@ class DataLoaderService:
                 self.ui_feedback.set_status(error_msg, '#cc0000')
                 self.ui_feedback.hide_loading_progress()
                 self.ui_feedback.show_error("Fehler", f"Fehler beim Laden von JSON-Dateien:\n{str(e)}")
-    def split_gender_to_json_with_tolerances(self, input_file, save_dir, configured_tolerances=None):
+    def split_gender_to_json_with_tolerances(self, input_file, save_dir, configured_tolerances=None,
+                                              locked_age_classes=None):
         """Split tournament registration XLSX by gender and save with tolerance configuration.
-        
+
         Reads tournament registration XLSX, splits participants by gender (M/W),
         and saves:
         - contestants_male.json
         - contestants_female.json
         - tolerance_settings.json (if tolerances provided)
-        
+
         Args:
             input_file: Path to tournament registration XLSX file
             save_dir: Directory to save the split JSON files
             configured_tolerances: Dict mapping (gender, age_group) -> tolerance_value
                                   Obtained from ToleranceConfigDialog.show() in main_window
                                   If None, only contestant files are saved without tolerances
-        
+            locked_age_classes: Set of age-class lock scope keys (e.g. {'U15', 'm|U18'}).
+                                  Participants whose (gendered) age class is locked are
+                                  omitted from the export, mirroring the re-import filter.
+
         Returns:
             Tuple of (success: bool, message: str)
         """
@@ -1110,7 +1133,8 @@ class DataLoaderService:
             male_contestants = []
             female_contestants = []
             skipped_participants = []
-            
+            locked_skipped = []
+
             for idx, p in enumerate(raw_participants, 1):
                 # Extract gender
                 gender = str(p.get('Gender', '')).strip().lower()
@@ -1154,6 +1178,16 @@ class DataLoaderService:
                         except (ValueError, TypeError):
                             pass
                 
+                # Skip participants whose (gendered) age class is locked. Mirrors the
+                # re-import filter so a locked age class never leaks into the weigh-in JSON.
+                if locked_age_classes and self._export_age_class_locked(
+                        full_name, birthyear, gender_normalized,
+                        p.get('Doublestart', p.get('doublestart', 'nein')), locked_age_classes):
+                    locked_skipped.append({'name': full_name or f"ID {idx}", 'id': idx})
+                    self.logger.info(
+                        f"[AGE LOCK] Export: skipping {full_name or f'ID {idx}'!r}; locked age class")
+                    continue
+
                 # Extract other fields
                 club = p.get('Verein', p.get('Club', ''))
                 association = p.get('Verband', p.get('Association', ''))
@@ -1304,13 +1338,19 @@ class DataLoaderService:
             if self.ui_feedback:
                 self.ui_feedback.set_status("Split complete! Files ready for weighing.", '#00cc00')
             
+            if locked_skipped:
+                self.logger.info(
+                    f"[AGE LOCK] Export omitted {len(locked_skipped)} participant(s) in locked age classes")
+
             success_msg = "Successfully saved split files:\n"
             if male_count > 0:
                 success_msg += f"• contestants_male.json ({male_count} entries)\n"
             if female_count > 0:
                 success_msg += f"• contestants_female.json ({female_count} entries)\n"
             success_msg += "• tolerance_settings.json (weight tolerance configuration)\n"
-            
+            if locked_skipped:
+                success_msg += f"• {len(locked_skipped)} participant(s) omitted (locked age class)\n"
+
             return True, success_msg
         
         except Exception as e:

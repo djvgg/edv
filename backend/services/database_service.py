@@ -24,10 +24,91 @@ if _edv_backend_path not in sys.path:
 
 from utils.logging import get_logger  # noqa: E402
 from ..data.database import SessionLocal, init_db as _init_db, Base, engine  # noqa: E402
+from ..data.models import GroupParticipant as _GroupParticipant  # noqa: E402
 from .tournament_service import TournamentService  # noqa: E402
 from .bracket_reconstruction_service import BracketReconstructionService  # noqa: E402
 
 logger = get_logger('database_service')
+
+
+def _hydrate_pool_cells(pool_fights, bracket_data, gp_id_to_name):
+    """Mappt DB pool-fights zurueck auf pool_cell_values-Keys
+    (pool_idx, row, fight_num, 'L'|'R').
+
+    Strategie: nutzt edv's deterministisches Pool-Schedule, um zu jeder
+    (pool_idx, fight_idx) das Paar (row_a, row_b) zu finden. row_a/row_b sind
+    die Indizes der Fighter im Pool (gemaess split_into_pools/pool_renderer).
+    """
+    try:
+        from frontend.utils.pool_renderer import _generate_fight_schedule
+        from frontend.utils import split_into_pools, determine_pool_structure
+    except ImportError:
+        return {}
+
+    participants = bracket_data.get('fighters', [])
+    normalized = [
+        {'Name': p.get('Name', p.get('name', ''))}
+        for p in participants if isinstance(p, dict)
+    ]
+    if not normalized:
+        return {}
+
+    num_pools = determine_pool_structure(len(normalized))
+    pools = split_into_pools(normalized, num_pools=num_pools)
+
+    # name -> row_index pro pool
+    pool_name_to_row = []
+    for p in pools:
+        m = {fighter.get('Name', ''): i for i, fighter in enumerate(p)}
+        pool_name_to_row.append(m)
+
+    cell_values: dict = {}
+
+    # Pre-compute schedules pro pool_size
+    schedules: dict[int, list] = {}
+    for pool_idx, pool in enumerate(pools):
+        if len(pool) not in schedules:
+            schedules[len(pool)] = _generate_fight_schedule(len(pool))
+
+    for f in pool_fights:
+        if f.status not in ("finished", "bye"):
+            continue
+        pool_idx = f.pool_index if f.pool_index is not None else 0
+        if pool_idx >= len(pools):
+            continue
+        schedule = schedules.get(len(pools[pool_idx]))
+        if not schedule:
+            continue
+
+        name1 = gp_id_to_name.get(f.participant1_id)
+        name2 = gp_id_to_name.get(f.participant2_id)
+        if not name1 or not name2:
+            continue
+        row_a = pool_name_to_row[pool_idx].get(name1)
+        row_b = pool_name_to_row[pool_idx].get(name2)
+        if row_a is None or row_b is None:
+            continue
+
+        # Finde den fight_num im schedule, der (row_a, row_b) enthaelt
+        fight_num = None
+        for fn, matches in enumerate(schedule):
+            if any({row_a, row_b} == set(m) for m in matches):
+                fight_num = fn
+                break
+        if fight_num is None:
+            continue
+
+        s1 = "" if f.score1 is None else str(f.score1)
+        s2 = "" if f.score2 is None else str(f.score2)
+        # 'L' = eigene Score in der eigenen Reihe
+        if s1:
+            cell_values[(pool_idx, row_a, fight_num, 'L')] = s1
+            cell_values[(pool_idx, row_b, fight_num, 'R')] = s1
+        if s2:
+            cell_values[(pool_idx, row_b, fight_num, 'L')] = s2
+            cell_values[(pool_idx, row_a, fight_num, 'R')] = s2
+
+    return cell_values
 
 
 class DatabaseService:
@@ -264,6 +345,24 @@ class DatabaseService:
 
         return self._execute_with_session(_unlock) is True
 
+    def get_bracket_id_map(self) -> dict:
+        """Liefert {bracket_key: bracket_id} fuer alle bekannten Brackets.
+        Wird vom fight_monitoring_window-Refresh genutzt um DB-fights pro
+        Bracket zu fetchen ohne pro-Aufruf einen Group-Lookup."""
+        def _fetch(svc: TournamentService):
+            from ..data.models import Group, Bracket
+            rows = svc.db.query(Group.name, Bracket.id).join(
+                Bracket, Bracket.group_id == Group.id
+            ).all()
+            return {name: bid for name, bid in rows}
+        result = self._execute_with_session(_fetch)
+        return result if isinstance(result, dict) else {}
+
+    def get_bracket_id_by_key(self, bracket_key: str) -> int | None:
+        """Einzel-Lookup als Fallback wenn get_bracket_id_map nicht passt."""
+        m = self.get_bracket_id_map()
+        return m.get(bracket_key)
+
     def get_bracket_metadata(self) -> dict:
         """P2 — wrapper for TournamentService.get_bracket_metadata().
 
@@ -292,6 +391,98 @@ class DatabaseService:
             'fight_count': 0,
             'completed_fight_count': 0,
         }
+
+    def reload_results_into_caches(
+        self,
+        bracket_key: str,
+        bracket_id: int,
+        bracket_type: str,
+        bracket_data: dict,
+        match_results: dict,
+        pool_cell_values: dict,
+        ko_match_results: dict,
+        loser_match_results: dict,
+    ) -> bool:
+        """Welle 3-ish: hydratisiere die main_window-Caches aus DB-fights.
+
+        Wird vom fight_monitoring_window aufgerufen (Polling oder Refresh-Button),
+        damit externe DB-Writes (z.B. von JudgeFrontend ueber WS) in der edv-UI
+        sichtbar werden.
+
+        Args:
+            bracket_key:           UI-Key des Brackets
+            bracket_id:            DB-ID
+            bracket_type:          'ko' | 'pools' | 'double' | 'special'
+            bracket_data:          self.brackets[bracket_key] — Read-only fuer
+                                   Fighter-Liste / Pool-Strukturierung.
+            match_results:         self.match_results — wird in-place ueberschrieben
+                                   fuer bracket_key.
+            pool_cell_values:      analog
+            ko_match_results:      analog
+            loser_match_results:   analog
+
+        Returns: True wenn etwas geladen, False bei DB-Error.
+
+        Idempotent. Sicher mehrfach aufrufbar.
+        """
+        def _hydrate(svc: TournamentService):
+            fights = svc.fights.get_by_bracket(bracket_id)
+            if not fights:
+                return False
+
+            # Build participant_id -> Name lookup ueber die GroupParticipant FKs
+            gp_id_to_name: dict[int, str] = {}
+            for f in fights:
+                for gp_id in (f.participant1_id, f.participant2_id, f.winner_id):
+                    if gp_id is not None and gp_id not in gp_id_to_name:
+                        gp = svc.db.get(_GroupParticipant, gp_id)
+                        if gp is not None and gp.participant is not None:
+                            p = gp.participant
+                            gp_id_to_name[gp_id] = f"{p.first_name} {p.last_name}".strip()
+
+            # --- KO-Phase ---
+            wb_results: dict[tuple[int, int], str] = {}
+            lb_results: dict[tuple[int, int], str] = {}
+            for f in fights:
+                if f.bracket_phase not in ("wb", "lb"):
+                    continue
+                if f.status not in ("finished", "bye"):
+                    continue
+                winner_id = f.winner_id
+                if winner_id is None:
+                    continue
+                winner_name = gp_id_to_name.get(winner_id)
+                if not winner_name:
+                    continue
+                key = (f.round, f.pos_in_round)
+                if f.bracket_phase == "wb":
+                    wb_results[key] = winner_name
+                else:
+                    lb_results[key] = winner_name
+
+            # Ueberschreibe die Bracket-Caches (nicht den ganzen Dict, damit andere
+            # Brackets unberuehrt bleiben).
+            match_results[bracket_key] = wb_results
+            loser_match_results[bracket_key] = lb_results
+
+            # --- Pool-Phase ---
+            pool_fights = [f for f in fights if f.bracket_phase == "pool"]
+            if pool_fights:
+                cell_values = _hydrate_pool_cells(
+                    pool_fights, bracket_data, gp_id_to_name
+                )
+                pool_cell_values[bracket_key] = cell_values
+
+            # --- ko_match_results (Folgematches in Doppelpool nach Pool->KO) ---
+            # Bei 'double' liegen die WB-Folge-Fights schon in wb_results;
+            # ko_match_results wird vom edv-UI primaer fuer Pool->KO genutzt,
+            # deckt sich mit wb_results — wir kopieren defensiv hinein.
+            if bracket_type == "double":
+                ko_match_results[bracket_key] = dict(wb_results)
+
+            return True
+
+        return self._execute_with_session(_hydrate) is True
 
     def reconstruct_bracket_from_db(
         self,

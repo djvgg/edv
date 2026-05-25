@@ -125,6 +125,12 @@ class FightMonitoringScreen(_KOMixin, _PoolMixin, tk.Frame):
         apply_label_style(bc, 'heading_md')
         bc.pack(side=tk.LEFT)
 
+        # Manueller Refresh-Button (Welle 3-ish: holt externe DB-Updates)
+        self._refresh_btn = tk.Button(nav, text='↻ Aktualisieren',
+                                      command=self._manual_refresh)
+        apply_button_style(self._refresh_btn, 'secondary')
+        self._refresh_btn.pack(side=tk.LEFT, padx=(8, 0))
+
         # Zoom controls (hidden when in matten overview)
         self._zoom_bar = create_dark_frame(nav)
         self._zoom_bar.pack(side=tk.RIGHT)
@@ -416,7 +422,97 @@ class FightMonitoringScreen(_KOMixin, _PoolMixin, tk.Frame):
             self.show_matten_view()
             logger.info("[ON_SHOW] FightMonitoringScreen reset to matten overview")
 
+            # Welle-3-ish: einmaliger Sync aus DB + periodisches Polling starten
+            try:
+                n = self._reload_results_for_all_brackets()
+                logger.info(f"[ON_SHOW] Initial-Sync aus DB: {n} Brackets")
+                if self.current_bracket_key:
+                    self._render(self.current_bracket_key)
+                else:
+                    self._refresh_matten_panels()
+            except Exception:
+                logger.error("Initial-Sync fehlgeschlagen", exc_info=True)
+            self._start_polling()
+
     def on_close_screen(self):
         """Cleanup when screen is hidden."""
-        pass
+        # Polling stoppen wenn Screen verlassen
+        self._polling_active = False
+
+    # ----------------------------------------------------- External-DB-Refresh
+
+    def _reload_results_for_all_brackets(self):
+        """Holt fuer alle bekannten Brackets die Scores/winner_ids aus DB
+        und ueberschreibt die in-memory Caches auf main_window. Fuer Live-
+        Sync mit JudgeFrontend (das direkt in DB schreibt).
+        """
+        if not self.main_window or not self.main_window.db_service:
+            return 0
+        db = self.main_window.db_service
+        # Bracket DB-IDs holen (bracket_key -> bracket_id)
+        bracket_ids = db.get_bracket_id_map() if hasattr(db, 'get_bracket_id_map') else None
+        reloaded = 0
+        for bkey, bdata in (self.brackets or {}).items():
+            bid = None
+            if bracket_ids:
+                bid = bracket_ids.get(bkey)
+            if bid is None:
+                # Fallback: ueber Groups-API
+                try:
+                    bid = db.get_bracket_id_by_key(bkey)
+                except Exception:
+                    bid = None
+            if bid is None:
+                continue
+            btype = self.bracket_generation_methods.get(bkey, 'ko')
+            ok = db.reload_results_into_caches(
+                bracket_key=bkey,
+                bracket_id=bid,
+                bracket_type=btype,
+                bracket_data=bdata,
+                match_results=self.match_results,
+                pool_cell_values=self.pool_cell_values,
+                ko_match_results=self.ko_match_results,
+                loser_match_results=self.loser_match_results,
+            )
+            if ok:
+                reloaded += 1
+        return reloaded
+
+    def _manual_refresh(self):
+        """User klickt 'Aktualisieren'. Lade alle Caches aus DB, re-render."""
+        n = self._reload_results_for_all_brackets()
+        logger.info(f"[MANUAL REFRESH] {n} Brackets aus DB neu geladen")
+        # Re-render der aktuellen Sicht
+        if self.current_bracket_key:
+            self._render(self.current_bracket_key)
+        else:
+            self._refresh_matten_panels()
+
+    def _start_polling(self):
+        """Periodischer Refresh alle 3s waehrend dieser Screen sichtbar ist."""
+        self._polling_active = True
+        self._schedule_next_poll()
+
+    def _schedule_next_poll(self):
+        if not getattr(self, '_polling_active', False):
+            return
+        self.after(3000, self._poll_tick)
+
+    def _poll_tick(self):
+        if not getattr(self, '_polling_active', False):
+            return
+        # Nicht refreshen wenn User gerade in einer Zelle tippt
+        if getattr(self, '_active_cell_entry', None) is not None:
+            self._schedule_next_poll()
+            return
+        try:
+            self._reload_results_for_all_brackets()
+            if self.current_bracket_key:
+                self._render(self.current_bracket_key)
+            else:
+                self._refresh_matten_panels()
+        except Exception:
+            logger.error("Polling-Refresh fehlgeschlagen", exc_info=True)
+        self._schedule_next_poll()
 

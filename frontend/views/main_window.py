@@ -784,9 +784,10 @@ class BracketViewerApp(tk.Tk):
             
             # Step 3: Pass tolerances to service and execute the split
             success, message = self.data_loader.split_gender_to_json_with_tolerances(
-                input_file, 
+                input_file,
                 save_dir,
-                configured_tolerances=configured_tolerances
+                configured_tolerances=configured_tolerances,
+                locked_age_classes=self.locked_age_classes
             )
             
             if success:
