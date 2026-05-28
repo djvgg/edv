@@ -342,6 +342,14 @@ class GenerationMethodScreen(tk.Frame):
         apply_button_style(export_all_btn, style='success')
         export_all_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
 
+        urkunden_btn = tk.Button(
+            export_buttons_frame,
+            text="Urkunden…",
+            command=self.on_export_urkunden,
+        )
+        apply_button_style(urkunden_btn, style='success')
+        urkunden_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
         # RIGHT PANEL: 4 Tables in 2x2 Grid
         right_panel = tk.Frame(self.main_frame, bg=COLORS['bg_dark'])
         right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5)
@@ -845,6 +853,116 @@ class GenerationMethodScreen(tk.Frame):
                 daemon=True,
             )
             thread.start()
+
+    def on_export_urkunden(self):
+        """Urkunden-Export-Dialog: fertige Klassen auswählen → XLSX-Datenquelle.
+
+        Inkrementell während des Turniers nutzbar. Default-Auswahl = alle noch
+        nicht exportierten ("● neu") Klassen. Gedruckt wird anschließend per
+        Ein-Klick-Makro in der LibreOffice-Vorlage (siehe assets/urkunden/).
+        """
+        from backend.services.database_service import (  # noqa: PLC0415
+            get_database_service,
+        )
+        from backend.services import urkunden_export_service as ues  # noqa: PLC0415
+
+        try:
+            db = get_database_service()
+        except Exception as e:
+            self.logger.error(f"Urkunden: DB nicht verfügbar: {e}", exc_info=True)
+            messagebox.showerror("Urkunden", f"Datenbank nicht verfügbar:\n{e}")
+            return
+
+        dialog = tk.Toplevel(self)
+        dialog.title("Urkunden exportieren")
+        dialog.configure(bg=COLORS['bg_dark'])
+        dialog.geometry("540x470")
+        dialog.transient(self.winfo_toplevel())
+
+        info = tk.Label(
+            dialog, justify=tk.LEFT, anchor='w',
+            bg=COLORS['bg_dark'], fg=COLORS['text_primary'],
+            text=("Fertige Klassen auswählen → Exportieren.\n"
+                  "●  neu seit letztem Export      ✓  schon exportiert\n"
+                  "Danach in der LibreOffice-Vorlage den Druck-Knopf drücken."),
+        )
+        info.pack(fill=tk.X, padx=10, pady=(10, 6))
+
+        listbox = tk.Listbox(dialog, selectmode=tk.EXTENDED)
+        try:
+            apply_listbox_style(listbox)
+        except Exception:
+            pass
+        listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        keys = []  # parallel zur Listbox-Index-Reihenfolge
+
+        def refresh():
+            listbox.delete(0, tk.END)
+            keys.clear()
+            try:
+                completed = sorted(db.get_completed_bracket_keys())
+            except Exception as e:
+                self.logger.error(f"Urkunden refresh: {e}", exc_info=True)
+                messagebox.showerror(
+                    "Urkunden", f"Konnte fertige Klassen nicht laden:\n{e}",
+                    parent=dialog)
+                return
+            exported = ues.load_exported_keys()
+            for key in completed:
+                try:
+                    n = len(db.get_bracket_placements(key))
+                except Exception:
+                    n = 0
+                is_new = key not in exported
+                marker = '●' if is_new else '✓'
+                label = ues.compose_class_label(key)
+                listbox.insert(tk.END, f"{marker}  {label}  ({n})")
+                idx = len(keys)
+                keys.append(key)
+                if is_new:
+                    listbox.selection_set(idx)
+            if not completed:
+                listbox.insert(tk.END, "(keine fertigen Klassen)")
+
+        def do_export():
+            selected = [keys[i] for i in listbox.curselection() if i < len(keys)]
+            if not selected:
+                messagebox.showinfo(
+                    "Urkunden", "Keine Klasse ausgewählt.", parent=dialog)
+                return
+            try:
+                result = ues.UrkundenExportService(db=db).export(selected)
+                ues.mark_exported(selected)
+            except Exception as e:
+                self.logger.error(f"Urkunden-Export: {e}", exc_info=True)
+                messagebox.showerror(
+                    "Urkunden", f"Export fehlgeschlagen:\n{e}", parent=dialog)
+                return
+            messagebox.showinfo(
+                "Urkunden",
+                f"{result['rows']} Urkunden aus {result['brackets']} "
+                f"Klasse(n) exportiert nach:\n{result['path']}\n\n"
+                "Jetzt in der LibreOffice-Vorlage den Druck-Knopf drücken.",
+                parent=dialog)
+            refresh()
+
+        btns = tk.Frame(dialog, bg=COLORS['bg_dark'])
+        btns.pack(fill=tk.X, padx=10, pady=10)
+
+        refresh_btn = tk.Button(btns, text="Aktualisieren", command=refresh)
+        apply_button_style(refresh_btn, style='secondary')
+        refresh_btn.pack(side=tk.LEFT, padx=2)
+
+        close_btn = tk.Button(btns, text="Schließen", command=dialog.destroy)
+        apply_button_style(close_btn, style='secondary')
+        close_btn.pack(side=tk.RIGHT, padx=2)
+
+        export_btn = tk.Button(btns, text="Exportieren", command=do_export)
+        apply_button_style(export_btn, style='success')
+        export_btn.pack(side=tk.RIGHT, padx=2)
+
+        refresh()
 
     def _excel_export_worker_fn(self, bracket_keys, on_progress=None):
         """

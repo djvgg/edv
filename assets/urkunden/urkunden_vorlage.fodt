@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-FileCopyrightText: 2026 TOP Team Combat Control -->
+<!-- SPDX-License-Identifier: CC0-1.0 -->
+<!-- Starter-Vorlage für den Urkunden-Serienbrief. Felder grob platziert -
+     am echten Vordruck kalibrieren (Felder verschieben, Testdruck auf Blanko).
+     Datenquelle muss als "Urkunden" registriert sein (Tabelle "urkunden").
+     Siehe README.md. -->
+<office:document
+    xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+    xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+    xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"
+    xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"
+    office:version="1.3"
+    office:mimetype="application/vnd.oasis.opendocument.text">
+  <office:automatic-styles>
+    <style:style style:name="P_Name" style:family="paragraph">
+      <style:paragraph-properties fo:text-align="center" fo:margin-top="3cm"/>
+      <style:text-properties fo:font-size="24pt" fo:font-weight="bold"/>
+    </style:style>
+    <style:style style:name="P_Platz" style:family="paragraph">
+      <style:paragraph-properties fo:text-align="center" fo:margin-top="0.5cm"/>
+      <style:text-properties fo:font-size="18pt"/>
+    </style:style>
+    <style:style style:name="P_Klasse" style:family="paragraph">
+      <style:paragraph-properties fo:text-align="center" fo:margin-top="0.5cm"/>
+      <style:text-properties fo:font-size="16pt"/>
+    </style:style>
+  </office:automatic-styles>
+  <office:body>
+    <office:text>
+      <text:p text:style-name="P_Name"><text:database-display
+          text:table-type="table" text:database-name="Urkunden"
+          text:table-name="urkunden" text:column-name="vorname">vorname</text:database-display>
+        <text:database-display text:table-type="table" text:database-name="Urkunden"
+          text:table-name="urkunden" text:column-name="nachname">nachname</text:database-display></text:p>
+      <text:p text:style-name="P_Platz"><text:database-display
+          text:table-type="table" text:database-name="Urkunden"
+          text:table-name="urkunden" text:column-name="platz">platz</text:database-display> Platz</text:p>
+      <text:p text:style-name="P_Klasse"><text:database-display
+          text:table-type="table" text:database-name="Urkunden"
+          text:table-name="urkunden" text:column-name="klasse">klasse</text:database-display></text:p>
+    </office:text>
+  </office:body>
+</office:document>
