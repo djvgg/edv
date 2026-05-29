@@ -2,7 +2,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 [build-system]
-requires = ["setuptools>=61"]
+# setuptools >=82 nötig: ältere Versionen schreiben das editable-`.pth`
+# unter einem Namen mit führendem `__`, das Python >=3.14 als "hidden file"
+# überspringt — der editable-Module-Finder wird dann nie installiert und
+# `edv-backend` bricht mit `ModuleNotFoundError`.
+requires = ["setuptools>=82"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -22,7 +26,14 @@ dependencies = [
 dev = ["pytest", "alembic"]
 
 [project.scripts]
-edv-backend = "main:main"
+# Zeigt auf `utils/cli.py`, NICHT auf `main:main`. Grund: `main.py` ist
+# eine Top-Level-Datei (kein Paket); der editable-Module-Finder
+# registriert sie als Verzeichnis-Mapping (`{'main': '.../main'}`), nicht
+# als Datei-Modul — Import via `from main import main` schlägt dann fehl.
+# `utils/cli.py` lebt im installierten Paket `utils`, ist immer findbar
+# und enthält den vollständigen Boot-Code; `main.py` ist nur noch ein
+# dünner Wrapper, damit `python main.py` weiter funktioniert.
+edv-backend = "utils.cli:main"
 
 [tool.setuptools.packages.find]
 # All importable packages live directly under the project root (flat layout):

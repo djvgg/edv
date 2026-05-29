@@ -1,2 +1,2 @@
 [console_scripts]
-edv-backend = main:main
+edv-backend = utils.cli:main

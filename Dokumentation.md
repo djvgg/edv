@@ -46,16 +46,16 @@ Wichtig:
 
 ## 3. Programmstart
 
-Starten Sie die Anwendung im Ordner `edv_backend` mit:
-
-```bash
-python -m edv_backend
-```
-
-Alternativ ist auch dieser Start möglich:
+Starten Sie die Anwendung im Ordner `edv` mit:
 
 ```bash
 python main.py
+```
+
+Alternativ — nach einmaligem `pip install -e .` — über das Console-Skript:
+
+```bash
+edv-backend
 ```
 
 Nach dem Start öffnet sich das Hauptfenster mit dem Dateilader als Einstieg.
