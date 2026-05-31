@@ -298,12 +298,21 @@ class DataLoaderService:
         new_brackets: dict,
         locked_age_classes: set,
         affected_age_groups: set = None,
+        drop_vacated: bool = True,
     ) -> dict:
         """Replace unlocked generated lists while preserving locked age classes.
 
         P4 — additionally, any bracket whose participant set is identical
         between old and new is kept *as-is* (existing seeding, pool config,
         mat assignment etc. all survive the re-import).
+
+        ``drop_vacated`` removes an existing bracket whose age group is touched by
+        the import but which no longer appears in ``new_brackets`` (a weight class
+        someone moved out of). This is ONLY safe when ``new_brackets`` is the
+        authoritative full set (DB resync succeeded). With the DB offline,
+        ``new_brackets`` holds only the just-imported file (e.g. the female list),
+        so dropping by gender-agnostic age group would wipe the other gender's
+        brackets — pass ``drop_vacated=False`` to merge purely additively instead.
         """
         if not existing_brackets:
             return new_brackets
@@ -320,7 +329,7 @@ class DataLoaderService:
             if bracket_key_matches_age_lock(key, locked_age_classes):
                 merged[key] = data
                 continue
-            if age_group in affected_age_groups:
+            if drop_vacated and age_group in affected_age_groups:
                 # P4 — short-circuit if the new bracket has exactly the same
                 # participants as the existing one; reuse the existing record
                 # so seeding/pool/mat assignment are preserved.
@@ -1012,12 +1021,23 @@ class DataLoaderService:
             new_brackets = {}
             new_brackets.update(export_all_brackets(participants_for_brackets))
             
-            # APPEND MODE: Merge with existing brackets, preserving locked age classes.
+            # APPEND MODE: Merge with existing brackets, preserving locked age locks.
             if is_append_mode and existing_brackets:
+                # Dropping vacated brackets is only safe when new_brackets is the
+                # authoritative full set (DB resync ran). Offline, new_brackets is
+                # just the imported file, so merge additively to avoid wiping the
+                # other gender's lists (see _merge_brackets_preserving_age_locks).
+                if not db_save_succeeded:
+                    self.logger.warning(
+                        "[APPEND] DB offline — additive merge only; mixed U9/U11 "
+                        "classes won't combine across this and earlier imports "
+                        "until the DB is reachable and you re-import."
+                    )
                 brackets = self._merge_brackets_preserving_age_locks(
-                    existing_brackets, new_brackets, locked_age_classes, touched_age_groups
+                    existing_brackets, new_brackets, locked_age_classes, touched_age_groups,
+                    drop_vacated=db_save_succeeded,
                 )
-                
+
                 list_word_new = 'Liste' if len(new_brackets) == 1 else 'Listen'
                 merge_summary = (
                     f"{len(new_brackets)} {list_word_new} zusammengeführt. "

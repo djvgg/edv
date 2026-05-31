@@ -410,7 +410,8 @@ class BracketViewerApp(tk.Tk):
         if screen_key == 'file_loader':
             # FileLoaderScreen callbacks
             screen.on_load_database = self.load_from_database
-            screen.on_load_json = self.load_json_and_generate
+            screen.on_load_json_initial = self.load_json_initial
+            screen.on_load_json_append = self.load_json_append
             screen.on_split_gender = self.split_gender_to_json
             screen.on_flush_database = self._flush_database
             
@@ -701,32 +702,52 @@ class BracketViewerApp(tk.Tk):
         self.data_loader.load_from_database(callbacks={
             'on_success': self._on_brackets_loaded
         })
-    def load_json_and_generate(self):
-        """P1 — load a single JSON file (m+w mixed) and generate brackets."""
+    def load_json_initial(self):
+        """Initial import — wipe all existing data, then load JSON fresh."""
+        self._do_load_json(append=False)
+
+    def load_json_append(self):
+        """Append/update import — merge JSON into the current data (UPSERT by
+        name + gender + birth_date + club). Use this to add the second gender
+        list or re-import a corrected list without losing the existing one."""
+        self._do_load_json(append=True)
+
+    def _do_load_json(self, append):
+        """Load one or more JSON files and generate brackets.
+
+        append=False (initial): flush the DB and regenerate brackets from scratch.
+        append=True: keep existing participants/brackets and merge the new ones —
+        gender is part of the natural key, so a male and a female list coexist.
+        """
         try:
-            self.logger.debug("[JSON] load_json_and_generate called")
-
-            self.logger.debug("[JSON] Opening file dialog...")
             filepaths = select_json_files()
-            self.logger.debug(f"[JSON] File dialog result: {len(filepaths)} file(s) selected")
-
             if not filepaths:
                 self.logger.debug("[JSON] No file selected, returning")
                 return
 
-            # Delegate to DataLoaderService with current cache state for smart append
-            self.logger.debug(f"[JSON] Calling data_loader.load_json_and_generate with {len(filepaths)} files")
+            if not append:
+                if not messagebox.askyesno(
+                    "Initialer Import",
+                    "Ersetzt ALLE vorhandenen Teilnehmer und Brackets in der "
+                    "Datenbank.\n\nFortfahren?",
+                    icon='warning',
+                ):
+                    return
+                self._flush_database()
+                existing_brackets = None
+            else:
+                existing_brackets = self.brackets if self.brackets else None
+
+            mode = 'append' if append else 'initial'
+            self.logger.debug(f"[JSON] {mode} import of {len(filepaths)} file(s)")
             self.data_loader.load_json_and_generate(
                 filepaths=filepaths,
-                callbacks={
-                    'on_success': self._on_brackets_loaded
-                },
-                existing_brackets=self.brackets if self.brackets else None,
+                callbacks={'on_success': self._on_brackets_loaded},
+                existing_brackets=existing_brackets,
                 locked_age_classes=self.locked_age_classes,
             )
-            self.logger.debug("[JSON] load_json_and_generate delegated to data_loader")
         except Exception as e:
-            self.logger.error(f"[JSON] FATAL ERROR in load_json_and_generate: {e}", exc_info=True)
+            self.logger.error(f"[JSON] FATAL ERROR in _do_load_json: {e}", exc_info=True)
             messagebox.showerror("Error", f"Failed to load JSON:\n{str(e)}")
 
     def split_gender_to_json(self):

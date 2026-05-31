@@ -51,7 +51,8 @@ class FileLoaderScreen(tk.Frame):
 
         # Callbacks - will be set by main window
         self.on_load_database = None
-        self.on_load_json = None
+        self.on_load_json_initial = None   # fresh import: wipes existing data
+        self.on_load_json_append = None    # append/update import: merges into current data
         self.on_split_gender = None
         self.on_flush_database = None
 
@@ -114,14 +115,24 @@ class FileLoaderScreen(tk.Frame):
         apply_button_style(db_btn, 'primary')
         db_btn.pack(pady=SPACING['sm'], fill="x", padx=SPACING['xl'])
 
-        # Load JSON file button (single file, m+w mixed)
-        json_btn = tk.Button(
+        # Initial JSON import (replaces all existing data)
+        json_initial_btn = tk.Button(
             main_controls,
-            text="JSON-Datei laden",
-            command=self.on_load_json_click,
+            text="Initialer Import (ersetzt alle Daten)",
+            command=self.on_load_json_initial_click,
         )
-        apply_button_style(json_btn, 'primary')
-        json_btn.pack(pady=SPACING['sm'], fill="x", padx=SPACING['xl'])
+        apply_button_style(json_initial_btn, 'primary')
+        json_initial_btn.pack(pady=SPACING['sm'], fill="x", padx=SPACING['xl'])
+
+        # Append/update JSON import (merges into current data, e.g. add the 2nd
+        # gender list or re-import a corrected list — matched by name+gender+...)
+        json_append_btn = tk.Button(
+            main_controls,
+            text="Import anfügen / aktualisieren",
+            command=self.on_load_json_append_click,
+        )
+        apply_button_style(json_append_btn, 'primary')
+        json_append_btn.pack(pady=SPACING['sm'], fill="x", padx=SPACING['xl'])
 
         # Split M/W button
         split_btn = tk.Button(
@@ -153,20 +164,27 @@ class FileLoaderScreen(tk.Frame):
         if self.on_load_database:
             self.on_load_database()
 
-    def on_load_json_click(self):
-        """Handle JSON load button click."""
-        self.logger.info("User clicked: Load JSON")
-        if self.DEBUG:
-            self.logger.debug("DEBUG: Executing on_load_json callback")
-        if self.on_load_json:
-            self.logger.debug(f"[FILE_LOADER] on_load_json callback is set: {self.on_load_json}")
+    def on_load_json_initial_click(self):
+        """Handle initial (replace) JSON import button click."""
+        self.logger.info("User clicked: Initial JSON import (replace)")
+        if self.on_load_json_initial:
             try:
-                self.on_load_json()
-                self.logger.debug("[FILE_LOADER] on_load_json callback executed successfully")
+                self.on_load_json_initial()
             except Exception as e:
-                self.logger.error(f"[FILE_LOADER] Error executing on_load_json callback: {e}", exc_info=True)
+                self.logger.error(f"[FILE_LOADER] Error in on_load_json_initial: {e}", exc_info=True)
         else:
-            self.logger.warning("[FILE_LOADER] on_load_json callback is NOT set!")
+            self.logger.warning("[FILE_LOADER] on_load_json_initial callback is NOT set!")
+
+    def on_load_json_append_click(self):
+        """Handle append/update JSON import button click."""
+        self.logger.info("User clicked: Append/update JSON import")
+        if self.on_load_json_append:
+            try:
+                self.on_load_json_append()
+            except Exception as e:
+                self.logger.error(f"[FILE_LOADER] Error in on_load_json_append: {e}", exc_info=True)
+        else:
+            self.logger.warning("[FILE_LOADER] on_load_json_append callback is NOT set!")
 
     def on_split_gender_click(self):
         """Handle gender split button click."""
