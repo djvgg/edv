@@ -609,12 +609,18 @@ class TableAndBracketViewer(tk.Frame):
             
             # Add assigned brackets to this table (skip completed ones)
             for bracket_key, assigned_table in self.main_window.bracket_table_assignment.items():
-                if assigned_table == table_num and len(self.main_window.brackets[bracket_key].get('fighters', [])) > 0 and bracket_key not in completed_keys:
+                # A table assignment can outlive its bracket (e.g. a weight class
+                # that was merged/removed); guard against the stale key instead of
+                # letting a KeyError abort the whole viewer build.
+                bracket_data = self.main_window.brackets.get(bracket_key)
+                if bracket_data is None:
+                    continue
+                if assigned_table == table_num and len(bracket_data.get('fighters', [])) > 0 and bracket_key not in completed_keys:
                     # Create row frame
                     row_frame = create_dark_frame(content_frame)
                     row_frame.pack(fill=tk.X, pady=2, padx=4)
 
-                    fighter_count = len(self.main_window.brackets[bracket_key].get('fighters', []))
+                    fighter_count = len(bracket_data.get('fighters', []))
                     fight_count = self._calculate_number_of_fights(bracket_key)
                     
                     if table_num not in table_totals:

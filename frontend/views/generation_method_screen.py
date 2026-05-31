@@ -1192,7 +1192,7 @@ class GenerationMethodScreen(tk.Frame):
         safe_key = '_'.join(safe_key.split())
         
         method_name = method.upper() if method else 'UNKNOWN'
-        filename = f"{safe_key}_{method_name}.xlsx"
+        filename = f"{safe_key}_{method_name}.xls"
         
         return filename
 

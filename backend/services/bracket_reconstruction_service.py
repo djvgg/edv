@@ -352,8 +352,13 @@ class BracketReconstructionService:
         Returns:
             List of fight lists, each containing (pos1, pos2) pairs
         """
-        if pool_size < 3:
+        if pool_size < 2:
             return []
+
+        if pool_size == 2:
+            # Best of three (see pool_renderer._generate_fight_schedule): the two
+            # fighters meet three times so a 2-person bracket is decided by 2 of 3.
+            return [[(0, 1)], [(0, 1)], [(0, 1)]]
 
         if pool_size == 3:
             return [[(0, 2)], [(1, 2)], [(0, 1)]]

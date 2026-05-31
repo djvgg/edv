@@ -262,10 +262,11 @@ class TestGenerateFightSchedule:
         assert _generate_fight_schedule(0) == []
         assert _generate_fight_schedule(1) == []
 
-    def test_2_fighters_one_fight(self):
+    def test_2_fighters_best_of_three(self):
+        # A 2-fighter pool is run best-of-three: the same pairing three times.
         schedule = _generate_fight_schedule(2)
-        assert len(schedule) == 1
-        assert (0, 1) in schedule[0]
+        assert len(schedule) == 3
+        assert all(column == [(0, 1)] for column in schedule)
 
     def test_3_fighters_three_fights(self):
         schedule = _generate_fight_schedule(3)
@@ -280,8 +281,11 @@ class TestGenerateFightSchedule:
         assert len(schedule) == 10  # 5*(5-1)/2 = 10
 
     def test_all_pairs_covered(self):
-        """Every unique pair of fighters appears exactly once."""
-        for n in range(2, 7):
+        """Every unique pair of fighters appears exactly once (n>=3).
+
+        n=2 is the deliberate exception: best-of-three repeats the lone pairing.
+        """
+        for n in range(3, 7):
             schedule = _generate_fight_schedule(n)
             all_pairs = set()
             for column in schedule:

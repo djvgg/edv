@@ -29,8 +29,11 @@ def _generate_fight_schedule(pool_size):
 
     # Hardcoded optimal schedules for small pools (verified patterns)
     if pool_size == 2:
-        # Single fight between the two fighters
-        return [[(0, 1)]]
+        # Best of three: the two fighters meet three times, winner = most wins.
+        # (Standings tally by wins, so a 2-0 stop is fine — the 3rd bout is just
+        # not scored.) Kept consistent with the reconstruction twin in
+        # bracket_reconstruction_service._generate_fight_schedule.
+        return [[(0, 1)], [(0, 1)], [(0, 1)]]
 
     if pool_size == 3:
         # Fight 1: 1v3, Fight 2: 2v3, Fight 3: 1v2

@@ -89,12 +89,17 @@ def _hydrate_pool_cells(pool_fights, bracket_data, gp_id_to_name):
         if row_a is None or row_b is None:
             continue
 
-        # Finde den fight_num im schedule, der (row_a, row_b) enthaelt
-        fight_num = None
-        for fn, matches in enumerate(schedule):
-            if any({row_a, row_b} == set(m) for m in matches):
-                fight_num = fn
-                break
+        # Best-of-three (Zweier-Pool): alle drei Fights teilen dasselbe Paar,
+        # daher ueber pos_in_round statt Paar-Match der Spalte zuordnen.
+        if len(pools[pool_idx]) == 2:
+            fight_num = f.pos_in_round if f.pos_in_round is not None else 0
+        else:
+            # Finde den fight_num im schedule, der (row_a, row_b) enthaelt
+            fight_num = None
+            for fn, matches in enumerate(schedule):
+                if any({row_a, row_b} == set(m) for m in matches):
+                    fight_num = fn
+                    break
         if fight_num is None:
             continue
 

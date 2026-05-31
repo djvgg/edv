@@ -1073,7 +1073,13 @@ class TournamentService:
 
         enriched = []
         for pool_idx, pool in enumerate(pools):
-            for pos, (n1, n2) in enumerate(combinations(pool, 2)):
+            pairs = list(combinations(pool, 2))
+            # 2-person pool = best-of-three: the lone pairing is fought three
+            # times (mirrors pool_renderer._generate_fight_schedule(2)). Distinct
+            # pos_in_round (0,1,2) keeps the fights' unique key apart.
+            if len(pool) == 2:
+                pairs = pairs * 3
+            for pos, (n1, n2) in enumerate(pairs):
                 gp1 = self._find_group_participant(group_id, n1)
                 gp2 = self._find_group_participant(group_id, n2)
                 if gp1 and gp2:

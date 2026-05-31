@@ -4,6 +4,11 @@
 
 pandas
 openpyxl
+# Legacy .xls template filling (official tournament forms). xlutils needs xlrd<2
+# for formatting_info; do not bump xlrd to 2.x.
+xlrd==1.2.0
+xlwt
+xlutils
 pytest
 alembic
 psycopg2-binary
