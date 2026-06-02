@@ -648,7 +648,7 @@ class DataTransformationPipeline:
     def _transform_regenerate_stale_ko_brackets(self):
         """Regenerate KO brackets that are stale."""
         try:
-            from ..services.bracket_manager import regenerate_stale_ko_brackets  # noqa: E402
+            from frontend.services.bracket_manager import regenerate_stale_ko_brackets  # noqa: E402
             from backend.services.bracket_service import make_bracket  # noqa: E402
             
             regenerate_stale_ko_brackets(

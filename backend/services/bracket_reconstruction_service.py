@@ -372,17 +372,19 @@ class BracketReconstructionService:
                 [(2, 3)],
             ]
         elif pool_size == 5:
+            # Conflict-free DJB form order; lockstep with
+            # pool_renderer._generate_fight_schedule(5) (Decision 2026-05-31).
             return [
-                [(0, 4)],
-                [(1, 3)],
-                [(0, 2)],
-                [(1, 4)],
-                [(2, 3)],
                 [(0, 3)],
+                [(1, 4)],
+                [(0, 2)],
+                [(1, 3)],
+                [(2, 4)],
+                [(0, 1)],
+                [(2, 3)],
+                [(0, 4)],
                 [(1, 2)],
                 [(3, 4)],
-                [(0, 1)],
-                [(2, 4)],
             ]
 
         # For larger pools, use circle method

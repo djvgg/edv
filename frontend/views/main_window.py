@@ -598,6 +598,10 @@ class BracketViewerApp(tk.Tk):
             self.match_results = {}
             self.loser_match_results = {}
             self.locked_age_classes = set()
+            # Drop print marks so a previous tournament's "already printed" lists
+            # don't carry over (bracket keys repeat across tournaments).
+            from .generation_method_screen import clear_printed_marks
+            clear_printed_marks()
             self.logger.info("Database flushed successfully")
         else:
             self.logger.error("Failed to flush database")

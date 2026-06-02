@@ -781,7 +781,6 @@ class DatabaseService:
             LEFT JOIN group_participants gp3b ON gp3b.id = b.third_place_2
             LEFT JOIN participants        p3b  ON p3b.id  = gp3b.participant_id
             WHERE g.name = :key AND p3b.id IS NOT NULL
-              AND b.bracket_type NOT IN ('pools', 'double')
 
             ORDER BY platz
         """)

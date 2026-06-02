@@ -82,6 +82,11 @@ class ResultsScreen(tk.Frame):
         apply_label_style(title, 'heading_md')
         title.pack(side=tk.LEFT)
 
+        reload_btn = tk.Button(top_bar, text='↻ Aktualisieren',
+                               command=self._manual_refresh)
+        apply_button_style(reload_btn, 'secondary')
+        reload_btn.pack(side=tk.RIGHT)
+
         # Content area (cleared + rebuilt on each selection)
         self._content = create_dark_frame(right)
         self._content.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
@@ -173,6 +178,14 @@ class ResultsScreen(tk.Frame):
         self._poll_job = self.after(self._POLL_INTERVAL_MS, self._poll_tick)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────
+
+    def _manual_refresh(self):
+        """↻ Aktualisieren: fertige Kampflisten frisch aus der DB holen und die
+        aktuell geöffnete Platzierungs-Tabelle neu rendern."""
+        self._refresh_list()
+        current = self._title_var.get()
+        if current:
+            self._show_results(current)
 
     def on_show(self, force_reload=False):
         self._refresh_list()

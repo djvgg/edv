@@ -49,18 +49,21 @@ def _generate_fight_schedule(pool_size):
             [(2, 3)],  # Fight 6: 3v4
         ]
     elif pool_size == 5:
-        # Total 10 matches (5*4/2 = 10): all combinations
+        # Total 10 matches (5*4/2 = 10): all combinations. Canonical order = the
+        # official DJB Poolsystem form's printed order, which is conflict-free
+        # (no fighter in two consecutive bouts). This is the single source mirrored
+        # by edv-Excel and JudgeFrontend (Decision 2026-05-31, /wsp-architect).
         return [
-            [(0, 4)],  # Fight 1: 1v5
-            [(1, 3)],  # Fight 2: 2v4
+            [(0, 3)],  # Fight 1: 1v4
+            [(1, 4)],  # Fight 2: 2v5
             [(0, 2)],  # Fight 3: 1v3
-            [(1, 4)],  # Fight 4: 2v5
-            [(2, 3)],  # Fight 5: 3v4
-            [(0, 3)],  # Fight 6: 1v4
-            [(1, 2)],  # Fight 7: 2v3
-            [(3, 4)],  # Fight 8: 4v5
-            [(0, 1)],  # Fight 9: 1v2
-            [(2, 4)],  # Fight 10: 3v5
+            [(1, 3)],  # Fight 4: 2v4
+            [(2, 4)],  # Fight 5: 3v5
+            [(0, 1)],  # Fight 6: 1v2
+            [(2, 3)],  # Fight 7: 3v4
+            [(0, 4)],  # Fight 8: 1v5
+            [(1, 2)],  # Fight 9: 2v3
+            [(3, 4)],  # Fight 10: 4v5
         ]
 
     # For larger pools, use circle method and flatten to one match per column

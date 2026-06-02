@@ -165,6 +165,11 @@ class TableAndBracketViewer(tk.Frame):
         apply_button_style(back_to_gen_btn, 'secondary')
         back_to_gen_btn.pack(side=tk.LEFT, padx=5)
 
+        reload_btn = tk.Button(tables_nav_frame, text='↻ Aktualisieren',
+                               command=self._manual_refresh)
+        apply_button_style(reload_btn, 'secondary')
+        reload_btn.pack(side=tk.LEFT, padx=5)
+
         monitor_btn = tk.Button(tables_nav_frame, text='Fertige Kampflisten',
                                 command=self._on_monitoring_clicked)
         apply_button_style(monitor_btn, 'primary')
@@ -1029,6 +1034,65 @@ class TableAndBracketViewer(tk.Frame):
             num_fights = num_fighters - 1
         
         return num_fights
+
+    def _manual_refresh(self):
+        """↻ Aktualisieren: persistiert zuerst den aktuellen In-Memory-Stand
+        (Brackets + Fights der zugewiesenen Matten) in die DB und rendert die
+        Listenansicht dann neu.
+
+        Hintergrund: `assign_and_create_fights` legt Fights nur an, wenn die
+        Bracket-Zeile bereits in der DB steht (sonst stiller ValueError). Steht sie
+        noch nicht (Generierungsmethoden-Schritt unvollständig / DB frisch geleert),
+        schreibt der Button die Brackets jetzt nach (`save_brackets`, Upsert) und legt
+        anschließend die Fights an — sodass JudgeFrontend die Kämpfe sieht. Beide
+        Schritte sind idempotent (save_brackets upsertet, open_bracket_for_monitoring
+        gibt bestehende Fights zurück)."""
+        if not self.main_window:
+            return
+        mw = self.main_window
+        try:
+            self._persist_assigned_to_db(mw)
+        except Exception as e:  # noqa: BLE001 — Button darf nie crashen
+            self.logger.error(f"[MANUAL REFRESH] Persist fehlgeschlagen: {e}", exc_info=True)
+        self.update_bracket_list()
+        self.update_table_panels()
+        self.logger.info("[MANUAL REFRESH] Persistiert + Listenansicht aus DB aktualisiert")
+
+    def _persist_assigned_to_db(self, mw):
+        """Schreibt In-Memory-Brackets + die Fights jeder mat-zugewiesenen Bracket in
+        die DB (idempotent). Returns die Anzahl erfolgreich persistierter Brackets."""
+        brackets = getattr(mw, 'brackets', None) or {}
+        methods = getattr(mw, 'bracket_generation_methods', None) or {}
+        assignments = getattr(mw, 'bracket_table_assignment', None) or {}
+        if not brackets:
+            self.logger.warning("[MANUAL REFRESH] Keine In-Memory-Brackets — nichts zu persistieren")
+            return 0
+        # 1) Bracket-Zeilen sicherstellen (Upsert; nur Brackets mit zugewiesener Methode).
+        mw.db_service.save_brackets(brackets, methods)
+        # 2) Fights je zugewiesener Matte anlegen.
+        persisted = 0
+        for bracket_key, table_num in assignments.items():
+            if not table_num:
+                continue
+            bracket_data = brackets.get(bracket_key)
+            if not bracket_data:
+                continue
+            ok = mw.db_service.assign_and_create_fights(
+                bracket_key,
+                table_num=table_num,
+                fight_pairs=bracket_data.get('bracket', []),
+                bracket_type=methods.get(bracket_key, 'ko'),
+                fighters=bracket_data.get('fighters', []),
+                pool_size=bracket_data.get('pool_size'),
+            )
+            if ok:
+                persisted += 1
+            else:
+                self.logger.warning(
+                    f"[MANUAL REFRESH] Persist fehlgeschlagen für '{bracket_key}' "
+                    f"(Bracket nicht in DB / kein Treffer)")
+        self.logger.info(f"[MANUAL REFRESH] {persisted}/{len(assignments)} zugewiesene Brackets persistiert")
+        return persisted
 
     def on_show(self, force_reload=False):
         """Lifecycle hook called when screen is displayed."""

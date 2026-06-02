@@ -12,6 +12,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 import sys
 import os
+import json
 import threading
 from datetime import datetime
 
@@ -40,6 +41,25 @@ from ..styles import (  # noqa: E402
     create_panel_frame,
 )
 logger = get_logger('generation_method_screen', debug_verbose=DEBUG_VERBOSE)
+
+
+def _printed_marks_sidecar_path():
+    """Persisted print-marks file (like the Urkunden sidecar) so 'already printed'
+    survives an edv restart. Lives next to the Excel exports."""
+    export_dir = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), '..', '..', 'temp', 'exports'))
+    return os.path.join(export_dir, 'wettkampflisten_printed.json')
+
+
+def clear_printed_marks():
+    """Drop all persisted print marks — called on a fresh import / DB flush so the
+    marks of a previous tournament don't bleed into a new one (bracket keys repeat)."""
+    try:
+        os.remove(_printed_marks_sidecar_path())
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        logger.warning(f"Druck-Markierungen konnten nicht gelöscht werden: {e}")
 
 
 class GenerationMethodScreen(tk.Frame):
@@ -86,8 +106,10 @@ class GenerationMethodScreen(tk.Frame):
         self.on_back_callback = None  # Callback when back button clicked
         self.on_generation_complete = None  # Callback when generation complete with final assignments
         
-        # Print tracking - prevents accidental reprints and maintains audit trail
+        # Print tracking - prevents accidental reprints and maintains audit trail.
+        # Persisted to a sidecar (survives restart; cleared on fresh import).
         self.printed_brackets = {}  # {bracket_key: datetime_printed}
+        self._load_printed_marks()
         
         # Load method labels from config
         self.method_labels = {}  # {method_key: {'ButtonLabel': str, 'DisplayLabel': str}}
@@ -333,6 +355,14 @@ class GenerationMethodScreen(tk.Frame):
         )
         apply_button_style(print_selected_btn, style='secondary')
         print_selected_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        toggle_printed_btn = tk.Button(
+            export_buttons_frame,
+            text="✓ Gedruckt-Markierung",
+            command=self.on_toggle_printed,
+        )
+        apply_button_style(toggle_printed_btn, style='secondary')
+        toggle_printed_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
 
         export_all_btn = tk.Button(
             export_buttons_frame,
@@ -816,17 +846,39 @@ class GenerationMethodScreen(tk.Frame):
             thread.start()
 
     def on_export_all(self):
-        """Generate Excel files for all currently assigned brackets."""
+        """Generate Excel files for all assigned brackets — skipping those already
+        marked as printed (so nothing is printed twice)."""
         assigned_brackets = [
             k for k, v in self.brackets.items()
             if v.get("method") is not None and len(v.get("tuple", [])) > 0
         ]
-        
+
         if not assigned_brackets:
             self.logger.info("Export all action: no assigned brackets to export")
             messagebox.showinfo("Info", "Keine zugewiesenen Brackets zum Exportieren")
             return
-        
+
+        # Skip lists already marked as printed.
+        already_printed = [k for k in assigned_brackets if k in self.printed_brackets]
+        pending = [k for k in assigned_brackets if k not in self.printed_brackets]
+
+        if not pending:
+            result = messagebox.askyesno(
+                "Alle bereits gedruckt",
+                f"Alle {len(assigned_brackets)} Wettkampflisten sind schon als gedruckt "
+                f"markiert.\n\nTrotzdem alle erneut exportieren?",
+            )
+            if not result:
+                return
+            pending = assigned_brackets
+        elif already_printed:
+            messagebox.showinfo(
+                "Bereits gedruckte übersprungen",
+                f"{len(already_printed)} bereits gedruckte Liste(n) werden übersprungen, "
+                f"{len(pending)} werden exportiert.",
+            )
+
+        assigned_brackets = pending
         self.logger.info(f"Exporting {len(assigned_brackets)} assigned brackets via TaskRunner")
         
         # Show progress dialog
@@ -1176,12 +1228,61 @@ class GenerationMethodScreen(tk.Frame):
             return False
 
     def _mark_bracket_printed(self, bracket_key):
-        """Mark a bracket as printed and update display."""
+        """Mark a bracket as printed (persisted) and update display."""
         self.printed_brackets[bracket_key] = datetime.now()
         self.logger.info(f"Marked as printed: {bracket_key}")
-        
+        self._save_printed_marks()
         # Update displays to show print indicator
         self._refresh_all_displays()
+
+    def _unmark_bracket_printed(self, bracket_key):
+        """Remove a bracket's print mark (persisted) and update display."""
+        if bracket_key in self.printed_brackets:
+            del self.printed_brackets[bracket_key]
+            self.logger.info(f"Print mark removed: {bracket_key}")
+            self._save_printed_marks()
+            self._refresh_all_displays()
+
+    def on_toggle_printed(self):
+        """↹ Markieren-Button: schaltet die 'bereits gedruckt'-Markierung der
+        aktuell ausgewählten Wettkampfliste um (gedruckt ⇄ nicht gedruckt)."""
+        selected = self.selected_unassigned or (
+            self.selected_in_tables.get(self.METHOD_POOLS) or
+            self.selected_in_tables.get(self.METHOD_DOUBLE) or
+            self.selected_in_tables.get(self.METHOD_KO) or
+            self.selected_in_tables.get(self.METHOD_SPECIAL)
+        )
+        if not selected:
+            messagebox.showwarning("Warnung", "Bitte zuerst eine Wettkampfliste auswählen")
+            return
+        if selected in self.printed_brackets:
+            self._unmark_bracket_printed(selected)
+        else:
+            self._mark_bracket_printed(selected)
+
+    def _load_printed_marks(self):
+        """Load persisted print marks from the sidecar into ``printed_brackets``."""
+        try:
+            with open(_printed_marks_sidecar_path(), 'r', encoding='utf-8') as f:
+                raw = json.load(f)
+            self.printed_brackets = {k: datetime.fromisoformat(v) for k, v in raw.items()}
+            self.logger.info(f"{len(self.printed_brackets)} Druck-Markierungen geladen")
+        except FileNotFoundError:
+            self.printed_brackets = {}
+        except (ValueError, OSError) as e:
+            self.logger.warning(f"Druck-Markierungen nicht ladbar: {e}")
+            self.printed_brackets = {}
+
+    def _save_printed_marks(self):
+        """Persist ``printed_brackets`` to the sidecar (key → ISO timestamp)."""
+        path = _printed_marks_sidecar_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump({k: v.isoformat() for k, v in self.printed_brackets.items()},
+                          f, ensure_ascii=False, indent=2)
+        except OSError as e:
+            self.logger.error(f"Druck-Markierungen nicht speicherbar: {e}")
 
     def _sanitize_filename(self, bracket_key, method):
         """Convert bracket key to a safe filename."""

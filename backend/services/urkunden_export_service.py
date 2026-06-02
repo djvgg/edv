@@ -96,8 +96,9 @@ class UrkundenExportService:
         """Eine Zeile pro vergebener Platzierung über die gewählten Keys.
 
         Sortiert nach (klasse, platz). NULL-Plätze sind in
-        ``get_bracket_placements`` bereits übersprungen; Doppelpool liefert
-        korrekt vier Zeilen (zwei dritte Plätze).
+        ``get_bracket_placements`` bereits übersprungen. Doppelpool, Doppel-KO
+        und Einzelpool mit >3 Teilnehmern liefern vier Zeilen (zwei dritte
+        Plätze); Einzelpool mit genau 3 liefert drei.
         """
         rows = []
         for key in bracket_keys:

@@ -73,10 +73,15 @@ _POOL_COL_PAIRS = {
 # shortened pools so a fighter doesn't fight in consecutive bouts where the
 # round-robin allows it. A 4er pool can't fully avoid it (2 repeats are
 # unavoidable for 6 bouts among 4 fighters) — this is the established minimum.
-# The full 5er form keeps the template's own order, which is already conflict-free.
+# The 5er order is the official DJB form's printed order (conflict-free) and equals
+# the template's physical column order (_POOL_COL_PAIRS in column sequence), so a
+# full 5er form already shows it without renumbering. It is listed here so this map
+# is the single canonical order for every size (Decision 2026-05-31, /wsp-architect
+# — mirrored by pool_renderer._generate_fight_schedule and JudgeFrontend).
 _POOL_FIGHT_ORDER = {
     3: [(1, 3), (2, 3), (1, 2)],
     4: [(1, 4), (2, 3), (1, 3), (2, 4), (1, 2), (3, 4)],
+    5: [(1, 4), (2, 5), (1, 3), (2, 4), (3, 5), (1, 2), (3, 4), (1, 5), (2, 3), (4, 5)],
 }
 
 
