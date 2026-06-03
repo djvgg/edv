@@ -760,8 +760,16 @@ class DataLoaderService:
                 if self.ui_feedback:
                     self.ui_feedback.update_progress(progress)
                 
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
+                # CSV is a sibling exchange format to JSON (same schema, ';' +
+                # UTF-8-BOM) — see CLAUDE.md contestants_*.csv invariant. The CSV
+                # reader returns dicts with the same native types as json.load,
+                # so the validation/normalization below is identical for both.
+                if filepath.lower().endswith('.csv'):
+                    from backend.services.contestants_csv import read_contestants_csv
+                    data = read_contestants_csv(filepath)
+                else:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
 
                 # Validate that data is a list
                 if not isinstance(data, list):
@@ -1249,19 +1257,26 @@ class DataLoaderService:
             # Ensure save directory exists
             os.makedirs(save_dir, exist_ok=True)
             
+            # Save contestants as BOTH JSON and CSV (sibling exchange formats —
+            # see CLAUDE.md contestants_*.csv invariant). WeighIn can consume
+            # either; writing both avoids a format dialog in this export path.
+            from backend.services.contestants_csv import write_contestants_csv
+
             # Save male contestants
             if male_count > 0:
                 male_file = os.path.join(save_dir, 'contestants_male.json')
                 with open(male_file, 'w', encoding='utf-8') as f:
                     json.dump(male_contestants, f, indent=2, ensure_ascii=False)
-                self.logger.info(f"Saved {male_count} male contestants to: {male_file}")
-            
+                write_contestants_csv(os.path.join(save_dir, 'contestants_male.csv'), male_contestants)
+                self.logger.info(f"Saved {male_count} male contestants to: {male_file} (+ .csv)")
+
             # Save female contestants
             if female_count > 0:
                 female_file = os.path.join(save_dir, 'contestants_female.json')
                 with open(female_file, 'w', encoding='utf-8') as f:
                     json.dump(female_contestants, f, indent=2, ensure_ascii=False)
-                self.logger.info(f"Saved {female_count} female contestants to: {female_file}")
+                write_contestants_csv(os.path.join(save_dir, 'contestants_female.csv'), female_contestants)
+                self.logger.info(f"Saved {female_count} female contestants to: {female_file} (+ .csv)")
             
             # Save tolerance settings with config-driven structure
             if configured_tolerances:

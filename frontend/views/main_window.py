@@ -27,7 +27,7 @@ def select_json_files():
                 [
                     "zenity",
                     "--file-selection",
-                    "--file-filter=JSON files | *.json"
+                    "--file-filter=Teilnehmer (JSON/CSV) | *.json *.csv"
                 ],
                 capture_output=True,
                 text=True
@@ -41,8 +41,10 @@ def select_json_files():
 
     # Windows / fallback
     path = filedialog.askopenfilename(
-        title="JSON-Datei mit Teilnehmern auswählen",
-        filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        title="Teilnehmer-Datei auswählen (JSON oder CSV)",
+        filetypes=[("Teilnehmer (JSON/CSV)", ("*.json", "*.csv")),
+                   ("JSON files", "*.json"), ("CSV files", "*.csv"),
+                   ("All files", "*.*")]
     )
     return (path,) if path else ()
 

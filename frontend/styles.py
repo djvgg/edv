@@ -9,6 +9,26 @@ Supports dark and light themes with modern, clean aesthetics based on an 8px gri
 import tkinter as tk
 import json
 import os
+import platform
+
+
+def _mono_family():
+    """Return a monospace family that actually exists on the host.
+
+    ``Consolas`` is Windows-only — on macOS Tk silently substitutes a
+    *proportional* font, which breaks the space-padded table alignment in the
+    Gruppenvorschau (columns drift). Pick a real monospace per OS so the padding
+    lines up.
+    """
+    system = platform.system()
+    if system == "Darwin":
+        return "Menlo"            # macOS system monospace
+    if system == "Windows":
+        return "Consolas"
+    return "DejaVu Sans Mono"     # common Linux monospace
+
+
+_MONO = _mono_family()
 
 # ============================================================================
 # DESIGN TOKENS
@@ -108,15 +128,15 @@ FONTS = {
     'body_sm': ('Rubik', 10),
     'body_xs': ('Rubik', 9),
 
-    'mono_md': ('Consolas', 10),              # Standard monospaced for technical data
-    'mono_sm': ('Consolas', 9),
-    
+    'mono_md': (_MONO, 10),              # Standard monospaced for technical data
+    'mono_sm': (_MONO, 9),
+
     # Aliases for clarity
-    'data_table': ('Consolas', 10),
-    
+    'data_table': (_MONO, 10),
+
     # Legacy fallbacks
-    'list_mono': ('Consolas', 10),
-    'list_mono_bold': ('Consolas', 10, 'bold'),
+    'list_mono': (_MONO, 10),
+    'list_mono_bold': (_MONO, 10, 'bold'),
     'preview_title': ('Rubik', 16, 'bold'), # Alias for heading_md
     'preview_text': ('Rubik', 11),           # Alias for body_md (entry fields)
     'preview_label': ('Rubik', 10),          # Alias for body_sm (warning labels)

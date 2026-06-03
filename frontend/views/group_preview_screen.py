@@ -171,7 +171,11 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
                 # Run save in background thread
                 self.task_runner.submit_task(
                     'group_preview_save_groups',
-                    fn=lambda: self._save_groups_bg(brackets),
+                    # task_runner calls fn(on_progress=...) — the lambda MUST
+                    # accept it, else the save raises TypeError and is silently
+                    # swallowed (edits never persist). See the on_progress lambda
+                    # cluster note in OPEN_ITEMS.md.
+                    fn=lambda on_progress=None: self._save_groups_bg(brackets),
                     on_error=lambda e: self.logger.warning(f"[LIFECYCLE] Background save failed: {e}")
                 )
             else:
@@ -639,14 +643,24 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
         COL_GENDER      = 10
         SEPARATOR_LENGTH = (
             COL_FIRSTNAME + COL_LAST + COL_BIRTH + COL_CLUB
-            + COL_ASSOCIATION + COL_WEIGHT + COL_GENDER + 4
+            + COL_ASSOCIATION + COL_WEIGHT + COL_GENDER
         )
 
+        def fit(value, width):
+            """Left-justify into exactly `width` monospace cells. Values that
+            would overflow are truncated with an ellipsis, leaving a 1-cell gap
+            so adjacent columns never touch — this is what keeps the table in
+            alignment regardless of name/club length."""
+            s = str(value)
+            if len(s) > width - 1:
+                s = s[:width - 2] + '…'
+            return s.ljust(width)
+
         header = (
-            f"{'Vorname':<{COL_FIRSTNAME}}{'Nachname':<{COL_LAST}}"
-            f"{'Jahrgang':<{COL_BIRTH}}{'Verein':<{COL_CLUB}}"
-            f"{'Verband':<{COL_ASSOCIATION}}{'Gewicht':<{COL_WEIGHT}}"
-            f"{'Geschl.':<{COL_GENDER}}\n"
+            fit('Vorname', COL_FIRSTNAME) + fit('Nachname', COL_LAST)
+            + fit('Jahrgang', COL_BIRTH) + fit('Verein', COL_CLUB)
+            + fit('Verband', COL_ASSOCIATION) + fit('Gewicht', COL_WEIGHT)
+            + fit('Geschl.', COL_GENDER) + "\n"
         )
         text_widget.insert(tk.END, header, 'header')
         text_widget.insert(tk.END, "─" * SEPARATOR_LENGTH + "\n")
@@ -675,9 +689,9 @@ class GroupPreviewScreen(_ToleranceMixin, tk.Frame):
                 gender_display = gender_val
 
             row = (
-                f"{first:<{COL_FIRSTNAME}}{last:<{COL_LAST}}{birth:<{COL_BIRTH}}"
-                f"{club:<{COL_CLUB}}{association:<{COL_ASSOCIATION}}"
-                f"{weight_str:<{COL_WEIGHT}}{gender_display:<{COL_GENDER}}\n"
+                fit(first, COL_FIRSTNAME) + fit(last, COL_LAST) + fit(birth, COL_BIRTH)
+                + fit(club, COL_CLUB) + fit(association, COL_ASSOCIATION)
+                + fit(weight_str, COL_WEIGHT) + fit(gender_display, COL_GENDER) + "\n"
             )
             text_widget.insert(tk.END, row, f'row_{idx}')
 

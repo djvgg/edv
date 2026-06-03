@@ -271,7 +271,11 @@ class QuarantineService:
                 # Run in background thread
                 self.task_runner.submit_task(
                     'resort_save_participants',
-                    fn=lambda: self._save_participants_bg(db_service, valid_from_quarantine),
+                    # task_runner calls fn(on_progress=...) — the lambda MUST
+                    # accept it, else the save raises TypeError and is silently
+                    # swallowed (resort never persists). See the on_progress
+                    # lambda cluster note in OPEN_ITEMS.md.
+                    fn=lambda on_progress=None: self._save_participants_bg(db_service, valid_from_quarantine),
                     on_error=lambda e: self.logger.error(f"RESORT: Background save failed: {e}")
                 )
             else:
