@@ -148,13 +148,26 @@ def _clone_style(rb: xlrd.Book, xf_index: int) -> xlwt.XFStyle:
     return st
 
 
+def _participant_id(fighter: Any):
+    """Best-effort participant/DB id from a fighter dict; None if unavailable.
+    Used to embed a stable match key in the hidden ``_ids`` sheet."""
+    if isinstance(fighter, dict):
+        return fighter.get('ID', fighter.get('id'))
+    return None
+
+
 class _FormWriter:
     """Wraps an xlutils copy and writes into cells while preserving their style."""
+
+    # Columns of the hidden `_ids` sheet (Phase-1 ID embedding → enables the
+    # Phase-2 Excel→DB re-import to match rows back without name guessing).
+    _ID_COLUMNS = ('bracket', 'kind', 'block', 'slot', 'participant_id', 'sheet', 'row', 'col')
 
     def __init__(self, template_path: str):
         self._rb = xlrd.open_workbook(template_path, formatting_info=True)
         self._wb = xl_copy(self._rb)
         self._style_cache: Dict[int, xlwt.XFStyle] = {}
+        self._id_records: List[Dict[str, Any]] = []
 
     def write(self, sheet_index: int, row: int, col: int, value: Any) -> None:
         rsheet = self._rb.sheet_by_index(sheet_index)
@@ -191,7 +204,30 @@ class _FormWriter:
     def hide_row(self, sheet_index: int, row: int) -> None:
         self._wb.get_sheet(sheet_index).row(row).hidden = True
 
+    def record_id(self, **fields: Any) -> None:
+        """Stash a machine-readable ID record (participant_id + slot + cell
+        position) for the hidden ``_ids`` sheet written on save(). Lets the
+        Phase-2 re-import map an edited row back to a participant/slot without
+        name matching. See the Excel-roundtrip invariant in WSP/CLAUDE.md."""
+        self._id_records.append(fields)
+
+    def _write_id_sheet(self) -> None:
+        if not self._id_records:
+            return
+        try:
+            sheet = self._wb.add_sheet('_ids')
+            sheet.visibility = 1  # hidden (xlrd still reads it on re-import)
+            for c, name in enumerate(self._ID_COLUMNS):
+                sheet.write(0, c, name)
+            for r, rec in enumerate(self._id_records, start=1):
+                for c, name in enumerate(self._ID_COLUMNS):
+                    val = rec.get(name, '')
+                    sheet.write(r, c, '' if val is None else val)
+        except Exception:
+            logger.warning("Konnte verstecktes _ids-Sheet nicht schreiben", exc_info=True)
+
     def save(self, output_path: str) -> None:
+        self._write_id_sheet()
         self._wb.save(output_path)
 
 
@@ -358,6 +394,11 @@ def fill_pool_form(output_path: str,
                 name = _format_name(fighters[slot], 'name') if slot < len(fighters) else ''
                 if name:
                     writer.write(sheet, row, name_col, name)
+                    writer.record_id(
+                        bracket=age_class or '', kind='pool', block=block_idx, slot=slot,
+                        participant_id=_participant_id(fighters[slot]),
+                        sheet=sheet, row=row, col=name_col,
+                    )
 
         # Trim the grid to a 3er/4er pool's actual fights (hide unused columns/rows).
         _shorten_pool_grid(writer, sheet, layout, block_sizes)
@@ -423,9 +464,11 @@ def fill_ko_form(output_path: str,
 
         # Map Los number -> fighter (seeded order); missing slots become Freilos.
         los_to_name = {}
+        los_to_pid = {}
         for i in range(size):
             los = i + 1
             los_to_name[los] = _format_name(fighters[i], layout['style']) if i < n else 'Freilos'
+            los_to_pid[los] = _participant_id(fighters[i]) if i < n else None
 
         for row in layout['rows']:
             los_val = writer.read(sheet, row, layout['los_col'])
@@ -436,6 +479,12 @@ def fill_ko_form(output_path: str,
             name = los_to_name.get(los, '')
             if name:
                 writer.write(sheet, row, layout['name_col'], name)
+                # slot = Los-1 (the seeding position); Freilos rows carry no pid.
+                writer.record_id(
+                    bracket=age_class or '', kind='ko', block=0, slot=los - 1,
+                    participant_id=los_to_pid.get(los),
+                    sheet=sheet, row=row, col=layout['name_col'],
+                )
 
         age, weight, gender = _class_label(age_class)
         cls = _class_str(age_class)

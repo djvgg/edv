@@ -63,6 +63,36 @@ class ConfigRepository:
                 return None
         return None
 
+    def get_max_weight_spread(self, age_group):
+        """
+        Get the maximum in-pool weight spread (kg) for U9/U11 pool cutting.
+
+        Reads the Options key '<age_group>_max_weight_spread'. When set, a pool's
+        heaviest minus lightest fighter may not exceed this value; exceeding it
+        starts a new pool (greedy from the lightest — see
+        bracket_utils.split_u9_u11_into_pools). The threshold is inclusive
+        (a spread exactly equal to the value is still allowed).
+
+        Args:
+            age_group: The age group (e.g., 'U9', 'U11')
+
+        Returns:
+            The spread as float (> 0) to enable cutting, or None when unset / 0 /
+            invalid. None ⇒ no cutting (count-only split, backward compatible).
+        """
+        if age_group not in ('U9', 'U11'):
+            return None
+
+        option_name = f'{age_group}_max_weight_spread'
+        row = self.options[self.options['OptionName'] == option_name]
+        if not row.empty:
+            try:
+                val = float(row.iloc[0]['Value'])
+            except (ValueError, TypeError):
+                return None
+            return val if val > 0 else None
+        return None
+
     def get_age_group(self, birth_year):
         # Returns the first age group (U13, U15, etc.) for which the cell is 'X'
         row = self.age_eligibility[self.age_eligibility['BirthYear'] == birth_year]

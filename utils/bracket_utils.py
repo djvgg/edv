@@ -49,6 +49,17 @@ def get_pool_size(age_group):
     ensure_config_loaded()
     return bracket_config.get_pool_size(age_group)
 
+def get_max_weight_spread(age_group):
+    """
+    Get the configured maximum in-pool weight spread (kg) for U9/U11.
+
+    Returns:
+        float (> 0) to enable spread-based pool cutting, or None when unset
+        (None ⇒ count-only split, backward compatible).
+    """
+    ensure_config_loaded()
+    return bracket_config.get_max_weight_spread(age_group)
+
 def get_age_group(age, event_year=None):
     """
     Returns the age group (e.g., U13, U15, etc.) for a given age and event year.
@@ -302,6 +313,15 @@ def export_all_brackets(participants, event_year=None):
             if pool_size is not None:
                 brackets[key]['pool_size'] = pool_size
                 logger.info(f"Bracket {key}: configured pool size = {pool_size}")
+
+            # Get max in-pool weight spread from config (None ⇒ no cutting)
+            max_weight_spread = get_max_weight_spread(key)
+            if max_weight_spread is not None:
+                brackets[key]['max_weight_spread'] = max_weight_spread
+                logger.info(
+                    f"Bracket {key}: configured max weight spread = "
+                    f"{max_weight_spread} kg"
+                )
         else:
             # For U13+: generate KO bracket structure
             try:
@@ -495,14 +515,65 @@ def merge_u9_u11_pools(brackets):
     for age_group, fighters in collected.items():
         fighters_sorted = sorted(fighters, key=lambda x: x.get('Weight', 0))
         pool_size = get_pool_size(age_group)
+        max_weight_spread = get_max_weight_spread(age_group)
         merged[age_group] = {
             'fighters': fighters_sorted,
             'bracket': [],
             'pool_size': pool_size,
+            'max_weight_spread': max_weight_spread,
         }
         logger.info(f"[POOL MERGE] {len(fighters_sorted)} fighters merged back into {age_group!r}")
 
     return merged
+
+
+def _fighter_weight(fighter):
+    """None-safe weight accessor (missing/None weight ⇒ 0)."""
+    return fighter.get('Weight', 0) or 0
+
+
+def _even_distribute(fighters, pool_size):
+    """Split a list into ceil(n / pool_size) balanced chunks.
+
+    This is the historical U9/U11 split: remainder fighters are spread across
+    the first pools so sizes differ by at most one (e.g. 5 fighters, pool_size=4
+    → 3 + 2, never 4 + 1).
+    """
+    n = len(fighters)
+    if n == 0:
+        return []
+    n_pools = math.ceil(n / pool_size)
+    base = n // n_pools
+    extra = n % n_pools  # first `extra` pools get base+1 fighters
+    sizes = [base + 1 if i < extra else base for i in range(n_pools)]
+
+    chunks = []
+    start = 0
+    for size in sizes:
+        chunks.append(fighters[start: start + size])
+        start += size
+    return chunks
+
+
+def _cluster_by_weight_spread(fighters_sorted, max_spread):
+    """Greedy partition into weight-compatible clusters.
+
+    Walking from the lightest fighter, a new cluster starts as soon as adding the
+    next fighter would make (its weight − the cluster's lightest weight) exceed
+    `max_spread`. The threshold is inclusive: a spread exactly equal to
+    `max_spread` is still allowed. Each returned cluster therefore has a
+    head-to-tail spread ≤ max_spread; the heavier outlier opens the next cluster.
+    """
+    clusters = []
+    current = []
+    for f in fighters_sorted:
+        if current and (_fighter_weight(f) - _fighter_weight(current[0])) > max_spread:
+            clusters.append(current)
+            current = []
+        current.append(f)
+    if current:
+        clusters.append(current)
+    return clusters
 
 
 def split_u9_u11_into_pools(brackets):
@@ -511,10 +582,27 @@ def split_u9_u11_into_pools(brackets):
     Precondition: fighters list is already sorted by weight
     (export_all_brackets guarantees this).
 
-    Example (pool_size=4, 16 fighters in "U11"):
-        "U11 | Pool 1" → 4 lightest fighters
-        "U11 | Pool 2" → next 4
-        ...
+    Two-stage split:
+
+    1. **Weight spread (hard boundary)** — when ``max_weight_spread`` is set
+       (Options key ``U9_max_weight_spread`` / ``U11_max_weight_spread`` in
+       bracket_config.xlsx), the sorted fighters are first cut into clusters
+       whose head-to-tail spread never exceeds the threshold (greedy from the
+       lightest; a heavier outlier opens a new cluster). A genuine outlier with
+       no one in its weight window becomes a 1-fighter pool (Solo-Pool → no
+       fights; the auto-placement is JudgeFrontend's concern, see CLAUDE.md).
+    2. **Pool size (soft balance)** — inside each cluster the historical
+       ceil(len / pool_size) even distribution runs, so 5 fighters within the
+       spread at pool_size=4 yield 3 + 2 (never a lonely 4 + 1).
+
+    Pool numbers are assigned sequentially across all clusters.
+
+    Without ``max_weight_spread`` the fighters form a single cluster, making the
+    result identical to the previous count-only split (backward compatible).
+
+    Example (pool_size=4, max_weight_spread=5, weights 18/20/21/23/28/30/31):
+        "U11 | Pool 1" → 18, 20, 21, 23   (spread 5)
+        "U11 | Pool 2" → 28, 30, 31       (spread 3)
 
     Brackets without pool_size configured (or 0 fighters) are kept unchanged.
     """
@@ -532,27 +620,29 @@ def split_u9_u11_into_pools(brackets):
             continue
 
         # Always re-sort by weight (defensive: handles in-place weight edits)
-        fighters = sorted(fighters, key=lambda x: x.get('Weight', 0))
+        fighters = sorted(fighters, key=_fighter_weight)
 
-        # Even distribution: ceil(n / pool_size) pools, remainder spread across first pools
-        n = len(fighters)
-        n_pools = math.ceil(n / pool_size)
-        base = n // n_pools
-        extra = n % n_pools  # first `extra` pools get base+1 fighters
+        # Stage 1: hard weight-spread boundaries (None/0 ⇒ one cluster = old path)
+        max_spread = data.get('max_weight_spread')
+        if max_spread is None:
+            max_spread = get_max_weight_spread(key)
+        if max_spread:
+            clusters = _cluster_by_weight_spread(fighters, max_spread)
+        else:
+            clusters = [fighters]
 
-        pool_sizes = [base + 1 if i < extra else base for i in range(n_pools)]
-
-        start = 0
-        for pool_num, size in enumerate(pool_sizes, 1):
-            chunk = fighters[start: start + size]
-            start += size
-            pool_key = f"{key} | Pool {pool_num}"
-            new_brackets[pool_key] = {
-                'fighters': chunk,
-                'bracket': [],
-                'pool_size': None,
-            }
-            logger.info(f"[POOL SPLIT] {key} → {pool_key}: {len(chunk)} fighters")
+        # Stage 2: soft even distribution by pool_size within each cluster
+        pool_num = 0
+        for cluster in clusters:
+            for chunk in _even_distribute(cluster, pool_size):
+                pool_num += 1
+                pool_key = f"{key} | Pool {pool_num}"
+                new_brackets[pool_key] = {
+                    'fighters': chunk,
+                    'bracket': [],
+                    'pool_size': None,
+                }
+                logger.info(f"[POOL SPLIT] {key} → {pool_key}: {len(chunk)} fighters")
 
     return new_brackets
 

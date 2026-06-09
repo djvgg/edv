@@ -9,7 +9,7 @@ Displays unassigned brackets on the left and 4 method tables on the right in a 2
 """
 
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox, ttk, filedialog
 import sys
 import os
 import json
@@ -379,6 +379,14 @@ class GenerationMethodScreen(tk.Frame):
         )
         apply_button_style(urkunden_btn, style='success')
         urkunden_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        reimport_btn = tk.Button(
+            export_buttons_frame,
+            text="Bogen einlesen…",
+            command=self.on_reimport_seeding,
+        )
+        apply_button_style(reimport_btn, style='secondary')
+        reimport_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
 
         # RIGHT PANEL: 4 Tables in 2x2 Grid
         right_panel = tk.Frame(self.main_frame, bg=COLORS['bg_dark'])
@@ -1242,6 +1250,123 @@ class GenerationMethodScreen(tk.Frame):
             self.logger.info(f"Print mark removed: {bracket_key}")
             self._save_printed_marks()
             self._refresh_all_displays()
+
+    def on_reimport_seeding(self):
+        """Re-Import eines hand-editierten Bogens (E2 Phase 2).
+
+        Der Operator hat im exportierten .xls die Namen umsortiert (Seeding, um
+        z.B. Vereinskollegen nicht in Kampf 1 zu paaren). Nach Bogen-Typ:
+        Pool/Doppelpool = surgisches Re-Mapping (Reihenfolge/`fight_number`
+        bleiben); KO = Notfall-Override (Runde 0 wird neu gebaut, pre-start,
+        `fight_number`/Matte werden zurückgesetzt). Siehe CLAUDE.md.
+        """
+        from backend.services.excel_seeding_reimport import (  # noqa: PLC0415
+            apply_pool_reseeding, apply_ko_reseeding, read_id_records,
+        )
+
+        path = filedialog.askopenfilename(
+            title="Bearbeiteten Bogen einlesen",
+            filetypes=[("Excel-Bogen", "*.xls"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+
+        try:
+            recs = read_id_records(path)
+        except Exception as e:
+            self.logger.error(f"Bogen lesen fehlgeschlagen: {e}", exc_info=True)
+            messagebox.showerror("Bogen einlesen", f"Konnte den Bogen nicht lesen:\n{e}")
+            return
+        if not recs:
+            messagebox.showwarning("Bogen einlesen", "Kein edv-Export (fehlende _ids-Region).")
+            return
+        kind = recs[0].get('kind')
+
+        if kind == 'ko':
+            self._reimport_ko(path, apply_ko_reseeding)
+        else:
+            self._reimport_pool(path, apply_pool_reseeding)
+
+    def _reimport_pool(self, path, apply_pool_reseeding):
+        try:
+            res = apply_pool_reseeding(path, commit=False)
+        except Exception as e:
+            self.logger.error(f"Re-Seeding-Vorschau fehlgeschlagen: {e}", exc_info=True)
+            messagebox.showerror("Bogen einlesen", f"Konnte den Bogen nicht lesen:\n{e}")
+            return
+        if not res.get('ok'):
+            messagebox.showwarning("Bogen einlesen", res.get('reason', 'Unbekannter Fehler'))
+            return
+        changes = res.get('changes', [])
+        if not changes:
+            messagebox.showinfo("Bogen einlesen",
+                                f"{res.get('bracket')}: keine Änderung der Reihenfolge erkannt.")
+            return
+        names = res.get('names', {})
+
+        def nm(pid):
+            return names.get(pid, f"#{pid}" if pid is not None else "—")
+
+        def label(c):
+            pool = c.get('pool')
+            prefix = f"Pool {pool + 1}, " if pool else ""
+            return (f"{prefix}Kampf {c['pos'] + 1}: {nm(c['old'][0])} / {nm(c['old'][1])}"
+                    f"  →  {nm(c['new'][0])} / {nm(c['new'][1])}")
+
+        summary = (f"{res.get('bracket')} — {len(changes)} Paarung(en) ändern sich:\n\n"
+                   + "\n".join(label(c) for c in changes)
+                   + "\n\nNeue Seeding übernehmen? (Reihenfolge der Kämpfe bleibt unverändert.)")
+        if not messagebox.askyesno("Re-Seeding bestätigen", summary):
+            return
+        try:
+            applied = apply_pool_reseeding(path, commit=True)
+        except Exception as e:
+            self.logger.error(f"Re-Seeding fehlgeschlagen: {e}", exc_info=True)
+            messagebox.showerror("Bogen einlesen", f"Schreiben fehlgeschlagen:\n{e}")
+            return
+        if applied.get('ok'):
+            self.logger.info(f"Re-Seeding übernommen: {applied.get('bracket')} "
+                             f"({len(applied.get('changes', []))} Paarungen)")
+            messagebox.showinfo("Bogen einlesen",
+                                f"{applied.get('bracket')}: neue Seeding übernommen "
+                                f"({len(applied.get('changes', []))} Paarungen).")
+        else:
+            messagebox.showwarning("Bogen einlesen", applied.get('reason', 'Schreiben fehlgeschlagen'))
+
+    def _reimport_ko(self, path, apply_ko_reseeding):
+        try:
+            res = apply_ko_reseeding(path, commit=False)
+        except Exception as e:
+            self.logger.error(f"KO-Re-Seeding-Vorschau fehlgeschlagen: {e}", exc_info=True)
+            messagebox.showerror("Bogen einlesen", f"Konnte den Bogen nicht lesen:\n{e}")
+            return
+        if not res.get('ok'):
+            messagebox.showwarning("Bogen einlesen", res.get('reason', 'Unbekannter Fehler'))
+            return
+        pv = res.get('preview', [])
+        lines = [f"Kampf {p['pos'] + 1}: {p['p1']}" + (f" / {p['p2']}" if not p['bye'] else "  (Freilos)")
+                 for p in pv]
+        summary = (f"{res.get('bracket')} — KO-NOTFALL-ÜBERSCHREIBUNG.\n"
+                   f"Runde 0 wird komplett neu aufgebaut ({res.get('pairs')} Kämpfe):\n\n"
+                   + "\n".join(lines)
+                   + "\n\n⚠ Achtung: fight_number und Matten-Zuweisung dieses Brackets werden "
+                   "zurückgesetzt (nur vor dem ersten Kampf möglich). Fortfahren?")
+        if not messagebox.askyesno("KO-Re-Seeding bestätigen", summary):
+            return
+        try:
+            applied = apply_ko_reseeding(path, commit=True)
+        except Exception as e:
+            self.logger.error(f"KO-Re-Seeding fehlgeschlagen: {e}", exc_info=True)
+            messagebox.showerror("Bogen einlesen", f"Schreiben fehlgeschlagen:\n{e}")
+            return
+        if applied.get('ok'):
+            self.logger.info(f"KO-Re-Seeding übernommen: {applied.get('bracket')} "
+                             f"({applied.get('pairs')} Kämpfe, neu aufgebaut)")
+            messagebox.showinfo("Bogen einlesen",
+                                f"{applied.get('bracket')}: KO neu aufgebaut "
+                                f"({applied.get('pairs')} Kämpfe). Matte ggf. neu zuweisen.")
+        else:
+            messagebox.showwarning("Bogen einlesen", applied.get('reason', 'Schreiben fehlgeschlagen'))
 
     def on_toggle_printed(self):
         """↹ Markieren-Button: schaltet die 'bereits gedruckt'-Markierung der

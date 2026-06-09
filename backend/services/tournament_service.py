@@ -985,19 +985,31 @@ class TournamentService:
                     key = tuple(sorted([f.participant1_id, f.participant2_id]))
                     head_to_head[key] = f.winner_id
 
-        def sort_key(gp):
-            return (-wins.get(gp, 0), -(plus.get(gp, 0) - minus.get(gp, 0)), gp)
+        # DJB-Tiebreaker (Decision 2026-06-08, CLAUDE.md): Siege gesamt → direkter
+        # Vergleich (Siege NUR gegen die anderen Gleichplatzierten) → stabile
+        # gp.id (Los). PUNKTE/Pluspunkt-Differenz zählen NICHT. Bit-identisch zu
+        # JF main.py:_compute_pool_standings (Gleichschritt-Pflicht).
+        base = sorted(gp_ids, key=lambda g: (-wins.get(g, 0), g))
 
-        ordered = sorted(gp_ids, key=sort_key)
+        def _subgroup_h2h(gp, run):
+            return sum(
+                1 for other in run
+                if other != gp and head_to_head.get(tuple(sorted([gp, other]))) == gp
+            )
 
+        ordered = []
         i = 0
-        while i < len(ordered) - 1:
-            a, b = ordered[i], ordered[i + 1]
-            if wins.get(a, 0) == wins.get(b, 0) and (plus.get(a, 0) - minus.get(a, 0)) == (plus.get(b, 0) - minus.get(b, 0)):
-                key = tuple(sorted([a, b]))
-                if head_to_head.get(key) == b:
-                    ordered[i], ordered[i + 1] = b, a
-            i += 1
+        while i < len(base):
+            j = i
+            while j < len(base) and wins.get(base[j], 0) == wins.get(base[i], 0):
+                j += 1
+            run = base[i:j]
+            if len(run) > 1:
+                # Counts VOR dem Sortieren (list.sort leert `run` intern währenddessen).
+                h2h_count = {g: _subgroup_h2h(g, run) for g in run}
+                run.sort(key=lambda g: (-h2h_count[g], g))
+            ordered.extend(run)
+            i = j
 
         return ordered
 
